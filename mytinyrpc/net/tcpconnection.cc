@@ -24,6 +24,7 @@ void TcpConnection::handle() {
 
   if (!data.empty()) {
     InfoLog("TcpConnection receive from fd = " + std::to_string(m_fd) + ", data = " + data);
+    writeData(data);
   } else {
     InfoLog("TcpConnection receive empty data, fd = " + std::to_string(m_fd));
   }
@@ -55,6 +56,39 @@ std::string TcpConnection::readData() {
   }
 
   return std::string(buffer, static_cast<size_t>(n));
+}
+
+bool TcpConnection::writeData(const std::string& data) {
+  size_t total_written = 0;
+
+  while (total_written < data.size()) {
+    ssize_t n = write(
+      m_fd,
+      data.data() + total_written,
+      data.size() - total_written
+    );
+
+    if (n < 0) {
+      ErrorLog("write failed, fd = " + std::to_string(m_fd));
+      return false;
+    }
+
+    if (n == 0) {
+      ErrorLog("write returned 0, fd = " + std::to_string(m_fd));
+      return false;
+    }
+
+    total_written += static_cast<size_t>(n);
+  }
+
+  InfoLog(
+    "TcpConnection write to fd = " +
+    std::to_string(m_fd) +
+    ", bytes = " +
+    std::to_string(total_written)
+  );
+
+  return true;
 }
 
 }

@@ -20,6 +20,8 @@ class TcpConnection {
  private:
   std::string readData();
 
+  bool writeData(const std::string& data);
+
  private:
   int m_fd {-1};
 };
