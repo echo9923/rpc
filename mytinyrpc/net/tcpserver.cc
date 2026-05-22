@@ -1,8 +1,12 @@
 #include "tcpserver.h"
+#include "tcpconnection.h"
 #include "comm/log.h"
 
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <cstring>
+#include <string>
 
 namespace tinyrpc {
 
@@ -52,9 +56,26 @@ bool TcpServer::init() {
 }
 
 void TcpServer::start() {
-  InfoLog("TcpServer start, press Ctrl+C to stop");
+  InfoLog("TcpServer start accept loop on " + m_addr.toString());
+  acceptLoop();
+}
+
+void TcpServer::acceptLoop() {
   while (true) {
-    sleep(1);
+    sockaddr_in client_addr {};
+    socklen_t client_len = sizeof(client_addr);
+
+    int client_fd = accept(m_listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+
+    if (client_fd < 0) {
+      ErrorLog("accept failed");
+      continue;
+    }
+
+    InfoLog("TcpServer accept client fd = " + std::to_string(client_fd));
+
+    TcpConnection conn(client_fd);
+    conn.handle();
   }
 }
 

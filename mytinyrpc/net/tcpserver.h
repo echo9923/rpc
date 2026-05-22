@@ -17,6 +17,9 @@ class TcpServer {
   void start();
 
  private:
+  void acceptLoop();
+
+ private:
   IPAddress m_addr;
   int m_listen_fd {-1};
 };
