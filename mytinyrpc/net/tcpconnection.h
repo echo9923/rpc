@@ -1,6 +1,8 @@
 #ifndef TINYRPC_NET_TCPCONNECTION_H
 #define TINYRPC_NET_TCPCONNECTION_H
 
+#include <string>
+
 namespace tinyrpc {
 
 class TcpConnection {
@@ -14,6 +16,9 @@ class TcpConnection {
   void handle();
 
   void closeConnection();
+
+ private:
+  std::string readData();
 
  private:
   int m_fd {-1};
