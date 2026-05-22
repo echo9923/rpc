@@ -8,6 +8,7 @@ namespace tinyrpc {
 class TcpServer {
  public:
   explicit TcpServer(const IPAddress& addr);
+  ~TcpServer();
 
   const IPAddress& getLocalAddress() const;
 
@@ -17,6 +18,7 @@ class TcpServer {
 
  private:
   IPAddress m_addr;
+  int m_listen_fd {-1};
 };
 
 }
