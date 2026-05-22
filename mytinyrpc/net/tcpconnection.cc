@@ -20,13 +20,20 @@ int TcpConnection::getFd() const {
 void TcpConnection::handle() {
   InfoLog("TcpConnection handle, fd = " + std::to_string(m_fd));
 
-  std::string data = readData();
+  while (true) {
+    std::string data = readData();
 
-  if (!data.empty()) {
+    if (data.empty()) {
+      InfoLog("TcpConnection no more data, fd = " + std::to_string(m_fd));
+      break;
+    }
+
     InfoLog("TcpConnection receive from fd = " + std::to_string(m_fd) + ", data = " + data);
-    writeData(data);
-  } else {
-    InfoLog("TcpConnection receive empty data, fd = " + std::to_string(m_fd));
+
+    if (!writeData(data)) {
+      ErrorLog("TcpConnection write failed, fd = " + std::to_string(m_fd));
+      break;
+    }
   }
 
   closeConnection();
