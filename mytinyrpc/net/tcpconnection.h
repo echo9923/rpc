@@ -1,5 +1,6 @@
-#ifndef TINYRPC_NET_TCPCONNECTION_H
-#define TINYRPC_NET_TCPCONNECTION_H
+#pragma once
+
+#include "net/socket.h"
 
 #include <string>
 
@@ -7,11 +8,11 @@ namespace tinyrpc {
 
 class TcpConnection {
  public:
-  explicit TcpConnection(int fd);
+  explicit TcpConnection(Socket fd);
 
   ~TcpConnection();
 
-  int getFd() const;
+  Socket getFd() const;
 
   void handle();
 
@@ -23,9 +24,7 @@ class TcpConnection {
   bool writeData(const std::string& data);
 
  private:
-  int m_fd {-1};
+  Socket m_fd {kInvalidSocket};
 };
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef TINYRPC_COMM_LOG_H
-#define TINYRPC_COMM_LOG_H
+#pragma once
 
 #include <string>
 
@@ -26,5 +25,3 @@ class Logger {
 #define InfoLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::INFO,  __FILE__, __LINE__, msg)
 #define WarnLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::WARN,  __FILE__, __LINE__, msg)
 #define ErrorLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::ERROR, __FILE__, __LINE__, msg)
-
-#endif

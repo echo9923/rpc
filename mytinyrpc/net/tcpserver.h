@@ -1,7 +1,7 @@
-#ifndef TINYRPC_NET_TCPSERVER_H
-#define TINYRPC_NET_TCPSERVER_H
+#pragma once
 
 #include "net/netaddress.h"
+#include "net/socket.h"
 
 namespace tinyrpc {
 
@@ -21,9 +21,7 @@ class TcpServer {
 
  private:
   IPAddress m_addr;
-  int m_listen_fd {-1};
+  Socket m_listen_fd {kInvalidSocket};
 };
 
 }
-
-#endif

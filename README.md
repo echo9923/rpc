@@ -1,31 +1,90 @@
 # MyTinyRPC
 
-TinyRPC 复刻学习项目。
+MyTinyRPC is a TinyRPC learning project.
 
-## Stage 1 Task 1
+## Stage 1: Blocking TCP Echo Server
 
-当前任务只完成工程骨架和核心类空壳。
+Stage 1 implements a minimal blocking TCP Echo Server.
 
-已完成：
+### Implemented
 
-- CMake 构建
-- 控制台日志
-- IPAddress 地址类
-- TcpServer 空壳
-- TcpConnection 空壳
+- CMake build
+- Console logger
+- IPv4 address wrapper
+- TCP server
+- TCP connection
+- Blocking `accept`
+- Blocking `read` / `write`
+- Multiple echo messages on one connection
+- Stage 1 acceptance script
 
-未完成：
+### Not Implemented
 
-- socket
-- bind
-- listen
-- accept
-- read
-- write
-- echo
+- Non-blocking sockets
+- `epoll`
+- Reactor
+- Concurrent multi-client handling
+- HTTP
+- TinyPB
+- Protobuf
+- RPC calls
+- Coroutines
 
 ## Build
 
 ```bash
 ./build.sh
 ```
+
+## Run
+
+```bash
+./build/test_tcp_echo_server
+```
+
+The server listens on `127.0.0.1:19999`.
+
+## Manual Test
+
+```bash
+nc 127.0.0.1 19999
+```
+
+Input:
+
+```text
+hello
+```
+
+Expected response:
+
+```text
+hello
+```
+
+## Stage 1 Check
+
+```bash
+./scripts/check_stage1.sh
+```
+
+Expected final output:
+
+```text
+[stage1] PASS
+```
+
+The script builds the project, starts the echo server, sends test messages,
+checks the echoed responses, prints the server log on failure, and shuts the
+server process down before exiting.
+
+The script depends on `nc`. Install `netcat-openbsd` or another compatible
+netcat package if `nc` is missing.
+
+## Current Limitations
+
+The current server uses a single-threaded blocking model.
+
+While one client connection is open, the server cannot accept the next client.
+This is an intentional Stage 1 limitation. Stage 2 will introduce non-blocking
+sockets and `epoll` as preparation for Reactor.

@@ -1,23 +1,27 @@
-#include "tcpconnection.h"
+#include "net/tcpconnection.h"
 #include "comm/log.h"
 
 #include <unistd.h>
 
 namespace tinyrpc {
 
-TcpConnection::TcpConnection(int fd)
-  : m_fd(fd) {
+TcpConnection::TcpConnection(Socket fd)
+  : m_fd(fd)
+{
 }
 
-TcpConnection::~TcpConnection() {
+TcpConnection::~TcpConnection()
+{
   closeConnection();
 }
 
-int TcpConnection::getFd() const {
+Socket TcpConnection::getFd() const
+{
   return m_fd;
 }
 
-void TcpConnection::handle() {
+void TcpConnection::handle()
+{
   InfoLog("TcpConnection handle, fd = " + std::to_string(m_fd));
 
   while (true) {
@@ -39,7 +43,8 @@ void TcpConnection::handle() {
   closeConnection();
 }
 
-void TcpConnection::closeConnection() {
+void TcpConnection::closeConnection()
+{
   if (m_fd >= 0) {
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
     close(m_fd);
@@ -47,7 +52,8 @@ void TcpConnection::closeConnection() {
   }
 }
 
-std::string TcpConnection::readData() {
+std::string TcpConnection::readData()
+{
   char buffer[1024] = {0};
 
   ssize_t n = read(m_fd, buffer, sizeof(buffer) - 1);
@@ -65,7 +71,8 @@ std::string TcpConnection::readData() {
   return std::string(buffer, static_cast<size_t>(n));
 }
 
-bool TcpConnection::writeData(const std::string& data) {
+bool TcpConnection::writeData(const std::string& data)
+{
   size_t total_written = 0;
 
   while (total_written < data.size()) {

@@ -1,11 +1,13 @@
-#include "log.h"
-#include <iostream>
+#include "comm/log.h"
+
 #include <chrono>
 #include <ctime>
+#include <iostream>
 
 namespace tinyrpc {
 
-const char* Logger::levelToString(LogLevel level) {
+const char* Logger::levelToString(LogLevel level)
+{
   switch (level) {
     case LogLevel::DEBUG:
       return "DEBUG";
@@ -20,7 +22,8 @@ const char* Logger::levelToString(LogLevel level) {
   }
 }
 
-void Logger::log(LogLevel level, const char* file, int line, const std::string& msg) {
+void Logger::log(LogLevel level, const char* file, int line, const std::string& msg)
+{
   auto now = std::chrono::system_clock::now();
   auto tt = std::chrono::system_clock::to_time_t(now);
   auto tm = std::localtime(&tt);

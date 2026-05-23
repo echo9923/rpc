@@ -1,5 +1,4 @@
-#ifndef TINYRPC_NET_NETADDRESS_H
-#define TINYRPC_NET_NETADDRESS_H
+#pragma once
 
 #include <netinet/in.h>
 #include <string>
@@ -25,5 +24,3 @@ class IPAddress {
 };
 
 }
-
-#endif
