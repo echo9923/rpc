@@ -12,6 +12,7 @@ include_directories(${PROJECT_SOURCE_DIR}/mytinyrpc)
 
 set(SRC
     mytinyrpc/comm/log.cc
+    mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/netaddress.cc
     mytinyrpc/net/tcpconnection.cc
@@ -27,5 +28,10 @@ add_executable(test_tcp_echo_server
 
 add_executable(test_epoll_accept
     testcases/test_epoll_accept.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+
+add_executable(test_fdevent
+    testcases/test_fdevent.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
