@@ -58,6 +58,23 @@ int main()
         return 1;
     }
 
+    // 测试 6: 分段追加数据后，一次性取出全部可读内容
+    tinyrpc::TcpBuffer inputBuffer(4);
+    inputBuffer.append("hello");
+    inputBuffer.append(" ");
+    inputBuffer.append("tinyrpc");
+    std::string inputData = inputBuffer.retrieveAllAsString();
+    if (inputData != "hello tinyrpc") {
+        std::cerr << "[tcp_buffer] FAIL: segmented append expected \"hello tinyrpc\", got \""
+                  << inputData << "\"" << std::endl;
+        return 1;
+    }
+    if (inputBuffer.getReadableBytes() != 0) {
+        std::cerr << "[tcp_buffer] FAIL: after segmented retrieveAllAsString() getReadableBytes() != 0, got "
+                  << inputBuffer.getReadableBytes() << std::endl;
+        return 1;
+    }
+
     std::cout << "[tcp_buffer] PASS" << std::endl;
     return 0;
 }

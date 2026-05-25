@@ -36,6 +36,10 @@ void TcpConnection::registerToReactor()
 
 void TcpConnection::handleRead()
 {
+    if (m_closeAfterWrite) {
+        return;
+    }
+
     ReadResult result = readData();
 
     if (result.status == ReadStatus::Data) {
@@ -47,12 +51,10 @@ void TcpConnection::handleRead()
         return;
     }
 
-    // Closed 或 Error：关闭连接
-    Socket closedFd = m_fd;
-    closeConnection();
-
-    if (m_closeCallback) {
-        m_closeCallback(closedFd);
+    if (result.status == ReadStatus::Closed || result.status == ReadStatus::Error) {
+        m_closeAfterWrite = true;
+        enableWriteEvent();
+        return;
     }
 }
 
@@ -81,18 +83,22 @@ void TcpConnection::handleWrite()
                 return;
             }
             ErrorLog("handleWrite failed, fd = " + std::to_string(m_fd));
-            closeConnection();
+            closeWithCallback();
             return;
         }
 
         // n == 0，不应发生但安全处理
         ErrorLog("handleWrite returned 0, fd = " + std::to_string(m_fd));
-        closeConnection();
+        closeWithCallback();
         return;
     }
 
     // 输出缓冲区已写空，删除 EPOLLOUT，保留 EPOLLIN
     disableWriteEvent();
+
+    if (m_closeAfterWrite) {
+        closeWithCallback();
+    }
 }
 
 void TcpConnection::sendData(const std::string& data)
@@ -122,7 +128,7 @@ void TcpConnection::disableWriteEvent()
 
 void TcpConnection::closeConnection()
 {
-    if (m_fd < 0) {
+    if (m_isClosed || m_fd < 0) {
         return;
     }
 
@@ -141,13 +147,27 @@ void TcpConnection::setCloseCallback(std::function<void(int)> cb)
     m_closeCallback = std::move(cb);
 }
 
+void TcpConnection::closeWithCallback()
+{
+    Socket closedFd = m_fd;
+    closeConnection();
+
+    if (m_closeCallback) {
+        m_closeCallback(closedFd);
+    }
+}
+
 ReadResult TcpConnection::readData()
 {
     char buffer[1024] = {0};
 
-    ssize_t n = read(m_fd, buffer, sizeof(buffer) - 1);
+    // read(fd, buf, count) 从 fd 对应的 socket 接收缓冲区读取最多 count 字节到 buf。
+    // 返回值：>0 实际读取字节数；0 表示对端关闭；<0 且 errno=EAGAIN 表示当前无可读数据。
+    ssize_t readBytes = read(m_fd, buffer, sizeof(buffer));
 
-    if (n < 0) {
+    if (readBytes < 0) {
+        // EAGAIN / EWOULDBLOCK：非阻塞 socket 上当前无数据可读，不是错误，稍后重试即可。
+        // EINTR：在读取到数据前被信号中断，同样不是错误，返回 Again 让上层在下次事件循环中重新读取。
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
             return {ReadStatus::Again, {}};
         }
@@ -158,12 +178,14 @@ ReadResult TcpConnection::readData()
         return {ReadStatus::Error, {}};
     }
 
-    if (n == 0) {
+    if (readBytes == 0) {
         InfoLog("client closed, fd = " + std::to_string(m_fd));
         return {ReadStatus::Closed, {}};
     }
 
-    return {ReadStatus::Data, std::string(buffer, static_cast<size_t>(n))};
+    m_inputBuffer.append(buffer, static_cast<size_t>(readBytes));
+
+    return {ReadStatus::Data, m_inputBuffer.retrieveAllAsString()};
 }
 
 }
