@@ -13,7 +13,12 @@ int main()
     int readCount = 0;
     std::string received;
 
-    // 1. 使用 pipe() 创建一对 fd，用于模拟可读事件而不需要真实 socket。
+    // 1. int pipe(int fd[2]) 是 POSIX 系统调用，在内核中创建一个单向数据管道。
+    //    参数：一个 int[2] 数组。
+    //    返回后：fd[0] = 读端（从此读取写入的数据）
+    //           fd[1] = 写端（向此写入数据，内核缓存后可从读端读出）
+    //    写端写入 "x" → 内核将数据放入管道缓冲区 → 读端变为可读。
+    //    用它替代 TCP socket 来测试 epoll 事件通知，代码最精简。
     int pipeFds[2];
     if (pipe(pipeFds) < 0) {
         std::cerr << "[reactor] FAIL: pipe() failed" << std::endl;

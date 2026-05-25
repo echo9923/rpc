@@ -41,3 +41,8 @@ add_executable(test_reactor
     testcases/test_reactor.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
+
+add_executable(test_reactor_accept
+    testcases/test_reactor_accept.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
