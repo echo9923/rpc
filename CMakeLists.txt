@@ -15,6 +15,7 @@ set(SRC
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/netaddress.cc
+    mytinyrpc/net/reactor.cc
     mytinyrpc/net/tcpconnection.cc
     mytinyrpc/net/tcpserver.cc
 )
@@ -33,5 +34,10 @@ add_executable(test_epoll_accept
 
 add_executable(test_fdevent
     testcases/test_fdevent.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+
+add_executable(test_reactor
+    testcases/test_reactor.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
