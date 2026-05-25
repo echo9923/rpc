@@ -59,6 +59,26 @@ bool Reactor::addEvent(FdEvent* event)
     return true;
 }
 
+bool Reactor::modEvent(FdEvent* event)
+{
+    // epoll_ctl(EPOLL_CTL_MOD) 修改已注册 fd 的关注事件。
+    // 用于 enableWriteEvent / disableWriteEvent 添加或删除 EPOLLOUT。
+    struct epoll_event ev;
+    ev.events = event->getListenEvents();
+    ev.data.ptr = event;
+
+    if (epoll_ctl(m_epollFd, EPOLL_CTL_MOD, event->getFd(), &ev) < 0) {
+        ErrorLog(
+            "epoll_ctl MOD failed, fd = " + std::to_string(event->getFd()) +
+            ", errno = " + std::to_string(errno)
+        );
+        return false;
+    }
+
+    m_events[event->getFd()] = event;
+    return true;
+}
+
 bool Reactor::delEvent(FdEvent* event)
 {
     // epoll_ctl(EPOLL_CTL_DEL) 从 epoll 实例中删除指定 fd。

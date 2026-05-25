@@ -15,6 +15,7 @@ class Reactor {
   int getEpollFd() const;
 
   bool addEvent(FdEvent* event);
+  bool modEvent(FdEvent* event);
   bool delEvent(FdEvent* event);
 
   int waitOnce(int timeoutMs);

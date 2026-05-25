@@ -2,21 +2,10 @@
 #include "comm/log.h"
 
 #include <cerrno>
-#include <chrono>
 #include <sys/epoll.h>
-#include <thread>
 #include <unistd.h>
 
 namespace tinyrpc {
-
-namespace {
-
-void sleepBriefly()
-{
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-}
-
-}
 
 TcpConnection::TcpConnection(Socket fd, Reactor *reactor)
     : m_fd(fd),
@@ -50,7 +39,7 @@ void TcpConnection::handleRead()
     ReadResult result = readData();
 
     if (result.status == ReadStatus::Data) {
-        writeData(result.data);
+        sendData(result.data);
         return;
     }
 
@@ -67,11 +56,71 @@ void TcpConnection::handleRead()
     }
 }
 
+void TcpConnection::handleWrite()
+{
+    // 循环从 m_outputBuffer 写入数据，处理短写和 EAGAIN。
+    while (!m_outputBuffer.empty()) {
+        ssize_t n = write(m_fd, m_outputBuffer.data(), m_outputBuffer.size());
+
+        if (n > 0) {
+            m_outputBuffer.erase(0, static_cast<size_t>(n));
+            continue;
+        }
+
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return;
+            }
+            ErrorLog("handleWrite failed, fd = " + std::to_string(m_fd));
+            closeConnection();
+            return;
+        }
+
+        // n == 0，不应发生但安全处理
+        ErrorLog("handleWrite returned 0, fd = " + std::to_string(m_fd));
+        closeConnection();
+        return;
+    }
+
+    // 输出缓冲区已写空，删除 EPOLLOUT，保留 EPOLLIN
+    disableWriteEvent();
+}
+
+void TcpConnection::sendData(const std::string& data)
+{
+    if (m_isClosed || data.empty()) {
+        return;
+    }
+
+    m_outputBuffer.append(data);
+    enableWriteEvent();
+}
+
+void TcpConnection::enableWriteEvent()
+{
+    m_fdEvent.addListenEvent(EPOLLOUT);
+    m_fdEvent.setWriteCallback([this]() { handleWrite(); });
+
+    m_reactor->modEvent(&m_fdEvent);
+}
+
+void TcpConnection::disableWriteEvent()
+{
+    m_fdEvent.delListenEvent(EPOLLOUT);
+
+    m_reactor->modEvent(&m_fdEvent);
+}
+
 void TcpConnection::closeConnection()
 {
     if (m_fd < 0) {
         return;
     }
+
+    m_isClosed = true;
 
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
 
@@ -109,50 +158,6 @@ ReadResult TcpConnection::readData()
     }
 
     return {ReadStatus::Data, std::string(buffer, static_cast<size_t>(n))};
-}
-
-bool TcpConnection::writeData(const std::string& data)
-{
-    size_t totalWritten = 0;
-
-    while (totalWritten < data.size()) {
-        ssize_t n = write(
-            m_fd,
-            data.data() + totalWritten,
-            data.size() - totalWritten
-        );
-
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                sleepBriefly();
-                continue;
-            }
-            ErrorLog(
-                "write failed, fd = " +
-                std::to_string(m_fd)
-            );
-            return false;
-        }
-
-        if (n == 0) {
-            ErrorLog("write returned 0, fd = " + std::to_string(m_fd));
-            return false;
-        }
-
-        totalWritten += static_cast<size_t>(n);
-    }
-
-    InfoLog(
-        "TcpConnection write to fd = " +
-        std::to_string(m_fd) +
-        ", bytes = " +
-        std::to_string(totalWritten)
-    );
-
-    return true;
 }
 
 }

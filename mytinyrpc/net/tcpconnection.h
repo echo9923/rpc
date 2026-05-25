@@ -30,23 +30,25 @@ class TcpConnection {
     Socket getFd() const;
 
     void registerToReactor();
-
     void handleRead();
-
+    void handleWrite();
     void closeConnection();
-
     void setCloseCallback(std::function<void(int)> cb);
+    void sendData(const std::string& data);
 
  private:
     ReadResult readData();
 
-    bool writeData(const std::string& data);
+    void enableWriteEvent();
+    void disableWriteEvent();
 
  private:
     Socket m_fd {kInvalidSocket};
     Reactor *m_reactor {nullptr};
     FdEvent m_fdEvent;
     std::function<void(int)> m_closeCallback;
+    std::string m_outputBuffer;
+    bool m_isClosed {false};
 };
 
 }
