@@ -30,10 +30,37 @@ Stage 1 implements a minimal blocking TCP Echo Server.
 - RPC calls
 - Coroutines
 
+## Stage 2: Non-blocking IO Preparation
+
+Stage 2 is now in progress. The current completed step is task 8:
+
+- added fd utility helpers
+- set the listen fd to non-blocking mode
+- handled `accept()` returning `EAGAIN` / `EWOULDBLOCK`
+- kept client fds blocking for now
+- kept `epoll` and Reactor out of scope for this step
+
+See [阶段 2：非阻塞 IO 与 Reactor 准备](docs/stage-2.md).
+
 ## Build
+
+Windows PowerShell:
+
+```powershell
+.\build.ps1
+```
+
+Linux/WSL:
 
 ```bash
 ./build.sh
+```
+
+Install WSL dependencies if needed:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake netcat-openbsd
 ```
 
 ## Run

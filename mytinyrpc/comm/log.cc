@@ -9,13 +9,13 @@ namespace tinyrpc {
 const char* Logger::levelToString(LogLevel level)
 {
   switch (level) {
-    case LogLevel::DEBUG:
+    case LogLevel::Debug:
       return "DEBUG";
-    case LogLevel::INFO:
+    case LogLevel::Info:
       return "INFO";
-    case LogLevel::WARN:
+    case LogLevel::Warn:
       return "WARN";
-    case LogLevel::ERROR:
+    case LogLevel::Error:
       return "ERROR";
     default:
       return "UNKNOWN";

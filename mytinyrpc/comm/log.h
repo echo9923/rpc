@@ -5,10 +5,10 @@
 namespace tinyrpc {
 
 enum class LogLevel {
-  DEBUG = 1,
-  INFO = 2,
-  WARN = 3,
-  ERROR = 4
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4
 };
 
 class Logger {
@@ -21,7 +21,7 @@ class Logger {
 
 }
 
-#define DebugLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::DEBUG, __FILE__, __LINE__, msg)
-#define InfoLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::INFO,  __FILE__, __LINE__, msg)
-#define WarnLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::WARN,  __FILE__, __LINE__, msg)
-#define ErrorLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::ERROR, __FILE__, __LINE__, msg)
+#define DebugLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::Debug, __FILE__, __LINE__, msg)
+#define InfoLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::Info,  __FILE__, __LINE__, msg)
+#define WarnLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::Warn,  __FILE__, __LINE__, msg)
+#define ErrorLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::Error, __FILE__, __LINE__, msg)

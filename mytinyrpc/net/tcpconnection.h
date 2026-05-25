@@ -6,25 +6,37 @@
 
 namespace tinyrpc {
 
+enum class ReadStatus {
+    Ok,
+    Again,
+    Closed,
+    Error
+};
+
+struct ReadResult {
+    ReadStatus status = ReadStatus::Error;
+    std::string data;
+};
+
 class TcpConnection {
  public:
-  explicit TcpConnection(Socket fd);
+    explicit TcpConnection(Socket fd);
 
-  ~TcpConnection();
+    ~TcpConnection();
 
-  Socket getFd() const;
+    Socket getFd() const;
 
-  void handle();
+    void handle();
 
-  void closeConnection();
-
- private:
-  std::string readData();
-
-  bool writeData(const std::string& data);
+    void closeConnection();
 
  private:
-  Socket m_fd {kInvalidSocket};
+    ReadResult readData();
+
+    bool writeData(const std::string& data);
+
+ private:
+    Socket m_fd {kInvalidSocket};
 };
 
 }

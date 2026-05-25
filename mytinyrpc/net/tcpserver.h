@@ -7,21 +7,21 @@ namespace tinyrpc {
 
 class TcpServer {
  public:
-  explicit TcpServer(const IPAddress& addr);
-  ~TcpServer();
+    explicit TcpServer(const IPAddress& addr);
+    ~TcpServer();
 
-  const IPAddress& getLocalAddress() const;
+    const IPAddress& getLocalAddress() const;
 
-  bool init();
+    bool init();
 
-  void start();
-
- private:
-  void acceptLoop();
+    void start();
 
  private:
-  IPAddress m_addr;
-  Socket m_listen_fd {kInvalidSocket};
+    void acceptLoop();
+
+ private:
+    IPAddress m_addr;
+    Socket m_listenFd {kInvalidSocket};
 };
 
 }

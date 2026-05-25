@@ -30,3 +30,44 @@
 - [阶段 1：阻塞式 TCP Echo 服务器](docs/stage-1.md)
 - [编码规范](docs/40-工程规范/编码规范.md)
 
+
+## 构建要求
+
+本项目以 Linux 作为目标运行环境。Windows 下必须通过 WSL 进行构建、运行和验收，不使用 Windows 原生工具链直接构建。
+
+### 依赖安装
+
+WSL 默认按 Debian/Ubuntu 环境处理，缺少依赖时执行：
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake netcat-openbsd
+```
+
+### 构建命令
+
+在 Linux/WSL 内执行：
+
+```bash
+./build.sh
+```
+
+在 Windows PowerShell 内执行：
+
+```powershell
+.\build.ps1
+```
+
+也可以在 Windows PowerShell 内直接调用 WSL：
+
+```powershell
+wsl --cd "D:\codeproject\cpp\rpc" bash ./build.sh
+```
+
+### 验收命令
+
+阶段验收统一在 WSL 内执行：
+
+```powershell
+wsl --cd "D:\codeproject\cpp\rpc" bash ./scripts/check_stage1.sh
+```
