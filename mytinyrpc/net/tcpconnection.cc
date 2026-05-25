@@ -58,12 +58,18 @@ void TcpConnection::handleRead()
 
 void TcpConnection::handleWrite()
 {
-    // 循环从 m_outputBuffer 写入数据，处理短写和 EAGAIN。
-    while (!m_outputBuffer.empty()) {
-        ssize_t n = write(m_fd, m_outputBuffer.data(), m_outputBuffer.size());
+    // 循环从 TcpBuffer 可读区域写数据到 socket，处理短写和 EAGAIN。
+    // write(fd, buf, count) 将 buf 指向的 count 字节写入 fd 对应的 socket 发送缓冲区。
+    // 返回值：>0 实际写入字节数；0 不应发生；<0 且 errno=EAGAIN 表示发送缓冲区满需等待。
+    while (m_outputBuffer.getReadableBytes() > 0) {
+        ssize_t n = write(
+            m_fd,
+            m_outputBuffer.getReadPtr(),
+            m_outputBuffer.getReadableBytes()
+        );
 
         if (n > 0) {
-            m_outputBuffer.erase(0, static_cast<size_t>(n));
+            m_outputBuffer.retrieve(static_cast<size_t>(n));
             continue;
         }
 

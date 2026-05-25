@@ -3,6 +3,7 @@
 #include "net/fdevent.h"
 #include "net/reactor.h"
 #include "net/socket.h"
+#include "net/tcpbuffer.h"
 
 #include <functional>
 #include <string>
@@ -47,7 +48,7 @@ class TcpConnection {
     Reactor *m_reactor {nullptr};
     FdEvent m_fdEvent;
     std::function<void(int)> m_closeCallback;
-    std::string m_outputBuffer;
+    TcpBuffer m_outputBuffer;
     bool m_isClosed {false};
 };
 

@@ -16,6 +16,7 @@ set(SRC
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/netaddress.cc
     mytinyrpc/net/reactor.cc
+    mytinyrpc/net/tcpbuffer.cc
     mytinyrpc/net/tcpconnection.cc
     mytinyrpc/net/tcpserver.cc
 )
@@ -44,5 +45,10 @@ add_executable(test_reactor
 
 add_executable(test_reactor_accept
     testcases/test_reactor_accept.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+
+add_executable(test_tcp_buffer
+    testcases/test_tcp_buffer.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
