@@ -44,9 +44,18 @@ int main()
     // 6. 构造 Reactor。
     tinyrpc::Reactor reactor;
 
-    // 7. 调用 addEvent() 注册 FdEvent。
-    if (!reactor.addEvent(&readEvent)) {
-        std::cerr << "[reactor] FAIL: addEvent failed" << std::endl;
+    // 7. 将 Reactor 交给 FdEvent，由 FdEvent 负责注册自身。
+    readEvent.setReactor(&reactor);
+    if (!readEvent.registerToReactor()) {
+        std::cerr << "[reactor] FAIL: registerToReactor failed" << std::endl;
+        return 1;
+    }
+    if (!readEvent.isRegistered()) {
+        std::cerr << "[reactor] FAIL: event is not registered" << std::endl;
+        return 1;
+    }
+    if (!readEvent.updateToReactor()) {
+        std::cerr << "[reactor] FAIL: updateToReactor failed" << std::endl;
         return 1;
     }
 
@@ -76,9 +85,13 @@ int main()
         return 1;
     }
 
-    // 11. 调用 delEvent() 删除事件。
-    if (!reactor.delEvent(&readEvent)) {
-        std::cerr << "[reactor] FAIL: delEvent failed" << std::endl;
+    // 11. 通过 FdEvent 删除事件。
+    if (!readEvent.unregisterFromReactor()) {
+        std::cerr << "[reactor] FAIL: unregisterFromReactor failed" << std::endl;
+        return 1;
+    }
+    if (readEvent.isRegistered()) {
+        std::cerr << "[reactor] FAIL: event is still registered after unregister" << std::endl;
         return 1;
     }
 

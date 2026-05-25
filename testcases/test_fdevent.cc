@@ -15,6 +15,18 @@ int main()
         std::cerr << "[fdevent] FAIL: getFd() != 100" << std::endl;
         return 1;
     }
+    if (event.getReactor() != nullptr) {
+        std::cerr << "[fdevent] FAIL: default reactor is not nullptr" << std::endl;
+        return 1;
+    }
+    if (event.isRegistered()) {
+        std::cerr << "[fdevent] FAIL: default registered state is true" << std::endl;
+        return 1;
+    }
+    if (event.registerToReactor()) {
+        std::cerr << "[fdevent] FAIL: register without reactor should fail" << std::endl;
+        return 1;
+    }
 
     // 添加 EPOLLIN，验证包含 EPOLLIN
     event.addListenEvent(EPOLLIN);

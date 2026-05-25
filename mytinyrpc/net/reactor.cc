@@ -62,7 +62,7 @@ bool Reactor::addEvent(FdEvent* event)
 bool Reactor::modEvent(FdEvent* event)
 {
     // epoll_ctl(EPOLL_CTL_MOD) 修改已注册 fd 的关注事件。
-    // 用于 enableWriteEvent / disableWriteEvent 添加或删除 EPOLLOUT。
+    // 用于连接对象按需启停 EPOLLIN / EPOLLOUT。
     struct epoll_event ev;
     ev.events = event->getListenEvents();
     ev.data.ptr = event;

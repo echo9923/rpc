@@ -25,17 +25,41 @@ Socket TcpConnection::getFd() const
 
 void TcpConnection::registerToReactor()
 {
-    // 将 client fd 封装为 FdEvent，注册 EPOLLIN 事件到 Reactor。
-    // 当客户端发送数据时，Reactor 会触发 handleRead() 回调。
-    m_fdEvent.setFd(m_fd);
-    m_fdEvent.addListenEvent(EPOLLIN);
-    m_fdEvent.setReadCallback([this]() { handleRead(); });
+    // 将 client fd 封装为 FdEvent，并设置读写回调。
+    // EPOLLIN / EPOLLOUT 的启停统一由 enable/disable*Event 管理。
+    if (m_reactor == nullptr) {
+        ErrorLog("TcpConnection register failed, reactor is null, fd = " + std::to_string(m_fd));
+        return;
+    }
 
-    m_reactor->addEvent(&m_fdEvent);
+    std::weak_ptr<TcpConnection> weakConn = weak_from_this();
+
+    m_fdEvent.setFd(m_fd);
+    m_fdEvent.setReactor(m_reactor);
+    m_fdEvent.setReadCallback([weakConn]() {
+        auto conn = weakConn.lock();
+        if (conn) {
+            conn->handleRead();
+        }
+    });
+    m_fdEvent.setWriteCallback([weakConn]() {
+        auto conn = weakConn.lock();
+        if (conn) {
+            conn->handleWrite();
+        }
+    });
+
+    enableReadEvent();
+
+    if (!m_fdEvent.registerToReactor()) {
+        ErrorLog("TcpConnection register fd event failed, fd = " + std::to_string(m_fd));
+    }
 }
 
 void TcpConnection::handleRead()
 {
+    auto self = shared_from_this();
+
     if (m_closeAfterWrite) {
         return;
     }
@@ -51,15 +75,27 @@ void TcpConnection::handleRead()
         return;
     }
 
-    if (result.status == ReadStatus::Closed || result.status == ReadStatus::Error) {
+    if (result.status == ReadStatus::Closed) {
         m_closeAfterWrite = true;
-        enableWriteEvent();
+        if (m_outputBuffer.getReadableBytes() > 0) {
+            disableReadEvent();
+            enableWriteEvent();
+            return;
+        }
+        closeWithCallback();
+        return;
+    }
+
+    if (result.status == ReadStatus::Error) {
+        closeWithCallback();
         return;
     }
 }
 
 void TcpConnection::handleWrite()
 {
+    auto self = shared_from_this();
+
     // 循环从 TcpBuffer 可读区域写数据到 socket，处理短写和 EAGAIN。
     // write(fd, buf, count) 将 buf 指向的 count 字节写入 fd 对应的 socket 发送缓冲区。
     // 返回值：>0 实际写入字节数；0 不应发生；<0 且 errno=EAGAIN 表示发送缓冲区满需等待。
@@ -114,16 +150,38 @@ void TcpConnection::sendData(const std::string& data)
 void TcpConnection::enableWriteEvent()
 {
     m_fdEvent.addListenEvent(EPOLLOUT);
-    m_fdEvent.setWriteCallback([this]() { handleWrite(); });
 
-    m_reactor->modEvent(&m_fdEvent);
+    updateEvent();
 }
 
 void TcpConnection::disableWriteEvent()
 {
     m_fdEvent.delListenEvent(EPOLLOUT);
 
-    m_reactor->modEvent(&m_fdEvent);
+    updateEvent();
+}
+
+void TcpConnection::enableReadEvent()
+{
+    m_fdEvent.addListenEvent(EPOLLIN);
+
+    updateEvent();
+}
+
+void TcpConnection::disableReadEvent()
+{
+    m_fdEvent.delListenEvent(EPOLLIN);
+
+    updateEvent();
+}
+
+void TcpConnection::updateEvent()
+{
+    if (m_isClosed) {
+        return;
+    }
+
+    m_fdEvent.updateToReactor();
 }
 
 void TcpConnection::closeConnection()
@@ -137,7 +195,7 @@ void TcpConnection::closeConnection()
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
 
     // 先删除事件再关闭 fd，避免 epoll 仍持有已关闭的 fd
-    m_reactor->delEvent(&m_fdEvent);
+    m_fdEvent.unregisterFromReactor();
     close(m_fd);
     m_fd = -1;
 }

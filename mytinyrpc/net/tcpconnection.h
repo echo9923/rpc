@@ -6,6 +6,7 @@
 #include "net/tcpbuffer.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace tinyrpc {
@@ -22,7 +23,7 @@ struct ReadResult {
     std::string data;
 };
 
-class TcpConnection {
+class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
  public:
     TcpConnection(Socket fd, Reactor *reactor);
 
@@ -40,8 +41,11 @@ class TcpConnection {
  private:
     ReadResult readData();
 
+    void enableReadEvent();
+    void disableReadEvent();
     void enableWriteEvent();
     void disableWriteEvent();
+    void updateEvent();
     void closeWithCallback();
 
  private:
