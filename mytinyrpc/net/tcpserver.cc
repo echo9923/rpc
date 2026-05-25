@@ -91,7 +91,7 @@ void TcpServer::start()
 
 void TcpServer::acceptLoop()
 {
-    // acceptLoop 不再是永久循环，而是由 Reactor 在监听 fd 可读时触发。
+    // acceptLoop 由 Reactor 在监听 fd 可读时触发。
     // 循环 accept 直到连接队列清空（EAGAIN），充分利用一次事件通知。
     while (true) {
         sockaddr_in clientAddr {};
@@ -120,10 +120,21 @@ void TcpServer::acceptLoop()
             continue;
         }
 
-        // 任务十四：仍使用同步方式处理单个连接，后续任务会改为事件驱动。
-        TcpConnection conn(clientFd);
-        conn.handle();
+        // 任务十五：将 client fd 注册到 Reactor，读事件由 Reactor 触发。
+        // TcpConnection 持有 client fd 的 FdEvent，Reactor 检测到
+        // EPOLLIN 时调用 handleRead() 读取数据。
+        auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor);
+        conn->setCloseCallback([this](int fd) {
+            this->removeConnection(fd);
+        });
+        conn->registerToReactor();
+        m_connections[clientFd] = conn;
     }
+}
+
+void TcpServer::removeConnection(int fd)
+{
+    m_connections.erase(fd);
 }
 
 }

@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <sys/epoll.h>
 #include <thread>
 #include <unistd.h>
 
@@ -17,14 +18,15 @@ void sleepBriefly()
 
 }
 
-TcpConnection::TcpConnection(Socket fd)
-    : m_fd(fd)
+TcpConnection::TcpConnection(Socket fd, Reactor *reactor)
+    : m_fd(fd),
+      m_reactor(reactor)
 {
 }
 
 TcpConnection::~TcpConnection()
 {
-  closeConnection();
+    closeConnection();
 }
 
 Socket TcpConnection::getFd() const
@@ -32,42 +34,56 @@ Socket TcpConnection::getFd() const
     return m_fd;
 }
 
-void TcpConnection::handle()
+void TcpConnection::registerToReactor()
 {
-    InfoLog("TcpConnection handle, fd = " + std::to_string(m_fd));
+    // 将 client fd 封装为 FdEvent，注册 EPOLLIN 事件到 Reactor。
+    // 当客户端发送数据时，Reactor 会触发 handleRead() 回调。
+    m_fdEvent.setFd(m_fd);
+    m_fdEvent.addListenEvent(EPOLLIN);
+    m_fdEvent.setReadCallback([this]() { handleRead(); });
 
-    bool running = true;
-    while (running) {
-        ReadResult result = readData();
+    m_reactor->addEvent(&m_fdEvent);
+}
 
-        switch (result.status) {
-        case ReadStatus::Ok:
-            InfoLog("TcpConnection receive from fd = " + std::to_string(m_fd) + ", data = " + result.data);
-            if (!writeData(result.data)) {
-                ErrorLog("TcpConnection write failed, fd = " + std::to_string(m_fd));
-                running = false;
-            }
-            break;
-        case ReadStatus::Again:
-            sleepBriefly();
-            break;
-        case ReadStatus::Closed:
-        case ReadStatus::Error:
-            running = false;
-            break;
-        }
+void TcpConnection::handleRead()
+{
+    ReadResult result = readData();
+
+    if (result.status == ReadStatus::Data) {
+        writeData(result.data);
+        return;
     }
 
+    if (result.status == ReadStatus::Again) {
+        return;
+    }
+
+    // Closed 或 Error：关闭连接
+    Socket closedFd = m_fd;
     closeConnection();
+
+    if (m_closeCallback) {
+        m_closeCallback(closedFd);
+    }
 }
 
 void TcpConnection::closeConnection()
 {
-    if (m_fd != kInvalidSocket) {
-        InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
-        close(m_fd);
-        m_fd = kInvalidSocket;
+    if (m_fd < 0) {
+        return;
     }
+
+    InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
+
+    // 先删除事件再关闭 fd，避免 epoll 仍持有已关闭的 fd
+    m_reactor->delEvent(&m_fdEvent);
+    close(m_fd);
+    m_fd = -1;
+}
+
+void TcpConnection::setCloseCallback(std::function<void(int)> cb)
+{
+    m_closeCallback = std::move(cb);
 }
 
 ReadResult TcpConnection::readData()
@@ -92,7 +108,7 @@ ReadResult TcpConnection::readData()
         return {ReadStatus::Closed, {}};
     }
 
-    return {ReadStatus::Ok, std::string(buffer, static_cast<size_t>(n))};
+    return {ReadStatus::Data, std::string(buffer, static_cast<size_t>(n))};
 }
 
 bool TcpConnection::writeData(const std::string& data)

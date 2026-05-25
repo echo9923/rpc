@@ -1,13 +1,16 @@
 #pragma once
 
+#include "net/fdevent.h"
+#include "net/reactor.h"
 #include "net/socket.h"
 
+#include <functional>
 #include <string>
 
 namespace tinyrpc {
 
 enum class ReadStatus {
-    Ok,
+    Data,
     Again,
     Closed,
     Error
@@ -20,15 +23,19 @@ struct ReadResult {
 
 class TcpConnection {
  public:
-    explicit TcpConnection(Socket fd);
+    TcpConnection(Socket fd, Reactor *reactor);
 
     ~TcpConnection();
 
     Socket getFd() const;
 
-    void handle();
+    void registerToReactor();
+
+    void handleRead();
 
     void closeConnection();
+
+    void setCloseCallback(std::function<void(int)> cb);
 
  private:
     ReadResult readData();
@@ -37,6 +44,9 @@ class TcpConnection {
 
  private:
     Socket m_fd {kInvalidSocket};
+    Reactor *m_reactor {nullptr};
+    FdEvent m_fdEvent;
+    std::function<void(int)> m_closeCallback;
 };
 
 }
