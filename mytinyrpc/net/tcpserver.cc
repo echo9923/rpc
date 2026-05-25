@@ -4,22 +4,12 @@
 #include "comm/log.h"
 
 #include <cerrno>
-#include <chrono>
-#include <sys/socket.h>
 #include <string>
-#include <thread>
+#include <sys/epoll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 namespace tinyrpc {
-
-namespace {
-
-void sleepBriefly()
-{
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-}
-
-}
 
 TcpServer::TcpServer(const IPAddress& addr)
     : m_addr(addr)
@@ -74,12 +64,35 @@ bool TcpServer::init()
 
 void TcpServer::start()
 {
-    InfoLog("TcpServer start accept loop on " + m_addr.toString());
-    acceptLoop();
+    InfoLog("TcpServer start on " + m_addr.toString());
+
+    // 将监听 fd 封装为 FdEvent，注册 EPOLLIN 事件到 Reactor。
+    // 当有新的客户端连接到达时，Reactor 会触发 acceptLoop() 回调。
+    m_listenEvent.setFd(m_listenFd);
+    m_listenEvent.addListenEvent(EPOLLIN);
+    m_listenEvent.setReadCallback([this]() { acceptLoop(); });
+
+    if (!m_reactor.addEvent(&m_listenEvent)) {
+        ErrorLog("TcpServer add listen event to reactor failed");
+        return;
+    }
+
+    m_running = true;
+    while (m_running) {
+        // waitOnce(-1) 表示无限等待，直到有事件发生或被信号中断。
+        // 返回 -1 表示 epoll_wait 出错，此时退出事件循环。
+        int rt = m_reactor.waitOnce(-1);
+        if (rt < 0) {
+            ErrorLog("TcpServer reactor waitOnce failed");
+            break;
+        }
+    }
 }
 
 void TcpServer::acceptLoop()
 {
+    // acceptLoop 不再是永久循环，而是由 Reactor 在监听 fd 可读时触发。
+    // 循环 accept 直到连接队列清空（EAGAIN），充分利用一次事件通知。
     while (true) {
         sockaddr_in clientAddr {};
         socklen_t clientLen = sizeof(clientAddr);
@@ -87,13 +100,16 @@ void TcpServer::acceptLoop()
         Socket clientFd = accept(m_listenFd, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
 
         if (clientFd < 0) {
-            // 非阻塞监听下，连接队列暂时为空时会返回 EAGAIN/EWOULDBLOCK，稍等后继续轮询。
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                sleepBriefly();
+            // EINTR：被信号中断，重试 accept。
+            if (errno == EINTR) {
                 continue;
             }
-            ErrorLog("accept failed");
-            continue;
+            // EAGAIN/EWOULDBLOCK：连接队列已为空，退出循环等待下一次 EPOLLIN。
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            ErrorLog("accept failed, errno = " + std::to_string(errno));
+            break;
         }
 
         InfoLog("TcpServer accept client fd = " + std::to_string(clientFd));
@@ -104,6 +120,7 @@ void TcpServer::acceptLoop()
             continue;
         }
 
+        // 任务十四：仍使用同步方式处理单个连接，后续任务会改为事件驱动。
         TcpConnection conn(clientFd);
         conn.handle();
     }
