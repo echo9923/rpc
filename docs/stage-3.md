@@ -9,7 +9,8 @@
 | 任务 | 状态 | 说明 |
 |------|------|------|
 | 任务二十：抽象最小协程对象与 FdEvent 挂载点 | 已完成 | 最小 `Coroutine` 类（创建/恢复/让出/完成）；`FdEvent` 挂载 `Coroutine*`。 |
-| 任务二十一：引入 read_hook/write_hook 的最小雏形 | 已完成 | `FdEventContainer`（fd→FdEvent 容器）；`read_hook`/`write_hook`（EAGAIN 时挂起协程、添加 epoll 事件、Yield）。 |
+| 任务二十一：引入 read_hook/write_hook 的最小雏形 | 已完成 | `read_hook`/`write_hook`（显式传入 `FdEvent*`，EAGAIN 时挂起协程、添加 epoll 事件、Yield）。 |
+| 任务二十二：让 Reactor 恢复挂载在 FdEvent 上的协程 | 已完成 | `Reactor::waitOnce()` 事件分发中识别 `FdEvent` 上的协程并 `resume()`，协程路径与 callback 路径互斥。 |
 
 ## 任务二十记录
 
@@ -39,18 +40,21 @@
 - 新增 `testcases/test_hook.cc`（GoogleTest）：三个用例验证 EAGAIN 时挂起、resume 后读数据、主协程直通写。
 - `Reactor`、`TcpConnection`、Echo Server 的 callback 行为保持不变。
 
+## 任务二十二记录
+
+任务二十二完成的目标是让 Reactor 在 fd 事件到来时恢复挂在 FdEvent 上的协程，把"挂起半边"接成完整闭环：
+
+- 修改 `Reactor::waitOnce()` 的事件分发循环：从 epoll 返回的 `FdEvent*` 取协程指针，若 `getCoroutine() != nullptr`，先 `clearCoroutine()` 再 `resume()`，跳过 `handleEvent()`；若无协程，保持原有 callback 分发不变。
+- 协程路径与 callback 路径互斥：如果 `FdEvent` 上挂了协程，本次事件不再调用 `handleEvent()`，避免同一 fd 同时走 callback 和 coroutine 两条路径。
+- 先 `clearCoroutine()` 再 `resume()`，避免协程恢复并结束后 `FdEvent` 还留着旧指针。
+- `reactor.cc` 新增 `#include "coroutine/coroutine.h"`，确保能调用 `Coroutine::resume()`。
+- 新增 `testcases/test_hook.cc` 中的 `ReactorResumesReadHookCoroutine` 测试用例：使用 `pipe()` 创建读写 fd，协程内部调用 `read_hook` 遇到 `EAGAIN` 后挂起，向 pipe 写端写入数据，`Reactor::waitOnce()` 收到 `EPOLLIN` 事件后自动恢复协程，验证完整闭环。
+- `Reactor`、`TcpConnection`、Echo Server 的 callback 行为保持不变。
+
 ## 下一任务
 
-下一步是任务二十二：
+下一步是任务二十三：
 
 ```text
-让 Reactor 在 fd 事件到来时恢复挂在 FdEvent 上的协程，把"挂起半边"接成完整闭环
+把 TcpConnection 的读路径小心切到 hook，验证连接层真正开始具备协程式读取能力
 ```
-
-### 任务二十二建议要点
-
-- 在 `Reactor::waitOnce()` 的事件分发循环中，检查触发事件对应 `FdEvent` 是否挂有协程。
-- 若 `FdEvent::getCoroutine() != nullptr`，调用 `coroutine->resume()` 恢复该协程。
-- 恢复后清除 `FdEvent` 上的协程指针（`clearCoroutine()`）。
-- 可在 `test_hook.cc` 中增加 Reactor 驱动的端到端用例，验证完整 IO 协程化链路。
-- 不涉及 `TcpConnection` 改造、协程池、Timer、IOThread。

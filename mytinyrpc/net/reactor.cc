@@ -1,6 +1,7 @@
 #include "net/reactor.h"
 
 #include "comm/log.h"
+#include "coroutine/coroutine.h"
 
 #include <cerrno>
 #include <cstring>
@@ -115,6 +116,18 @@ int Reactor::waitOnce(int timeoutMs)
     for (int i = 0; i < nfds; ++i) {
         // data.ptr 在 addEvent 时已被设为 FdEvent*，直接还原调用。
         auto* event = static_cast<FdEvent*>(events[i].data.ptr);
+
+        // 如果 FdEvent 上挂有协程，说明此前 read_hook/write_hook 遇到 EAGAIN
+        // 后将协程挂起并注册了 epoll 事件。此时 fd 已就绪，恢复协程继续执行。
+        // 先 clearCoroutine() 再 resume()，避免协程恢复结束后 FdEvent 还留着旧指针。
+        // 协程路径和 callback 路径互斥：挂了协程就不再调用 handleEvent()。
+        Coroutine* coroutine = event->getCoroutine();
+        if (coroutine != nullptr) {
+            event->clearCoroutine();
+            coroutine->resume();
+            continue;
+        }
+
         event->handleEvent(events[i].events);
     }
 

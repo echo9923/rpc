@@ -1,16 +1,19 @@
 /*
- * test_hook.cc — 任务二十一：read_hook/write_hook 最小雏形验收测试。
+ * test_hook.cc — 任务二十一/二十二：read_hook/write_hook 与 Reactor 驱动恢复验收测试。
  *
  * 测试覆盖：
  *   1. ReadHookYieldsOnEAGAIN：pipe 无数据时协程调 read_hook 后 Yield，
  *      验证协程状态、FdEvent::getCoroutine()、getListenEvents()。
  *   2. ReadHookResumesAndReads：写入数据后手动 resume，协程读到数据并 Finished。
  *   3. WriteHookInMainCoroutine：主协程调 write_hook 直通系统写，不挂载协程。
+ *   4. ReactorResumesReadHookCoroutine：Reactor 事件驱动自动恢复挂起的协程，
+ *      验证"read_hook 挂起 → pipe 写入 → Reactor 恢复 → 协程读到数据"完整闭环。
  */
 
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutine_hook.h"
 #include "net/fdevent.h"
+#include "net/reactor.h"
 
 #include <gtest/gtest.h>
 
@@ -152,6 +155,78 @@ TEST(HookTest, WriteHookInMainCoroutine)
 
     // FdEvent 上不应挂载任何协程（主协程不做挂起）。
     EXPECT_EQ(writeEvent.getCoroutine(), nullptr);
+
+    close(readFd);
+    close(writeFd);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 4：Reactor 事件驱动恢复 read_hook 协程
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(HookTest, ReactorResumesReadHookCoroutine)
+{
+    // pipe(pipefd)：创建匿名管道，pipefd[0] 为读端，pipefd[1] 为写端。
+    int pipefd[2];
+    ASSERT_EQ(pipe(pipefd), 0);
+    int readFd  = pipefd[0];
+    int writeFd = pipefd[1];
+
+    // 将读端设为非阻塞，保证无数据时 ::read 返回 EAGAIN。
+    setNonBlockLocal(readFd);
+
+    // 创建 Reactor 和 FdEvent，管理 readFd 上的事件。
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent readEvent(readFd);
+    readEvent.setReactor(&reactor);
+
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    ssize_t readResult = 0;
+    bool coroDone = false;
+
+    // 创建协程：内部调用 read_hook，预期遇到 EAGAIN 后 Yield。
+    tinyrpc::Coroutine co([&]() {
+        readResult = tinyrpc::read_hook(&readEvent, buf, sizeof(buf));
+        coroDone = true;
+    });
+
+    // 第一次 resume：协程执行 read_hook → EAGAIN → 挂载协程到 FdEvent → Yield。
+    co.resume();
+
+    // 验证协程处于 Suspended 状态。
+    EXPECT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+
+    // 验证 FdEvent 上挂载了该协程。
+    EXPECT_EQ(readEvent.getCoroutine(), &co);
+
+    // 验证 FdEvent 已注册到 Reactor，并且监听 EPOLLIN。
+    EXPECT_TRUE(readEvent.isRegistered());
+    EXPECT_TRUE(readEvent.getListenEvents() & EPOLLIN);
+
+    // 向 pipe 写端写入 "reactor"，使读端变为可读。
+    const char *msg = "reactor";
+    ssize_t written = ::write(writeFd, msg, strlen(msg));
+    ASSERT_EQ(written, static_cast<ssize_t>(strlen(msg)));
+
+    // 调用 Reactor::waitOnce()，Reactor 应收到 EPOLLIN 事件，
+    // 发现 FdEvent 上挂有协程，自动 resume 该协程。
+    int nfds = reactor.waitOnce(1000);
+    EXPECT_EQ(nfds, 1);
+
+    // 协程应已执行完毕。
+    EXPECT_TRUE(coroDone);
+    EXPECT_EQ(co.getState(), tinyrpc::CoroutineState::Finished);
+
+    // 验证读到数据正确。
+    EXPECT_EQ(readResult, static_cast<ssize_t>(strlen(msg)));
+    EXPECT_EQ(strncmp(buf, msg, strlen(msg)), 0);
+
+    // 协程恢复后 Reactor 已清除 FdEvent 上的协程指针。
+    EXPECT_EQ(readEvent.getCoroutine(), nullptr);
+
+    // 测试结束前从 Reactor 注销事件，再关闭 fd，
+    // 避免 epoll 里还挂着已关闭 fd。
+    readEvent.unregisterFromReactor();
 
     close(readFd);
     close(writeFd);
