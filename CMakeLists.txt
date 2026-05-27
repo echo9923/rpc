@@ -46,6 +46,12 @@ add_executable(test_reactor
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 
+add_executable(test_abstract_codec
+    testcases/test_abstract_codec.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_abstract_codec ${GTEST_LIBRARIES} pthread)
+
 add_executable(test_tcp_buffer
     testcases/test_tcp_buffer.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>

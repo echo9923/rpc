@@ -51,7 +51,28 @@
 2. macOS 等非 WSL 环境下使用 Docker Linux 容器。
 3. Apple Silicon Mac 使用 Docker 时，容器应使用 `linux/amd64` 平台，以匹配项目当前的 x86-64 汇编实现。
 
-### 依赖安装
+### 预配置 Docker 容器（推荐）
+
+项目已有一个名为 `rpc-ubuntu` 的 Docker 容器（基于 `ubuntu:24.04`），已安装 `build-essential`、`cmake`、`libgtest-dev` 等全部构建依赖，**编译、测试和验收应直接使用该容器**，无需再手动安装依赖。
+
+macOS 宿主机上执行编译、测试、验收的命令格式为：
+
+```bash
+# 编译
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh"
+
+# 运行单个测试
+docker exec rpc-ubuntu /workspace/build/test_abstract_codec
+docker exec rpc-ubuntu /workspace/build/test_tcp_buffer
+docker exec rpc-ubuntu /workspace/build/test_hook
+
+# 阶段验收
+docker exec rpc-ubuntu /workspace/scripts/check_stage1.sh
+```
+
+注意：不要使用 `docker run` 临时创建新容器安装依赖，Apple Silicon 上模拟 x86-64 安装速度极慢。
+
+### 依赖安装（仅限无预配置容器时）
 
 #### WSL
 
