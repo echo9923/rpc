@@ -44,9 +44,20 @@ Coroutine *FdEvent::getCoroutine() const
     return m_coroutine;
 }
 
+void FdEvent::setCoroutineListenEvent(uint32_t event)
+{
+    m_coroutineListenEvent = event;
+}
+
+uint32_t FdEvent::getCoroutineListenEvent() const
+{
+    return m_coroutineListenEvent;
+}
+
 void FdEvent::clearCoroutine()
 {
     m_coroutine = nullptr;
+    m_coroutineListenEvent = 0;
 }
 
 void FdEvent::addListenEvent(uint32_t event)

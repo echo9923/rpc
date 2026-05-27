@@ -35,6 +35,9 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
     // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
     fdEvent->setCoroutine(Coroutine::GetCurrentCoroutine());
 
+    // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
+    fdEvent->setCoroutineListenEvent(EPOLLIN);
+
     // 注册关注 EPOLLIN 事件。
     fdEvent->addListenEvent(EPOLLIN);
 
@@ -81,6 +84,9 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
 
     // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
     fdEvent->setCoroutine(Coroutine::GetCurrentCoroutine());
+
+    // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
+    fdEvent->setCoroutineListenEvent(EPOLLOUT);
 
     // 注册关注 EPOLLOUT 事件。
     fdEvent->addListenEvent(EPOLLOUT);

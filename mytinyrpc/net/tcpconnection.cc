@@ -25,110 +25,32 @@ Socket TcpConnection::getFd() const
     return m_fd;
 }
 
-void TcpConnection::registerToReactor()
+void TcpConnection::startConnection()
 {
-    // 将 client fd 封装为 FdEvent，只设置写回调（读路径由协程 read_hook 接管）。
-    // EPOLLOUT 的启停由 enable/disableWriteEvent 管理。
+    // 将 client fd 封装为 FdEvent 并注册到 Reactor。
+    // 读和写都走协程 hook（read_hook / write_hook），不设置任何 callback。
     if (m_reactor == nullptr) {
-        ErrorLog("TcpConnection register failed, reactor is null, fd = " + std::to_string(m_fd));
+        ErrorLog("TcpConnection start failed, reactor is null, fd = " + std::to_string(m_fd));
         return;
     }
-
-    std::weak_ptr<TcpConnection> weakConn = weak_from_this();
 
     m_fdEvent.setFd(m_fd);
     m_fdEvent.setReactor(m_reactor);
-    m_fdEvent.setWriteCallback([weakConn]() {
-        auto conn = weakConn.lock();
-        if (conn) {
-            conn->handleWrite();
-        }
-    });
 
     if (!m_fdEvent.registerToReactor()) {
         ErrorLog("TcpConnection register fd event failed, fd = " + std::to_string(m_fd));
+        return;
     }
-}
 
-void TcpConnection::handleRead()
-{
+    // 启动连接协程，读写均在此协程中串行完成。
+    // 协程回调持有 shared_ptr，防止协程执行期间 TcpConnection 被提前释放。
+    // 例如对端关闭后 coroutineReadLoop 内调用 closeWithCallback 会触发
+    // TcpServer::removeConnection 释放唯一的 shared_ptr，若无此引用则 this 悬空。
     auto self = shared_from_this();
-
-    if (m_closeAfterWrite) {
-        return;
-    }
-
-    ReadResult result = readData();
-
-    if (result.status == ReadStatus::Data) {
-        sendData(result.data);
-        return;
-    }
-
-    if (result.status == ReadStatus::Again) {
-        return;
-    }
-
-    if (result.status == ReadStatus::Closed) {
-        m_closeAfterWrite = true;
-        if (m_outputBuffer.getReadableBytes() > 0) {
-            disableReadEvent();
-            enableWriteEvent();
-            return;
-        }
-        closeWithCallback();
-        return;
-    }
-
-    if (result.status == ReadStatus::Error) {
-        closeWithCallback();
-        return;
-    }
-}
-
-void TcpConnection::handleWrite()
-{
-    auto self = shared_from_this();
-
-    // 循环从 TcpBuffer 可读区域写数据到 socket，处理短写和 EAGAIN。
-    // write(fd, buf, count) 将 buf 指向的 count 字节写入 fd 对应的 socket 发送缓冲区。
-    // 返回值：>0 实际写入字节数；0 不应发生；<0 且 errno=EAGAIN 表示发送缓冲区满需等待。
-    while (m_outputBuffer.getReadableBytes() > 0) {
-        ssize_t n = write(
-            m_fd,
-            m_outputBuffer.getReadPtr(),
-            m_outputBuffer.getReadableBytes()
-        );
-
-        if (n > 0) {
-            m_outputBuffer.retrieve(static_cast<size_t>(n));
-            continue;
-        }
-
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return;
-            }
-            ErrorLog("handleWrite failed, fd = " + std::to_string(m_fd));
-            closeWithCallback();
-            return;
-        }
-
-        // n == 0，不应发生但安全处理
-        ErrorLog("handleWrite returned 0, fd = " + std::to_string(m_fd));
-        closeWithCallback();
-        return;
-    }
-
-    // 输出缓冲区已写空，删除 EPOLLOUT，保留 EPOLLIN
-    disableWriteEvent();
-
-    if (m_closeAfterWrite) {
-        closeWithCallback();
-    }
+    m_readCoroutine = std::make_unique<Coroutine>([self]() {
+        self->coroutineReadLoop();
+    });
+    m_readCoroutine->resume();
 }
 
 void TcpConnection::sendData(const std::string& data)
@@ -137,45 +59,8 @@ void TcpConnection::sendData(const std::string& data)
         return;
     }
 
+    // 仅追加到输出缓冲区，实际发送由 flushOutputByHook 完成
     m_outputBuffer.append(data);
-    enableWriteEvent();
-}
-
-void TcpConnection::enableWriteEvent()
-{
-    m_fdEvent.addListenEvent(EPOLLOUT);
-
-    updateEvent();
-}
-
-void TcpConnection::disableWriteEvent()
-{
-    m_fdEvent.delListenEvent(EPOLLOUT);
-
-    updateEvent();
-}
-
-void TcpConnection::enableReadEvent()
-{
-    m_fdEvent.addListenEvent(EPOLLIN);
-
-    updateEvent();
-}
-
-void TcpConnection::disableReadEvent()
-{
-    m_fdEvent.delListenEvent(EPOLLIN);
-
-    updateEvent();
-}
-
-void TcpConnection::updateEvent()
-{
-    if (m_isClosed) {
-        return;
-    }
-
-    m_fdEvent.updateToReactor();
 }
 
 void TcpConnection::closeConnection()
@@ -212,35 +97,22 @@ void TcpConnection::closeWithCallback()
     }
 }
 
-void TcpConnection::startReadCoroutine()
-{
-    // 协程回调持有 shared_ptr，防止协程执行期间 TcpConnection 被提前释放。
-    // 例如对端关闭后 coroutineReadLoop 内调用 closeWithCallback 会触发
-    // TcpServer::removeConnection 释放唯一的 shared_ptr，若无此引用则 this 悬空。
-    auto self = shared_from_this();
-    m_readCoroutine = std::make_unique<Coroutine>([self]() {
-        self->coroutineReadLoop();
-    });
-    m_readCoroutine->resume();
-}
-
 void TcpConnection::coroutineReadLoop()
 {
     char buffer[1024];
 
     while (!m_isClosed) {
         // read_hook 内部调用 ::read()，遇到 EAGAIN 时将当前协程挂到 m_fdEvent 上，
-        // 通过 addListenEvent(EPOLLIN) 注册可读事件，然后 Coroutine::Yield() 让出 CPU。
-        // Reactor 检测到 fd 可读后恢复协程，read_hook 重试 ::read() 并返回结果。
+        // 通过 addListenEvent(EPOLLIN) + setCoroutineListenEvent(EPOLLIN) 注册可读事件，
+        // 然后 Coroutine::Yield() 让出 CPU。
+        // Reactor 检测到 fd 可读且等待事件匹配后恢复协程，read_hook 重试 ::read()。
         ssize_t n = read_hook(&m_fdEvent, buffer, sizeof(buffer));
 
         if (n > 0) {
             m_inputBuffer.append(buffer, static_cast<size_t>(n));
             std::string data = m_inputBuffer.retrieveAllAsString();
             sendData(data);
-            // 立即通过 ::write 刷出输出缓冲区，避免对端快速关闭后
-            // EPOLLOUT 来不及触发 handleWrite() 导致响应丢失。
-            handleWrite();
+            flushOutputByHook();
             continue;
         }
 
@@ -263,35 +135,46 @@ void TcpConnection::coroutineReadLoop()
     }
 }
 
-ReadResult TcpConnection::readData()
+void TcpConnection::flushOutputByHook()
 {
-    char buffer[1024] = {0};
-
-    // read(fd, buf, count) 从 fd 对应的 socket 接收缓冲区读取最多 count 字节到 buf。
-    // 返回值：>0 实际读取字节数；0 表示对端关闭；<0 且 errno=EAGAIN 表示当前无可读数据。
-    ssize_t readBytes = read(m_fd, buffer, sizeof(buffer));
-
-    if (readBytes < 0) {
-        // EAGAIN / EWOULDBLOCK：非阻塞 socket 上当前无数据可读，不是错误，稍后重试即可。
-        // EINTR：在读取到数据前被信号中断，同样不是错误，返回 Again 让上层在下次事件循环中重新读取。
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-            return {ReadStatus::Again, {}};
-        }
-        ErrorLog(
-            "read failed, fd = " +
-            std::to_string(m_fd)
+    // 循环通过 write_hook 将输出缓冲区数据写入 socket。
+    // write_hook 内部处理 EAGAIN：遇到发送缓冲区满时将协程挂到 FdEvent 上，
+    // 通过 addListenEvent(EPOLLOUT) + setCoroutineListenEvent(EPOLLOUT) 等待可写，
+    // Reactor 检测到 fd 可写且等待事件匹配后恢复协程，write_hook 重试 ::write()。
+    while (!m_isClosed && m_outputBuffer.getReadableBytes() > 0) {
+        ssize_t n = write_hook(
+            &m_fdEvent,
+            m_outputBuffer.getReadPtr(),
+            m_outputBuffer.getReadableBytes()
         );
-        return {ReadStatus::Error, {}};
+
+        if (n > 0) {
+            // write_hook 写入 n 字节，推进输出缓冲区读指针
+            m_outputBuffer.retrieve(static_cast<size_t>(n));
+            continue;
+        }
+
+        // n == 0：write 返回 0 不应发生在 TCP socket 上，安全跳过重试
+        if (n == 0) {
+            continue;
+        }
+
+        // n < 0：发生错误，errno 由 write_hook 设置
+        if (errno == EINTR) {
+            // 被信号中断，重试 write_hook
+            continue;
+        }
+
+        ErrorLog("flushOutputByHook write error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
+        closeWithCallback();
+        break;
     }
 
-    if (readBytes == 0) {
-        InfoLog("client closed, fd = " + std::to_string(m_fd));
-        return {ReadStatus::Closed, {}};
+    // 输出缓冲区已写空（或连接已关闭），删除 EPOLLOUT 避免 epoll 持续触发可写事件导致 CPU 空转。
+    if (!m_isClosed && m_fdEvent.isRegistered()) {
+        m_fdEvent.delListenEvent(EPOLLOUT);
+        m_fdEvent.updateToReactor();
     }
-
-    m_inputBuffer.append(buffer, static_cast<size_t>(readBytes));
-
-    return {ReadStatus::Data, m_inputBuffer.retrieveAllAsString()};
 }
 
 }

@@ -36,11 +36,6 @@ add_executable(test_tcp_echo_server
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 
-add_executable(test_epoll_accept
-    testcases/test_epoll_accept.cc
-    $<TARGET_OBJECTS:mytinyrpc_obj>
-)
-
 add_executable(test_fdevent
     testcases/test_fdevent.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
@@ -48,11 +43,6 @@ add_executable(test_fdevent
 
 add_executable(test_reactor
     testcases/test_reactor.cc
-    $<TARGET_OBJECTS:mytinyrpc_obj>
-)
-
-add_executable(test_reactor_accept
-    testcases/test_reactor_accept.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 

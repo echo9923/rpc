@@ -120,14 +120,12 @@ void TcpServer::acceptLoop()
             continue;
         }
 
-        // 任务二十三：读路径由协程 read_hook 接管，写路径仍用 EPOLLOUT callback。
-        // registerToReactor 只负责写事件注册，startReadCoroutine 启动读协程。
+        // 任务二十四：读写均走协程 hook，startConnection 完成 FdEvent 注册 + 启动连接协程。
         auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor);
         conn->setCloseCallback([this](int fd) {
             this->removeConnection(fd);
         });
-        conn->registerToReactor();
-        conn->startReadCoroutine();
+        conn->startConnection();
         m_connections[clientFd] = conn;
     }
 }

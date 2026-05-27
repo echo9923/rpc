@@ -24,6 +24,11 @@ class FdEvent {
   Coroutine *getCoroutine() const;
   void clearCoroutine();
 
+  // 协程等待的事件类型（EPOLLIN 或 EPOLLOUT），用于 Reactor 判断
+  // 是否应该在当前触发事件上恢复协程，避免在错误事件上恢复。
+  void setCoroutineListenEvent(uint32_t event);
+  uint32_t getCoroutineListenEvent() const;
+
   void addListenEvent(uint32_t event);
   void delListenEvent(uint32_t event);
   uint32_t getListenEvents() const;
@@ -42,6 +47,7 @@ class FdEvent {
   int m_fd {-1};
   Reactor *m_reactor {nullptr};
   Coroutine *m_coroutine {nullptr};
+  uint32_t m_coroutineListenEvent {0};
   uint32_t m_listenEvents {0};
   bool m_isRegistered {false};
 
