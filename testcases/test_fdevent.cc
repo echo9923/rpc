@@ -1,3 +1,4 @@
+#include "coroutine/coroutine.h"
 #include "net/fdevent.h"
 
 #include <sys/epoll.h>
@@ -96,6 +97,39 @@ int main()
         return 1;
     }
 
+    // ────────────────────────────────────────────
+    // 协程挂载点测试（任务二十）
+    // ────────────────────────────────────────────
+
+    // 创建一个 FdEvent 和一个 Coroutine（仅验证指针操作，不 resume）
+    tinyrpc::FdEvent evt(-1);
+    tinyrpc::Coroutine coro([]() {
+        tinyrpc::Coroutine::Yield();
+    });
+
+    // 默认 m_coroutine 应为 nullptr
+    if (evt.getCoroutine() != nullptr) {
+        std::cerr << "[fdevent] FAIL: default getCoroutine() should be nullptr" << std::endl;
+        return 1;
+    }
+
+    // setCoroutine 后应能取回同一指针
+    evt.setCoroutine(&coro);
+    if (evt.getCoroutine() != &coro) {
+        std::cerr << "[fdevent] FAIL: getCoroutine() should return set pointer" << std::endl;
+        return 1;
+    }
+
+    // clearCoroutine 后应为 nullptr
+    evt.clearCoroutine();
+    if (evt.getCoroutine() != nullptr) {
+        std::cerr << "[fdevent] FAIL: getCoroutine() should be nullptr after clear" << std::endl;
+        return 1;
+    }
+
+    // ────────────────────────────────────────────
+    // 全部通过
+    // ────────────────────────────────────────────
     std::cout << "[fdevent] PASS" << std::endl;
     return 0;
 }

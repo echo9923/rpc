@@ -5,6 +5,7 @@
 
 namespace tinyrpc {
 
+class Coroutine;
 class Reactor;
 
 class FdEvent {
@@ -16,6 +17,12 @@ class FdEvent {
 
   void setReactor(Reactor *reactor);
   Reactor *getReactor() const;
+
+  // 协程挂载点：用于后续 IO hook 将等待 IO 的协程挂到此 FdEvent 上。
+  // FdEvent 只保存非拥有的 Coroutine*，不负责创建、恢复或销毁。
+  void setCoroutine(Coroutine *coroutine);
+  Coroutine *getCoroutine() const;
+  void clearCoroutine();
 
   void addListenEvent(uint32_t event);
   void delListenEvent(uint32_t event);
@@ -34,6 +41,7 @@ class FdEvent {
  private:
   int m_fd {-1};
   Reactor *m_reactor {nullptr};
+  Coroutine *m_coroutine {nullptr};
   uint32_t m_listenEvents {0};
   bool m_isRegistered {false};
 

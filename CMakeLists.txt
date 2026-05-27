@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(mytinyrpc)
 
+enable_language(ASM)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -12,6 +14,8 @@ include_directories(${PROJECT_SOURCE_DIR}/mytinyrpc)
 
 set(SRC
     mytinyrpc/comm/log.cc
+    mytinyrpc/coroutine/coctx_swap.S
+    mytinyrpc/coroutine/coroutine.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/netaddress.cc
@@ -50,5 +54,10 @@ add_executable(test_reactor_accept
 
 add_executable(test_tcp_buffer
     testcases/test_tcp_buffer.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+
+add_executable(test_coroutine
+    testcases/test_coroutine.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )

@@ -1,5 +1,6 @@
 #include "net/fdevent.h"
 
+#include "coroutine/coroutine.h"
 #include "net/reactor.h"
 
 #include <sys/epoll.h>
@@ -31,6 +32,21 @@ void FdEvent::setReactor(Reactor *reactor)
 Reactor *FdEvent::getReactor() const
 {
     return m_reactor;
+}
+
+void FdEvent::setCoroutine(Coroutine *coroutine)
+{
+    m_coroutine = coroutine;
+}
+
+Coroutine *FdEvent::getCoroutine() const
+{
+    return m_coroutine;
+}
+
+void FdEvent::clearCoroutine()
+{
+    m_coroutine = nullptr;
 }
 
 void FdEvent::addListenEvent(uint32_t event)
