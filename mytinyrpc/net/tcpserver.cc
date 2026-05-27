@@ -120,14 +120,14 @@ void TcpServer::acceptLoop()
             continue;
         }
 
-        // 任务十五：将 client fd 注册到 Reactor，读事件由 Reactor 触发。
-        // TcpConnection 持有 client fd 的 FdEvent，Reactor 检测到
-        // EPOLLIN 时调用 handleRead() 读取数据。
+        // 任务二十三：读路径由协程 read_hook 接管，写路径仍用 EPOLLOUT callback。
+        // registerToReactor 只负责写事件注册，startReadCoroutine 启动读协程。
         auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor);
         conn->setCloseCallback([this](int fd) {
             this->removeConnection(fd);
         });
         conn->registerToReactor();
+        conn->startReadCoroutine();
         m_connections[clientFd] = conn;
     }
 }

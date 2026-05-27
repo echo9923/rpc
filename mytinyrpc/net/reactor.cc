@@ -121,8 +121,12 @@ int Reactor::waitOnce(int timeoutMs)
         // 后将协程挂起并注册了 epoll 事件。此时 fd 已就绪，恢复协程继续执行。
         // 先 clearCoroutine() 再 resume()，避免协程恢复结束后 FdEvent 还留着旧指针。
         // 协程路径和 callback 路径互斥：挂了协程就不再调用 handleEvent()。
+        //
+        // 注意：当 FdEvent 同时注册了 EPOLLIN 和 EPOLLOUT，且协程只等待 EPOLLIN 时，
+        // 不能因为挂有协程就吞掉 EPOLLOUT。只有 EPOLLIN 触发时才恢复协程；
+        // 纯 EPOLLOUT 事件（写就绪）仍走 handleEvent() → write callback。
         Coroutine* coroutine = event->getCoroutine();
-        if (coroutine != nullptr) {
+        if (coroutine != nullptr && (events[i].events & EPOLLIN)) {
             event->clearCoroutine();
             coroutine->resume();
             continue;

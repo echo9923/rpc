@@ -1,5 +1,7 @@
 #include "net/tcpconnection.h"
 #include "comm/log.h"
+#include "coroutine/coroutine.h"
+#include "coroutine/coroutine_hook.h"
 
 #include <cerrno>
 #include <sys/epoll.h>
@@ -25,8 +27,8 @@ Socket TcpConnection::getFd() const
 
 void TcpConnection::registerToReactor()
 {
-    // 将 client fd 封装为 FdEvent，并设置读写回调。
-    // EPOLLIN / EPOLLOUT 的启停统一由 enable/disable*Event 管理。
+    // 将 client fd 封装为 FdEvent，只设置写回调（读路径由协程 read_hook 接管）。
+    // EPOLLOUT 的启停由 enable/disableWriteEvent 管理。
     if (m_reactor == nullptr) {
         ErrorLog("TcpConnection register failed, reactor is null, fd = " + std::to_string(m_fd));
         return;
@@ -36,20 +38,12 @@ void TcpConnection::registerToReactor()
 
     m_fdEvent.setFd(m_fd);
     m_fdEvent.setReactor(m_reactor);
-    m_fdEvent.setReadCallback([weakConn]() {
-        auto conn = weakConn.lock();
-        if (conn) {
-            conn->handleRead();
-        }
-    });
     m_fdEvent.setWriteCallback([weakConn]() {
         auto conn = weakConn.lock();
         if (conn) {
             conn->handleWrite();
         }
     });
-
-    enableReadEvent();
 
     if (!m_fdEvent.registerToReactor()) {
         ErrorLog("TcpConnection register fd event failed, fd = " + std::to_string(m_fd));
@@ -194,6 +188,9 @@ void TcpConnection::closeConnection()
 
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
 
+    // 清除可能挂载在 FdEvent 上的协程指针，避免 Reactor 恢复已废弃的协程
+    m_fdEvent.clearCoroutine();
+
     // 先删除事件再关闭 fd，避免 epoll 仍持有已关闭的 fd
     m_fdEvent.unregisterFromReactor();
     close(m_fd);
@@ -212,6 +209,57 @@ void TcpConnection::closeWithCallback()
 
     if (m_closeCallback) {
         m_closeCallback(closedFd);
+    }
+}
+
+void TcpConnection::startReadCoroutine()
+{
+    // 协程回调持有 shared_ptr，防止协程执行期间 TcpConnection 被提前释放。
+    // 例如对端关闭后 coroutineReadLoop 内调用 closeWithCallback 会触发
+    // TcpServer::removeConnection 释放唯一的 shared_ptr，若无此引用则 this 悬空。
+    auto self = shared_from_this();
+    m_readCoroutine = std::make_unique<Coroutine>([self]() {
+        self->coroutineReadLoop();
+    });
+    m_readCoroutine->resume();
+}
+
+void TcpConnection::coroutineReadLoop()
+{
+    char buffer[1024];
+
+    while (!m_isClosed) {
+        // read_hook 内部调用 ::read()，遇到 EAGAIN 时将当前协程挂到 m_fdEvent 上，
+        // 通过 addListenEvent(EPOLLIN) 注册可读事件，然后 Coroutine::Yield() 让出 CPU。
+        // Reactor 检测到 fd 可读后恢复协程，read_hook 重试 ::read() 并返回结果。
+        ssize_t n = read_hook(&m_fdEvent, buffer, sizeof(buffer));
+
+        if (n > 0) {
+            m_inputBuffer.append(buffer, static_cast<size_t>(n));
+            std::string data = m_inputBuffer.retrieveAllAsString();
+            sendData(data);
+            // 立即通过 ::write 刷出输出缓冲区，避免对端快速关闭后
+            // EPOLLOUT 来不及触发 handleWrite() 导致响应丢失。
+            handleWrite();
+            continue;
+        }
+
+        if (n == 0) {
+            // 对端关闭连接（TCP FIN），::read 返回 0
+            InfoLog("coroutine read: client closed, fd = " + std::to_string(m_fd));
+            closeWithCallback();
+            break;
+        }
+
+        // n < 0：发生错误，errno 由 read_hook 设置
+        if (errno == EINTR) {
+            // 被信号中断，重试 read_hook
+            continue;
+        }
+
+        ErrorLog("coroutine read error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
+        closeWithCallback();
+        break;
     }
 }
 

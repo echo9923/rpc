@@ -11,6 +11,8 @@
 
 namespace tinyrpc {
 
+class Coroutine;
+
 enum class ReadStatus {
     Data,
     Again,
@@ -37,6 +39,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     void closeConnection();
     void setCloseCallback(std::function<void(int)> cb);
     void sendData(const std::string& data);
+    void startReadCoroutine();
 
  private:
     ReadResult readData();
@@ -48,6 +51,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     void updateEvent();
     void closeWithCallback();
 
+    void coroutineReadLoop();
+
  private:
     Socket m_fd {kInvalidSocket};             // Socket 文件描述符，标识此 TCP 连接
     Reactor *m_reactor {nullptr};             // 所属 Reactor（事件驱动），用于注册/删除事件
@@ -57,6 +62,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     TcpBuffer m_outputBuffer;                 // 输出缓冲区，暂存待发送给对端的数据
     bool m_closeAfterWrite {false};           // 写完后是否自动关闭连接（半关闭场景）
     bool m_isClosed {false};                  // 连接是否已关闭，防止重复关闭
+    std::unique_ptr<Coroutine> m_readCoroutine; // 读协程，使用 read_hook 实现协程式读取
 };
 
 }

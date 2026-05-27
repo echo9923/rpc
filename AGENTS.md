@@ -71,6 +71,20 @@ apt update
 apt install -y build-essential cmake netcat-openbsd
 ```
 
+### build 目录跨环境注意事项
+
+1. `build.sh` 生成的 `build/CMakeCache.txt` 中记录了 **宿主环境的绝对路径**（如 macOS 下的 `/Users/xxx/...` 或 Docker 容器内的 `/workspace/...`）。
+2. 如果在 macOS 上执行过 `./build.sh`，再在 Docker 容器内执行 `./build.sh` 会因路径不匹配而报错：
+   ```
+   CMake Error: The current CMakeCache.txt directory ... is different than the directory ...
+   ```
+3. **切换构建环境后必须清理 `build/` 目录再重建：**
+   ```bash
+   rm -rf build
+   ./build.sh
+   ```
+4. 推荐始终在 **同一个环境**（Docker 容器或 WSL）中完成编译、测试、验收，不要在两种环境之间混用。
+
 ### 编译命令
 
 #### WSL
