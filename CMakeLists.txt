@@ -12,10 +12,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -O0")
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/mytinyrpc)
 
+find_package(GTest REQUIRED)
+include_directories(${GTEST_INCLUDE_DIRS})
+
 set(SRC
     mytinyrpc/comm/log.cc
     mytinyrpc/coroutine/coctx_swap.S
     mytinyrpc/coroutine/coroutine.cc
+    mytinyrpc/coroutine/coroutine_hook.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/netaddress.cc
@@ -61,3 +65,9 @@ add_executable(test_coroutine
     testcases/test_coroutine.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
+
+add_executable(test_hook
+    testcases/test_hook.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_hook ${GTEST_LIBRARIES} pthread)
