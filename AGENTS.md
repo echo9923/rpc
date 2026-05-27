@@ -43,9 +43,17 @@
 
 ## 构建要求
 
-本项目以 Linux 作为目标运行环境。Windows 下必须通过 WSL 进行构建、运行和验收，不使用 Windows 原生工具链直接构建。
+本项目以 Linux 作为目标运行环境。编译、运行、测试和阶段验收必须在 Linux 环境内执行。
+
+### 环境选择
+
+1. Windows 环境下使用 WSL。
+2. macOS 等非 WSL 环境下使用 Docker Linux 容器。
+3. Apple Silicon Mac 使用 Docker 时，容器应使用 `linux/amd64` 平台，以匹配项目当前的 x86-64 汇编实现。
 
 ### 依赖安装
+
+#### WSL
 
 WSL 默认按 Debian/Ubuntu 环境处理，缺少依赖时执行：
 
@@ -54,18 +62,23 @@ sudo apt update
 sudo apt install -y build-essential cmake netcat-openbsd
 ```
 
-### 构建命令
+#### Docker Linux
 
-在 Linux/WSL 内执行：
+Docker 容器内建议使用 Debian/Ubuntu 系 Linux 环境，缺少依赖时在容器内执行：
+
+```bash
+apt update
+apt install -y build-essential cmake netcat-openbsd
+```
+
+### 编译命令
+
+#### WSL
+
+进入 WSL 中的项目根目录后执行：
 
 ```bash
 ./build.sh
-```
-
-在 Windows PowerShell 内执行：
-
-```powershell
-.\build.ps1
 ```
 
 也可以在 Windows PowerShell 内直接调用 WSL：
@@ -74,10 +87,74 @@ sudo apt install -y build-essential cmake netcat-openbsd
 wsl --cd "D:\codeproject\cpp\rpc" bash ./build.sh
 ```
 
-### 验收命令
+#### Docker Linux
 
-阶段验收统一在 WSL 内执行：
+进入 Docker Linux 容器中的项目根目录后执行：
+
+```bash
+./build.sh
+```
+
+### 测试命令
+
+#### WSL
+
+先完成编译，然后在 WSL 中的项目根目录执行对应测试二进制，例如：
+
+```bash
+./build/test_tcp_echo_server
+./build/test_epoll_accept
+./build/test_fdevent
+./build/test_reactor
+./build/test_reactor_accept
+./build/test_tcp_buffer
+./build/test_coroutine
+```
+
+也可以在 Windows PowerShell 内直接调用 WSL 执行单个测试程序，例如：
+
+```powershell
+wsl --cd "D:\codeproject\cpp\rpc" bash -lc "./build/test_tcp_buffer"
+```
+
+#### Docker Linux
+
+先完成编译，然后在 Docker Linux 容器中的项目根目录执行对应测试二进制，例如：
+
+```bash
+./build/test_tcp_echo_server
+./build/test_epoll_accept
+./build/test_fdevent
+./build/test_reactor
+./build/test_reactor_accept
+./build/test_tcp_buffer
+./build/test_coroutine
+```
+
+长期运行或需要客户端连接的测试程序，应按对应阶段文档或验收脚本要求启动和验证。
+
+### 阶段验收命令
+
+#### WSL
+
+阶段验收在 WSL 中的项目根目录执行：
+
+```bash
+./scripts/check_stage1.sh
+```
+
+也可以在 Windows PowerShell 内直接调用 WSL：
 
 ```powershell
 wsl --cd "D:\codeproject\cpp\rpc" bash ./scripts/check_stage1.sh
 ```
+
+#### Docker Linux
+
+阶段验收在 Docker Linux 容器中的项目根目录执行：
+
+```bash
+./scripts/check_stage1.sh
+```
+
+验收通过以脚本输出 `PASS` 为准。
