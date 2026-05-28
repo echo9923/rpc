@@ -10,6 +10,7 @@
 |------|------|------|
 | 任务二十五：抽象协议数据和协议编解码接口 | 已完成 | `AbstractData` / `AbstractCodec` 接口基类；`ProtocolType` 枚举；`test_abstract_codec` 测试通过。 |
 | 任务二十六：定义 TinyPB 协议数据结构 | 已完成 | `TinyPbStruct` 数据结构；成员变量命名统一为 `m_` 前缀；`test_tinypb_data` 测试通过。 |
+| 任务二十七：实现 TinyPB 编码器的最小 encode 路径 | 已完成 | `TinyPbCodec::encode` 完整帧编码；网络字节序；错误校验；`test_tinypb_codec` 测试通过。 |
 
 ## 任务二十五记录
 
@@ -49,3 +50,20 @@
   - 四个用例：默认值验证、基类指针兼容性、字段赋值读回、状态标记继承可见性。
 - `CMakeLists.txt` 新增 `test_tinypb_data` 可执行目标。
 - 不实现 `TinyPbCodec`、不定义起止字节、不做网络字节序转换、不处理半包/粘包。
+
+## 任务二十七记录
+
+任务二十七完成的目标是实现 TinyPB 协议编码器的最小 encode 路径，将 `TinyPbStruct` 结构体转换为符合协议规范的字节流：
+
+- 新增 `mytinyrpc/net/tinypb/tinypbcodec.h` / `tinypbcodec.cc`：
+  - `TinyPbCodec : public AbstractCodec`。
+  - 起止字节常量 `kTinyPbStart = 0x02`、`kTinyPbEnd = 0x03`。
+  - `encode()`：前置校验（nullptr、类型转换、必填字段非空）→ 回填长度字段 → 计算 `m_pkLen` → 按协议布局顺序写入 `TcpBuffer`。
+  - 私有辅助 `appendInt32()`：通过 `htonl` 将 int32_t 转为网络字节序后追加 4 字节到 buffer。
+  - `decode()`：空实现，仅设 `m_decodeSucc = false`。
+  - `getProtocolType()`：返回 `ProtocolType::TinyPb`。
+  - `m_checkNum` 固定为 `1`，暂不实现真实校验算法。
+- 新增 `testcases/test_tinypb_codec.cc`（GoogleTest）：
+  - 五个用例：协议类型、完整帧验证（起止字节/字段顺序/内容）、网络字节序验证、回填字段验证、非法输入拒绝。
+- `CMakeLists.txt` 新增 `tinypbcodec.cc` 到 SRC 列表，新增 `test_tinypb_codec` 可执行目标。
+- 不实现 decode 真实逻辑、不处理半包/粘包、不接入 `TcpConnection`、不改变 Echo Server 行为。
