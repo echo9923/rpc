@@ -85,7 +85,7 @@ bool FdEvent::registerToReactor()
         return false;
     }
 
-    m_isRegistered = m_reactor->addEvent(this);
+    m_isRegistered = m_reactor->epollAdd(this);
     return m_isRegistered;
 }
 
@@ -95,7 +95,7 @@ bool FdEvent::updateToReactor()
         return false;
     }
 
-    return m_reactor->modEvent(this);
+    return m_reactor->epollMod(this);
 }
 
 bool FdEvent::unregisterFromReactor()
@@ -108,7 +108,7 @@ bool FdEvent::unregisterFromReactor()
         return false;
     }
 
-    if (!m_reactor->delEvent(this)) {
+    if (!m_reactor->epollDel(this)) {
         return false;
     }
 

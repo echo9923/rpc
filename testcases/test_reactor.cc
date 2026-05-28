@@ -104,14 +104,14 @@ int main()
     // 13. 调用 waitOnce(100)，超时 100ms。事件已删除，应超时返回 0。
     nfds = reactor.waitOnce(100);
     if (nfds != 0) {
-        std::cerr << "[reactor] FAIL: waitOnce after delEvent returned "
+        std::cerr << "[reactor] FAIL: waitOnce after epollDel returned "
                   << nfds << ", expected 0" << std::endl;
         return 1;
     }
 
     // 14. 验证回调次数没有继续增加。
     if (readCount != 1) {
-        std::cerr << "[reactor] FAIL: readCount changed after delEvent, got "
+        std::cerr << "[reactor] FAIL: readCount changed after epollDel, got "
                   << readCount << std::endl;
         return 1;
     }

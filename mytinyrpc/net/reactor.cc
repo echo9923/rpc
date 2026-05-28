@@ -36,7 +36,7 @@ int Reactor::getEpollFd() const
     return m_epollFd;
 }
 
-bool Reactor::addEvent(FdEvent* event)
+bool Reactor::epollAdd(FdEvent* event)
 {
     struct epoll_event ev;
     ev.events = event->getListenEvents();
@@ -60,7 +60,7 @@ bool Reactor::addEvent(FdEvent* event)
     return true;
 }
 
-bool Reactor::modEvent(FdEvent* event)
+bool Reactor::epollMod(FdEvent* event)
 {
     // epoll_ctl(EPOLL_CTL_MOD) 修改已注册 fd 的关注事件。
     // 用于连接对象按需启停 EPOLLIN / EPOLLOUT。
@@ -80,7 +80,7 @@ bool Reactor::modEvent(FdEvent* event)
     return true;
 }
 
-bool Reactor::delEvent(FdEvent* event)
+bool Reactor::epollDel(FdEvent* event)
 {
     // epoll_ctl(EPOLL_CTL_DEL) 从 epoll 实例中删除指定 fd。
     // 第四个参数可传 nullptr，因为 EPOLL_CTL_DEL 会忽略 events 数据。
@@ -114,7 +114,7 @@ int Reactor::waitOnce(int timeoutMs)
     }
 
     for (int i = 0; i < nfds; ++i) {
-        // data.ptr 在 addEvent 时已被设为 FdEvent*，直接还原调用。
+        // data.ptr 在 epollAdd 时已被设为 FdEvent*，直接还原调用。
         auto* event = static_cast<FdEvent*>(events[i].data.ptr);
 
         // 如果 FdEvent 上挂有协程，说明此前 read_hook/write_hook 遇到 EAGAIN

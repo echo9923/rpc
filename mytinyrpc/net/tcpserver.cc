@@ -72,7 +72,7 @@ void TcpServer::start()
     m_listenEvent.addListenEvent(EPOLLIN);
     m_listenEvent.setReadCallback([this]() { acceptLoop(); });
 
-    if (!m_reactor.addEvent(&m_listenEvent)) {
+    if (!m_reactor.epollAdd(&m_listenEvent)) {
         ErrorLog("TcpServer add listen event to reactor failed");
         return;
     }

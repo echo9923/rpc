@@ -14,9 +14,9 @@ class Reactor {
 
   int getEpollFd() const;
 
-  bool addEvent(FdEvent* event);
-  bool modEvent(FdEvent* event);
-  bool delEvent(FdEvent* event);
+  bool epollAdd(FdEvent* event);
+  bool epollMod(FdEvent* event);
+  bool epollDel(FdEvent* event);
 
   int waitOnce(int timeoutMs);
 
@@ -25,7 +25,7 @@ class Reactor {
 
   int m_epollFd {-1};
 
-  // fd → FdEvent* 映射，addEvent/delEvent 时维护。
+  // fd → FdEvent* 映射，epollAdd/epollDel 时维护。
   // 用于快速查找和防止重复注册。
   std::unordered_map<int, FdEvent*> m_events;
 };

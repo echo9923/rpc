@@ -59,7 +59,7 @@ void TcpConnection::sendData(const std::string& data)
         return;
     }
 
-    // 仅追加到输出缓冲区，实际发送由 flushOutputByHook 完成
+    // 仅追加到输出缓冲区，实际发送由 output() 完成
     m_outputBuffer.append(data);
 }
 
@@ -99,6 +99,21 @@ void TcpConnection::closeWithCallback()
 
 void TcpConnection::coroutineReadLoop()
 {
+    // 三段式主循环：input → execute → output
+    // 当前 execute 保持 Echo 语义，后续接入 TinyPbCodec 时替换即可。
+    while (!m_isClosed) {
+        if (!input()) {
+            break;
+        }
+        execute();
+        output();
+    }
+}
+
+bool TcpConnection::input()
+{
+    // 只负责从 socket 读取字节流并追加到 m_inputBuffer。
+    // 返回 true 表示成功读到数据，false 表示连接需关闭。
     char buffer[1024];
 
     while (!m_isClosed) {
@@ -110,32 +125,44 @@ void TcpConnection::coroutineReadLoop()
 
         if (n > 0) {
             m_inputBuffer.append(buffer, static_cast<size_t>(n));
-            std::string data = m_inputBuffer.retrieveAllAsString();
-            sendData(data);
-            flushOutputByHook();
-            continue;
+            return true;
         }
 
         if (n == 0) {
             // 对端关闭连接（TCP FIN），::read 返回 0
             InfoLog("coroutine read: client closed, fd = " + std::to_string(m_fd));
             closeWithCallback();
-            break;
+            return false;
         }
 
         // n < 0：发生错误，errno 由 read_hook 设置
         if (errno == EINTR) {
-            // 被信号中断，重试 read_hook
+            // 被信号中断，在 input() 内部重试，对 execute/output 透明
             continue;
         }
 
         ErrorLog("coroutine read error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
         closeWithCallback();
-        break;
+        return false;
     }
+
+    return false;
 }
 
-void TcpConnection::flushOutputByHook()
+void TcpConnection::execute()
+{
+    // 消费 m_inputBuffer，将结果写入 m_outputBuffer。
+    // 当前阶段保持 Echo 语义：将输入原样写入输出。
+    // 后续接入 TinyPbCodec 时替换此方法即可。
+    if (m_inputBuffer.getReadableBytes() == 0) {
+        return;
+    }
+
+    std::string data = m_inputBuffer.retrieveAllAsString();
+    m_outputBuffer.append(data);
+}
+
+void TcpConnection::output()
 {
     // 循环通过 write_hook 将输出缓冲区数据写入 socket。
     // write_hook 内部处理 EAGAIN：遇到发送缓冲区满时将协程挂到 FdEvent 上，
@@ -165,7 +192,7 @@ void TcpConnection::flushOutputByHook()
             continue;
         }
 
-        ErrorLog("flushOutputByHook write error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
+        ErrorLog("TcpConnection::output write error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
         closeWithCallback();
         break;
     }

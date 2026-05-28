@@ -29,7 +29,9 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
  private:
     void closeWithCallback();
     void coroutineReadLoop();
-    void flushOutputByHook();
+    bool input();
+    void execute();
+    void output();
 
  private:
     Socket m_fd {kInvalidSocket};             // Socket 文件描述符，标识此 TCP 连接
