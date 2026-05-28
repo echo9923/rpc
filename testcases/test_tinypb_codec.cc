@@ -1,5 +1,5 @@
 /*
- * test_tinypb_codec.cc — 任务二十七：TinyPbCodec encode 路径验收测试。
+ * test_tinypb_codec.cc — 任务二十七/二十八：TinyPbCodec 编解码验收测试。
  *
  * 测试覆盖：
  *   1. GetProtocolType：确认返回 ProtocolType::TinyPb。
@@ -7,6 +7,11 @@
  *   3. EncodeUsesNetworkByteOrder：验证 int32 字段以大端写入。
  *   4. EncodeBackfillsFields：验证编码后回填的长度字段和状态标记。
  *   5. EncodeRejectsInvalidData：验证各种非法输入时不污染 buffer 且 m_encodeSucc = false。
+ *   6. DecodeRoundTripSingleFrame：encode 再 decode，验证全部字段一致，buffer 为空。
+ *   7. DecodeParsesNetworkByteOrderFields：非零 errCode、非空 errInfo/pbData，验证字段正确。
+ *   8. DecodeRejectsIncompleteFrameWithoutConsuming：截掉尾字节，decode 失败且不消费 buffer。
+ *   9. DecodeRejectsBadStartOrEndWithoutConsuming：篡改起止符，decode 失败且不消费。
+ *  10. DecodeRejectsInvalidDataType：传入非 TinyPbStruct，decode 失败且不消费。
  */
 
 #include "net/tcpbuffer.h"
@@ -259,6 +264,192 @@ TEST(TinyPbCodecTest, EncodeRejectsInvalidData)
         EXPECT_FALSE(pb.m_encodeSucc);
         EXPECT_EQ(buffer.getReadableBytes(), 0u);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 6：encode → decode 往返，验证全部字段一致，buffer 最后为空
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeRoundTripSingleFrame)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    // 构造原始数据
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-roundtrip";
+    original.m_serviceFullName = "OrderService.create";
+    original.m_errCode = 42;
+    original.m_errInfo = "service not found";
+    original.m_pbData = "some-pb-data";
+
+    // encode
+    tinyrpc::TcpBuffer buffer(256);
+    codec.encode(&buffer, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+
+    // decode 到新对象
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    // decode 成功
+    EXPECT_TRUE(decoded.m_decodeSucc);
+
+    // buffer 应被完全消费
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+
+    // 所有字段应与原始一致（encode 回填后的值）
+    EXPECT_EQ(decoded.m_pkLen, original.m_pkLen);
+    EXPECT_EQ(decoded.m_msgReqLen, original.m_msgReqLen);
+    EXPECT_EQ(decoded.m_msgReq, original.m_msgReq);
+    EXPECT_EQ(decoded.m_serviceNameLen, original.m_serviceNameLen);
+    EXPECT_EQ(decoded.m_serviceFullName, original.m_serviceFullName);
+    EXPECT_EQ(decoded.m_errCode, original.m_errCode);
+    EXPECT_EQ(decoded.m_errInfoLen, original.m_errInfoLen);
+    EXPECT_EQ(decoded.m_errInfo, original.m_errInfo);
+    EXPECT_EQ(decoded.m_pbData, original.m_pbData);
+    EXPECT_EQ(decoded.m_checkNum, original.m_checkNum);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 7：decode 正确解析非零 errCode、非空 errInfo 和 pbData
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeParsesNetworkByteOrderFields)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-netorder";
+    original.m_serviceFullName = "Svc.method";
+    original.m_errCode = 0x01020304;
+    original.m_errInfo = "err detail";
+    original.m_pbData = "\xAB\xCD\xEF";
+
+    tinyrpc::TcpBuffer buffer(256);
+    codec.encode(&buffer, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    EXPECT_TRUE(decoded.m_decodeSucc);
+    EXPECT_EQ(decoded.m_errCode, 0x01020304);
+    EXPECT_EQ(decoded.m_errInfo, "err detail");
+    EXPECT_EQ(decoded.m_errInfoLen, static_cast<int32_t>(original.m_errInfo.size()));
+    EXPECT_EQ(decoded.m_pbData, std::string("\xAB\xCD\xEF", 3));
+    EXPECT_EQ(decoded.m_msgReq, "req-netorder");
+    EXPECT_EQ(decoded.m_serviceFullName, "Svc.method");
+    EXPECT_EQ(decoded.m_checkNum, 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 8：不完整帧（截掉最后一个字节），decode 失败且不消费 buffer
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeRejectsIncompleteFrameWithoutConsuming)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-incomplete";
+    original.m_serviceFullName = "Svc.m";
+
+    tinyrpc::TcpBuffer buffer(256);
+    codec.encode(&buffer, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+
+    // 截掉最后一个字节（PB_END）
+    // 通过 retrieve 消费除最后 1 字节外的全部数据，再保留到一个新 buffer
+    size_t fullSize = buffer.getReadableBytes();
+    std::string truncated = buffer.retrieveAsString(fullSize - 1);
+    // truncated 现在少了最后一个字节
+    tinyrpc::TcpBuffer truncBuffer(256);
+    truncBuffer.append(truncated);
+
+    size_t before = truncBuffer.getReadableBytes();
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&truncBuffer, &decoded);
+
+    // decode 应失败
+    EXPECT_FALSE(decoded.m_decodeSucc);
+
+    // buffer 不应被消费
+    EXPECT_EQ(truncBuffer.getReadableBytes(), before);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 9：篡改起始符或结束符，decode 失败且不消费 buffer
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeRejectsBadStartOrEndWithoutConsuming)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-badmarker";
+    original.m_serviceFullName = "Svc.m";
+
+    // 9a. 篡改起始符
+    {
+        tinyrpc::TcpBuffer buffer(256);
+        codec.encode(&buffer, &original);
+        ASSERT_TRUE(original.m_encodeSucc);
+
+        // 将 buffer 内容取出，篡改首字节，再放回
+        std::string raw = buffer.retrieveAllAsString();
+        raw[0] = 0x00; // 篡改 PB_START
+        buffer.append(raw);
+
+        size_t before = buffer.getReadableBytes();
+
+        tinyrpc::TinyPbStruct decoded;
+        codec.decode(&buffer, &decoded);
+
+        EXPECT_FALSE(decoded.m_decodeSucc);
+        EXPECT_EQ(buffer.getReadableBytes(), before);
+    }
+
+    // 9b. 篡改结束符
+    {
+        tinyrpc::TcpBuffer buffer(256);
+        codec.encode(&buffer, &original);
+
+        std::string raw = buffer.retrieveAllAsString();
+        raw[raw.size() - 1] = 0x00; // 篡改 PB_END
+        buffer.append(raw);
+
+        size_t before = buffer.getReadableBytes();
+
+        tinyrpc::TinyPbStruct decoded;
+        codec.decode(&buffer, &decoded);
+
+        EXPECT_FALSE(decoded.m_decodeSucc);
+        EXPECT_EQ(buffer.getReadableBytes(), before);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 10：传入非 TinyPbStruct 的 AbstractData，decode 失败且不消费 buffer
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeRejectsInvalidDataType)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-type";
+    original.m_serviceFullName = "Svc.m";
+
+    tinyrpc::TcpBuffer buffer(256);
+    codec.encode(&buffer, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+
+    size_t before = buffer.getReadableBytes();
+
+    // 用 AbstractData 代替 TinyPbStruct
+    tinyrpc::AbstractData notPb;
+    codec.decode(&buffer, &notPb);
+
+    EXPECT_FALSE(notPb.m_decodeSucc);
+
+    // buffer 不应被消费
+    EXPECT_EQ(buffer.getReadableBytes(), before);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -34,7 +34,12 @@ class TinyPbCodec : public AbstractCodec {
     // 并将 data->m_encodeSucc 置 true。
     void encode(TcpBuffer *buffer, AbstractData *data) override;
 
-    // 本任务 decode 只保留空实现，设置 data->m_decodeSucc = false。
+    // 从 buffer 当前读位置解析一个完整的 TinyPB 帧，填充到 data。
+    // 前置校验：buffer/data 非 nullptr、data 可转为 TinyPbStruct。
+    // 帧校验：首字节为 kTinyPbStart、getReadableBytes() >= pkLen、
+    //         尾字节为 kTinyPbEnd。
+    // 成功时设置 m_decodeSucc = true 并消费 pkLen 字节。
+    // 失败时设置 m_decodeSucc = false，不消费 buffer。
     void decode(TcpBuffer *buffer, AbstractData *data) override;
 
     // 返回协议类型 TinyPb。
@@ -45,6 +50,11 @@ class TinyPbCodec : public AbstractCodec {
     // htonl 将主机字节序的 uint32_t 转换为网络字节序（大端），
     // 然后逐字节写入 buffer。
     static void appendInt32(TcpBuffer *buffer, int32_t value);
+
+    // 从 base + offset 处读取 4 字节网络字节序 int32_t，转为主机序写入 *value。
+    // readable 为可用总字节数，用于边界检查。
+    // offset + 4 <= readable 时返回 true，否则返回 false（不修改 *value）。
+    static bool readInt32(const char *base, size_t readable, size_t offset, int32_t *value);
 };
 
 }

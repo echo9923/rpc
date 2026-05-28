@@ -11,6 +11,7 @@
 | 任务二十五：抽象协议数据和协议编解码接口 | 已完成 | `AbstractData` / `AbstractCodec` 接口基类；`ProtocolType` 枚举；`test_abstract_codec` 测试通过。 |
 | 任务二十六：定义 TinyPB 协议数据结构 | 已完成 | `TinyPbStruct` 数据结构；成员变量命名统一为 `m_` 前缀；`test_tinypb_data` 测试通过。 |
 | 任务二十七：实现 TinyPB 编码器的最小 encode 路径 | 已完成 | `TinyPbCodec::encode` 完整帧编码；网络字节序；错误校验；`test_tinypb_codec` 测试通过。 |
+| 任务二十八：实现 TinyPB 解码器的完整单包 decode 路径 | 已完成 | `TinyPbCodec::decode` 单包解析；网络字节序还原；失败不消费 buffer；`test_tinypb_codec` 测试通过。 |
 
 ## 任务二十五记录
 
@@ -67,3 +68,19 @@
   - 五个用例：协议类型、完整帧验证（起止字节/字段顺序/内容）、网络字节序验证、回填字段验证、非法输入拒绝。
 - `CMakeLists.txt` 新增 `tinypbcodec.cc` 到 SRC 列表，新增 `test_tinypb_codec` 可执行目标。
 - 不实现 decode 真实逻辑、不处理半包/粘包、不接入 `TcpConnection`、不改变 Echo Server 行为。
+
+## 任务二十八记录
+
+任务二十八完成的目标是实现 TinyPB 协议解码器的完整单包 decode 路径，将 `TcpBuffer` 中的字节流反序列化为 `TinyPbStruct`：
+
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.h`：
+  - 新增私有辅助 `readInt32()`：从指定偏移处读取 4 字节网络序 int32_t 并转为主机序。
+  - 更新 `decode()` 注释。
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.cc`：
+  - `decode()` 完整实现：前置校验（nullptr、类型转换）→ 最小帧长度检查 → 起始符校验 → 读取 pkLen → 半包检查 → 结束符校验 → 依次解析全部字段 → 成功时 `m_decodeSucc = true` 并 `buffer->retrieve(pkLen)`。
+  - `readInt32()` 实现：边界检查 + `ntohl` 转换。
+  - `pbData` 长度通过 `pkLen - 已解析字节数 - 4(checkNum) - 1(PB_END)` 推导。
+  - 失败时 `m_decodeSucc = false`，不调用 `buffer->retrieve()`。
+- 修改 `testcases/test_tinypb_codec.cc`：
+  - 新增五个 decode 用例：encode/decode 往返验证、网络字节序字段解析、不完整帧拒绝、篡改起止符拒绝、非法数据类型拒绝。
+- 不扫描脏数据、不循环解析多包、不做 checksum 校验、不接入 `TcpConnection`、不改 Echo Server 行为。
