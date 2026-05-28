@@ -34,11 +34,11 @@ class TinyPbCodec : public AbstractCodec {
     // 并将 data->m_encodeSucc 置 true。
     void encode(TcpBuffer *buffer, AbstractData *data) override;
 
-    // 从 buffer 当前读位置解析一个完整的 TinyPB 帧，填充到 data。
-    // 前置校验：buffer/data 非 nullptr、data 可转为 TinyPbStruct。
-    // 帧校验：首字节为 kTinyPbStart、getReadableBytes() >= pkLen、
-    //         尾字节为 kTinyPbEnd。
-    // 成功时设置 m_decodeSucc = true 并消费 pkLen 字节。
+    // 从 buffer 可读区间中查找第一个 kTinyPbStart，从该位置解析一个完整的 TinyPB 帧。
+    // 起始符前的无效字节（如有）会在解析成功时一并消费。
+    // 半包或无起始符时 decode 失败且不消费 buffer。
+    // 一次 decode 只解析第一个完整帧，后续帧保留在 buffer 中。
+    // 成功时设置 m_decodeSucc = true 并消费（前置无效字节 + pkLen）字节。
     // 失败时设置 m_decodeSucc = false，不消费 buffer。
     void decode(TcpBuffer *buffer, AbstractData *data) override;
 
@@ -55,6 +55,10 @@ class TinyPbCodec : public AbstractCodec {
     // readable 为可用总字节数，用于边界检查。
     // offset + 4 <= readable 时返回 true，否则返回 false（不修改 *value）。
     static bool readInt32(const char *base, size_t readable, size_t offset, int32_t *value);
+
+    // 在 base[0..readable-1] 中查找第一个 kTinyPbStart (0x02)。
+    // 找到时返回 true 并将 *start 设为其下标偏移；否则返回 false。
+    static bool findFrameStart(const char *base, size_t readable, size_t *start);
 };
 
 }

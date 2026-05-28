@@ -1,5 +1,5 @@
 /*
- * test_tinypb_codec.cc — 任务二十七/二十八：TinyPbCodec 编解码验收测试。
+ * test_tinypb_codec.cc — 任务二十七/二十八/二十九：TinyPbCodec 编解码验收测试。
  *
  * 测试覆盖：
  *   1. GetProtocolType：确认返回 ProtocolType::TinyPb。
@@ -12,6 +12,11 @@
  *   8. DecodeRejectsIncompleteFrameWithoutConsuming：截掉尾字节，decode 失败且不消费 buffer。
  *   9. DecodeRejectsBadStartOrEndWithoutConsuming：篡改起止符，decode 失败且不消费。
  *  10. DecodeRejectsInvalidDataType：传入非 TinyPbStruct，decode 失败且不消费。
+ *  11. DecodeSkipsBytesBeforeStartWhenFullFrameExists：前置噪音+完整帧，decode 跳过噪音成功解析。
+ *  12. DecodeKeepsTrailingFrameAfterFirstDecode：两帧连续，第一次只消费第一帧。
+ *  13. DecodeSecondFrameOnSecondCall：接上，第二次消费第二帧，buffer 清空。
+ *  14. DecodePartialThenAppendRest：半包追加剩余后 decode 成功。
+ *  15. DecodeWithNoiseThenPartialFrameDoesNotConsume：噪音+半包，decode 失败不消费。
  */
 
 #include "net/tcpbuffer.h"
@@ -449,6 +454,233 @@ TEST(TinyPbCodecTest, DecodeRejectsInvalidDataType)
     EXPECT_FALSE(notPb.m_decodeSucc);
 
     // buffer 不应被消费
+    EXPECT_EQ(buffer.getReadableBytes(), before);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 11：前置噪音 + 完整帧，decode 跳过噪音并成功解析帧
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeSkipsBytesBeforeStartWhenFullFrameExists)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-noise";
+    original.m_serviceFullName = "Svc.method";
+    original.m_errCode = 0;
+    original.m_errInfo = "some error";
+    original.m_pbData = "payload";
+
+    // 先将合法帧编码到临时 buffer
+    tinyrpc::TcpBuffer frameBuf(256);
+    codec.encode(&frameBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string frameData = frameBuf.retrieveAllAsString();
+
+    // 主 buffer：前置噪音 + 合法帧
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append("noise"); // 5 字节无效数据，不含 0x02
+    buffer.append(frameData);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    // decode 应成功
+    EXPECT_TRUE(decoded.m_decodeSucc);
+
+    // 字段应与原始一致
+    EXPECT_EQ(decoded.m_msgReq, "req-noise");
+    EXPECT_EQ(decoded.m_serviceFullName, "Svc.method");
+    EXPECT_EQ(decoded.m_errCode, 0);
+    EXPECT_EQ(decoded.m_errInfo, "some error");
+    EXPECT_EQ(decoded.m_pbData, "payload");
+
+    // buffer 应被完全消费（噪音 + 帧）
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 12：两个完整帧连续放入 buffer，第一次 decode 只消费第一帧
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeKeepsTrailingFrameAfterFirstDecode)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    // 第一帧
+    tinyrpc::TinyPbStruct frame1;
+    frame1.m_msgReq = "req-1";
+    frame1.m_serviceFullName = "Svc.one";
+
+    // 第二帧
+    tinyrpc::TinyPbStruct frame2;
+    frame2.m_msgReq = "req-2";
+    frame2.m_serviceFullName = "Svc.two";
+
+    tinyrpc::TcpBuffer buf1(256);
+    codec.encode(&buf1, &frame1);
+    ASSERT_TRUE(frame1.m_encodeSucc);
+
+    tinyrpc::TcpBuffer buf2(256);
+    codec.encode(&buf2, &frame2);
+    ASSERT_TRUE(frame2.m_encodeSucc);
+
+    // 连续放入同一个 buffer
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(buf1.retrieveAllAsString());
+    buffer.append(buf2.retrieveAllAsString());
+
+    size_t totalSize = buffer.getReadableBytes();
+    size_t frame1Size = static_cast<size_t>(frame1.m_pkLen);
+    size_t frame2Size = static_cast<size_t>(frame2.m_pkLen);
+    EXPECT_EQ(totalSize, frame1Size + frame2Size);
+
+    // 第一次 decode：只解析第一帧
+    tinyrpc::TinyPbStruct decoded1;
+    codec.decode(&buffer, &decoded1);
+
+    EXPECT_TRUE(decoded1.m_decodeSucc);
+    EXPECT_EQ(decoded1.m_msgReq, "req-1");
+    EXPECT_EQ(decoded1.m_serviceFullName, "Svc.one");
+
+    // buffer 中应保留第二帧
+    EXPECT_EQ(buffer.getReadableBytes(), frame2Size);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 13：第二次 decode 解析第二帧，buffer 清空
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeSecondFrameOnSecondCall)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct frame1;
+    frame1.m_msgReq = "req-A";
+    frame1.m_serviceFullName = "Svc.alpha";
+
+    tinyrpc::TinyPbStruct frame2;
+    frame2.m_msgReq = "req-B";
+    frame2.m_serviceFullName = "Svc.beta";
+    frame2.m_errCode = 99;
+    frame2.m_errInfo = "oops";
+    frame2.m_pbData = "\x01\x02";
+
+    tinyrpc::TcpBuffer buf1(256);
+    codec.encode(&buf1, &frame1);
+    ASSERT_TRUE(frame1.m_encodeSucc);
+
+    tinyrpc::TcpBuffer buf2(256);
+    codec.encode(&buf2, &frame2);
+    ASSERT_TRUE(frame2.m_encodeSucc);
+
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(buf1.retrieveAllAsString());
+    buffer.append(buf2.retrieveAllAsString());
+
+    // 第一次 decode
+    tinyrpc::TinyPbStruct decoded1;
+    codec.decode(&buffer, &decoded1);
+    ASSERT_TRUE(decoded1.m_decodeSucc);
+    EXPECT_EQ(decoded1.m_msgReq, "req-A");
+
+    // 第二次 decode
+    tinyrpc::TinyPbStruct decoded2;
+    codec.decode(&buffer, &decoded2);
+    EXPECT_TRUE(decoded2.m_decodeSucc);
+    EXPECT_EQ(decoded2.m_msgReq, "req-B");
+    EXPECT_EQ(decoded2.m_serviceFullName, "Svc.beta");
+    EXPECT_EQ(decoded2.m_errCode, 99);
+    EXPECT_EQ(decoded2.m_errInfo, "oops");
+    EXPECT_EQ(decoded2.m_pbData, std::string("\x01\x02", 2));
+
+    // buffer 应为空
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 14：半包追加剩余后 decode 成功
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodePartialThenAppendRest)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-partial";
+    original.m_serviceFullName = "Svc.partial";
+    original.m_errCode = 7;
+    original.m_errInfo = "partial test";
+    original.m_pbData = "data";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string fullFrame = encBuf.retrieveAllAsString();
+
+    // 截成两半
+    size_t half = fullFrame.size() / 2;
+    std::string firstHalf = fullFrame.substr(0, half);
+    std::string secondHalf = fullFrame.substr(half);
+
+    // 先追加前半
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(firstHalf);
+
+    // 半包 decode 应失败，不消费
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+    EXPECT_FALSE(decoded.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), firstHalf.size());
+
+    // 追加后半
+    buffer.append(secondHalf);
+
+    // 现在 decode 应成功
+    tinyrpc::TinyPbStruct decoded2;
+    codec.decode(&buffer, &decoded2);
+    EXPECT_TRUE(decoded2.m_decodeSucc);
+    EXPECT_EQ(decoded2.m_msgReq, "req-partial");
+    EXPECT_EQ(decoded2.m_serviceFullName, "Svc.partial");
+    EXPECT_EQ(decoded2.m_errCode, 7);
+    EXPECT_EQ(decoded2.m_errInfo, "partial test");
+    EXPECT_EQ(decoded2.m_pbData, "data");
+
+    // buffer 应为空
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15：噪音 + 半包，decode 失败不消费
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeWithNoiseThenPartialFrameDoesNotConsume)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-noisypartial";
+    original.m_serviceFullName = "Svc.np";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string fullFrame = encBuf.retrieveAllAsString();
+
+    // 取帧的前 10 字节作为半包（去掉尾部的 PB_END 和部分数据）
+    // 确保半包以 kTinyPbStart (0x02) 开头
+    std::string partialFrame = fullFrame.substr(0, fullFrame.size() - 1);
+
+    // 主 buffer：噪音 + 半包
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append("noise"); // 5 字节噪音
+    buffer.append(partialFrame);
+
+    // 半包的最后一字节不是 PB_END，所以即使 readable >= pkLen，结束符校验也会失败。
+    // 但更有可能的情况是 readable < pkLen（因为截掉了部分字节）。
+    // 无论如何，decode 应失败且不消费。
+    size_t before = buffer.getReadableBytes();
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    EXPECT_FALSE(decoded.m_decodeSucc);
     EXPECT_EQ(buffer.getReadableBytes(), before);
 }
 

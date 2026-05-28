@@ -112,24 +112,38 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
     const char *raw = buffer->getReadPtr();
     size_t readable = buffer->getReadableBytes();
 
-    // ---- 最小帧长度检查 ----
-    // 空帧（所有字符串为空）最少需要：
-    //   START(1) + pkLen(4) + msgReqLen(4) + serviceNameLen(4)
-    //   + errCode(4) + errInfoLen(4) + checkNum(4) + END(1) = 26
-    if (readable < 26) {
+    // ---- 查找帧起始符 ----
+    // findFrameStart 在 raw[0..readable-1] 中查找第一个 kTinyPbStart (0x02)。
+    // 找到后 startPos 为起始符在 raw 中的偏移。
+    // 未找到说明 buffer 中没有合法帧起点，可能是半包或纯噪音。
+    size_t startPos = 0;
+    if (!findFrameStart(raw, readable, &startPos)) {
         pb->m_decodeSucc = false;
         return;
     }
 
-    // ---- 起始符校验 ----
-    if (static_cast<unsigned char>(raw[0]) != kTinyPbStart) {
+    // 以 startPos 为帧起点，后续解析基于 frameRaw 和 frameReadable
+    const char *frameRaw = raw + startPos;
+    size_t frameReadable = readable - startPos;
+
+    // ---- 最小帧长度检查 ----
+    // 空帧（所有字符串为空）最少需要：
+    //   START(1) + pkLen(4) + msgReqLen(4) + serviceNameLen(4)
+    //   + errCode(4) + errInfoLen(4) + checkNum(4) + END(1) = 26
+    if (frameReadable < 26) {
+        pb->m_decodeSucc = false;
+        return;
+    }
+
+    // ---- 起始符校验（frameRaw[0] 必然是 kTinyPbStart，但保持防御性检查）----
+    if (static_cast<unsigned char>(frameRaw[0]) != kTinyPbStart) {
         pb->m_decodeSucc = false;
         return;
     }
 
     // ---- 读取 pkLen ----
     int32_t pkLen = 0;
-    if (!readInt32(raw, readable, 1, &pkLen)) {
+    if (!readInt32(frameRaw, frameReadable, 1, &pkLen)) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -140,14 +154,14 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
         return;
     }
 
-    // ---- 半包检查：buffer 中数据不足一个完整帧 ----
-    if (static_cast<size_t>(pkLen) > readable) {
+    // ---- 半包检查：帧数据不足一个完整帧 ----
+    if (static_cast<size_t>(pkLen) > frameReadable) {
         pb->m_decodeSucc = false;
         return;
     }
 
     // ---- 结束符校验 ----
-    if (static_cast<unsigned char>(raw[pkLen - 1]) != kTinyPbEnd) {
+    if (static_cast<unsigned char>(frameRaw[pkLen - 1]) != kTinyPbEnd) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -157,7 +171,7 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
 
     // msgReqLen
     int32_t msgReqLen = 0;
-    if (!readInt32(raw, pkLen, offset, &msgReqLen) || msgReqLen < 0) {
+    if (!readInt32(frameRaw, pkLen, offset, &msgReqLen) || msgReqLen < 0) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -169,12 +183,12 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
         pb->m_decodeSucc = false;
         return;
     }
-    pb->m_msgReq = std::string(raw + offset, static_cast<size_t>(msgReqLen));
+    pb->m_msgReq = std::string(frameRaw + offset, static_cast<size_t>(msgReqLen));
     offset += static_cast<size_t>(msgReqLen);
 
     // serviceNameLen
     int32_t serviceNameLen = 0;
-    if (!readInt32(raw, pkLen, offset, &serviceNameLen) || serviceNameLen < 0) {
+    if (!readInt32(frameRaw, pkLen, offset, &serviceNameLen) || serviceNameLen < 0) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -186,12 +200,12 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
         pb->m_decodeSucc = false;
         return;
     }
-    pb->m_serviceFullName = std::string(raw + offset, static_cast<size_t>(serviceNameLen));
+    pb->m_serviceFullName = std::string(frameRaw + offset, static_cast<size_t>(serviceNameLen));
     offset += static_cast<size_t>(serviceNameLen);
 
     // errCode
     int32_t errCode = 0;
-    if (!readInt32(raw, pkLen, offset, &errCode)) {
+    if (!readInt32(frameRaw, pkLen, offset, &errCode)) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -200,7 +214,7 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
 
     // errInfoLen
     int32_t errInfoLen = 0;
-    if (!readInt32(raw, pkLen, offset, &errInfoLen) || errInfoLen < 0) {
+    if (!readInt32(frameRaw, pkLen, offset, &errInfoLen) || errInfoLen < 0) {
         pb->m_decodeSucc = false;
         return;
     }
@@ -212,26 +226,40 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
         pb->m_decodeSucc = false;
         return;
     }
-    pb->m_errInfo = std::string(raw + offset, static_cast<size_t>(errInfoLen));
+    pb->m_errInfo = std::string(frameRaw + offset, static_cast<size_t>(errInfoLen));
     offset += static_cast<size_t>(errInfoLen);
 
     // pbData：没有独立的长度字段，剩余字节 = pkLen - offset - 4(checkNum) - 1(PB_END)
     size_t pbDataLen = static_cast<size_t>(pkLen) - offset - 4 - 1;
-    pb->m_pbData = std::string(raw + offset, pbDataLen);
+    pb->m_pbData = std::string(frameRaw + offset, pbDataLen);
     offset += pbDataLen;
 
     // checkNum
     int32_t checkNum = 0;
-    if (!readInt32(raw, pkLen, offset, &checkNum)) {
+    if (!readInt32(frameRaw, pkLen, offset, &checkNum)) {
         pb->m_decodeSucc = false;
         return;
     }
     pb->m_checkNum = checkNum;
 
     // ---- 成功：回填 pkLen，消费 buffer，设置状态 ----
+    // 一次性消费 startPos（前置无效字节）+ pkLen（完整帧）
     pb->m_pkLen = pkLen;
     pb->m_decodeSucc = true;
-    buffer->retrieve(static_cast<size_t>(pkLen));
+    buffer->retrieve(startPos + static_cast<size_t>(pkLen));
+}
+
+bool TinyPbCodec::findFrameStart(const char *base, size_t readable, size_t *start)
+{
+    // 线性扫描 base[0..readable-1]，查找第一个 kTinyPbStart (0x02)。
+    // 本任务不做"坏包跳过恢复"策略，只找第一个起始符。
+    for (size_t i = 0; i < readable; ++i) {
+        if (static_cast<unsigned char>(base[i]) == kTinyPbStart) {
+            *start = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool TinyPbCodec::readInt32(const char *base, size_t readable, size_t offset, int32_t *value)

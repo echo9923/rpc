@@ -12,6 +12,7 @@
 | 任务二十六：定义 TinyPB 协议数据结构 | 已完成 | `TinyPbStruct` 数据结构；成员变量命名统一为 `m_` 前缀；`test_tinypb_data` 测试通过。 |
 | 任务二十七：实现 TinyPB 编码器的最小 encode 路径 | 已完成 | `TinyPbCodec::encode` 完整帧编码；网络字节序；错误校验；`test_tinypb_codec` 测试通过。 |
 | 任务二十八：实现 TinyPB 解码器的完整单包 decode 路径 | 已完成 | `TinyPbCodec::decode` 单包解析；网络字节序还原；失败不消费 buffer；`test_tinypb_codec` 测试通过。 |
+| 任务二十九：增强 TinyPB decode 的流式拆包边界处理 | 已完成 | `TinyPbCodec::decode` 前置噪音跳过；半包保留；粘包单次消费一帧；`findFrameStart` 辅助；`test_tinypb_codec` 测试通过。 |
 
 ## 任务二十五记录
 
@@ -84,3 +85,21 @@
 - 修改 `testcases/test_tinypb_codec.cc`：
   - 新增五个 decode 用例：encode/decode 往返验证、网络字节序字段解析、不完整帧拒绝、篡改起止符拒绝、非法数据类型拒绝。
 - 不扫描脏数据、不循环解析多包、不做 checksum 校验、不接入 `TcpConnection`、不改 Echo Server 行为。
+
+## 任务二十九记录
+
+任务二十九完成的目标是增强 `TinyPbCodec::decode()` 的流式拆包边界处理，使其能应对真实 TCP 字节流中的前置杂音、半包和粘包场景：
+
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.h`：
+  - 新增私有辅助 `findFrameStart()`：在可读区间内查找第一个 `kTinyPbStart` (0x02)。
+  - 更新 `decode()` 注释，说明前置扫描、半包保留、单次单帧等行为。
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.cc`：
+  - `decode()` 入口处调用 `findFrameStart()` 扫描起始符，后续所有校验和字段解析基于帧起点（`frameRaw`、`frameReadable`）进行。
+  - 成功时 `buffer->retrieve(startPos + pkLen)` 一次性消费前置无效字节 + 完整帧。
+  - 失败时不调用 `retrieve`，保留全部数据（前置噪音 + 半包），等待更多数据到来。
+  - 一次 decode 只解析第一个完整帧，后续帧保留在 buffer 中供下次 decode。
+  - `findFrameStart()` 实现为线性扫描，不做坏包跳过恢复策略。
+- 修改 `testcases/test_tinypb_codec.cc`：
+  - 新增五个流式拆包测试用例：前置噪音跳过、粘包单帧消费、连续两次 decode 两帧、半包追加后成功、噪音+半包不消费。
+  - 所有任务二十七/二十八已有测试不退化。
+- 不接入 `TcpConnection`、不改 Echo Server、不做 checksum、不做坏包恢复、不做最大包长限制。
