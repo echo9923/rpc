@@ -21,11 +21,11 @@ class AbstractCodec {
     virtual ~AbstractCodec() = default;
 
     // 将 data 序列化并写入 buffer。
-    // 成功后应将 data->encodeSucc 置为 true。
+    // 成功后应将 data->m_encodeSucc 置为 true。
     virtual void encode(TcpBuffer *buffer, AbstractData *data) = 0;
 
     // 从 buffer 中读取字节流并反序列化到 data。
-    // 成功后应将 data->decodeSucc 置为 true。
+    // 成功后应将 data->m_decodeSucc 置为 true。
     virtual void decode(TcpBuffer *buffer, AbstractData *data) = 0;
 
     // 返回当前 Codec 对应的协议类型。
