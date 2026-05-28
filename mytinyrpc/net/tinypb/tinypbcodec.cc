@@ -112,154 +112,168 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
     const char *raw = buffer->getReadPtr();
     size_t readable = buffer->getReadableBytes();
 
-    // ---- 查找帧起始符 ----
-    // findFrameStart 在 raw[0..readable-1] 中查找第一个 kTinyPbStart (0x02)。
-    // 找到后 startPos 为起始符在 raw 中的偏移。
-    // 未找到说明 buffer 中没有合法帧起点，可能是半包或纯噪音。
-    size_t startPos = 0;
-    if (!findFrameStart(raw, readable, &startPos)) {
-        pb->m_decodeSucc = false;
+    // ---- 循环扫描候选起始符 ----
+    // 遇到非法候选时跳过，从下一个 0x02 继续；
+    // 遇到合法候选但数据不完整时视为半包，直接返回失败。
+    size_t scanPos = 0;
+    while (true) {
+        // 从 scanPos 开始查找下一个 kTinyPbStart
+        size_t startOffset = 0;
+        if (!findFrameStart(raw, readable, scanPos, &startOffset)) {
+            // 没有找到任何起始符，buffer 中无合法帧起点
+            pb->m_decodeSucc = false;
+            return;
+        }
+
+        const char *frameRaw = raw + startOffset;
+        size_t frameReadable = readable - startOffset;
+
+        // 数据不足以读取 pkLen（至少需要 START(1) + pkLen(4) = 5 字节）
+        if (frameReadable < 5) {
+            pb->m_decodeSucc = false;
+            return;
+        }
+
+        // 读取 pkLen 字段
+        int32_t pkLen = 0;
+        if (!readInt32(frameRaw, frameReadable, 1, &pkLen)) {
+            // 理论上 frameReadable >= 5 时不会失败，防御性处理
+            scanPos = startOffset + 1;
+            continue;
+        }
+
+        // 包长合法性检查：非法则跳过此候选
+        if (!isValidPackageLength(pkLen)) {
+            scanPos = startOffset + 1;
+            continue;
+        }
+
+        // 半包检查：包长合法但数据不完整，视为合法半包，等待更多数据
+        if (static_cast<size_t>(pkLen) > frameReadable) {
+            pb->m_decodeSucc = false;
+            return;
+        }
+
+        // 结束符校验：不匹配则跳过此候选
+        if (static_cast<unsigned char>(frameRaw[pkLen - 1]) != kTinyPbEnd) {
+            scanPos = startOffset + 1;
+            continue;
+        }
+
+        // ---- 依次解析字段 ----
+        // 所有解析变量在此声明，避免 goto 跨越初始化问题。
+        bool parseFailed = false;
+        size_t offset = 5; // 跳过 START(1) + pkLen(4)
+        int32_t msgReqLen = 0;
+        int32_t serviceNameLen = 0;
+        int32_t errCode = 0;
+        int32_t errInfoLen = 0;
+
+        // msgReqLen
+        if (!readInt32(frameRaw, pkLen, offset, &msgReqLen) || msgReqLen < 0) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        offset += 4;
+        pb->m_msgReqLen = msgReqLen;
+
+        // msgReq
+        if (offset + static_cast<size_t>(msgReqLen) > static_cast<size_t>(pkLen)) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        pb->m_msgReq = std::string(frameRaw + offset, static_cast<size_t>(msgReqLen));
+        offset += static_cast<size_t>(msgReqLen);
+
+        // serviceNameLen
+        if (!readInt32(frameRaw, pkLen, offset, &serviceNameLen) || serviceNameLen < 0) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        offset += 4;
+        pb->m_serviceNameLen = serviceNameLen;
+
+        // serviceFullName
+        if (offset + static_cast<size_t>(serviceNameLen) > static_cast<size_t>(pkLen)) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        pb->m_serviceFullName = std::string(frameRaw + offset, static_cast<size_t>(serviceNameLen));
+        offset += static_cast<size_t>(serviceNameLen);
+
+        // errCode
+        if (!readInt32(frameRaw, pkLen, offset, &errCode)) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        offset += 4;
+        pb->m_errCode = errCode;
+
+        // errInfoLen
+        if (!readInt32(frameRaw, pkLen, offset, &errInfoLen) || errInfoLen < 0) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        offset += 4;
+        pb->m_errInfoLen = errInfoLen;
+
+        // errInfo
+        if (offset + static_cast<size_t>(errInfoLen) > static_cast<size_t>(pkLen)) {
+            parseFailed = true;
+            goto parse_done;
+        }
+        pb->m_errInfo = std::string(frameRaw + offset, static_cast<size_t>(errInfoLen));
+        offset += static_cast<size_t>(errInfoLen);
+
+        // pbData：没有独立的长度字段，剩余字节 = pkLen - offset - 4(checkNum) - 1(PB_END)
+        {
+            size_t pbDataLen = static_cast<size_t>(pkLen) - offset - 4 - 1;
+            pb->m_pbData = std::string(frameRaw + offset, pbDataLen);
+            offset += pbDataLen;
+        }
+
+        // checkNum
+        {
+            int32_t checkNum = 0;
+            if (!readInt32(frameRaw, pkLen, offset, &checkNum)) {
+                parseFailed = true;
+                goto parse_done;
+            }
+            pb->m_checkNum = checkNum;
+        }
+
+parse_done:
+        if (parseFailed) {
+            // 字段解析失败，跳过此候选，继续向后扫描
+            scanPos = startOffset + 1;
+            continue;
+        }
+
+        // ---- 成功：回填 pkLen，消费 buffer，设置状态 ----
+        // 一次性消费 startOffset（前置无效字节+被跳过的坏候选）+ pkLen（合法帧）
+        pb->m_pkLen = pkLen;
+        pb->m_decodeSucc = true;
+        buffer->retrieve(startOffset + static_cast<size_t>(pkLen));
         return;
     }
-
-    // 以 startPos 为帧起点，后续解析基于 frameRaw 和 frameReadable
-    const char *frameRaw = raw + startPos;
-    size_t frameReadable = readable - startPos;
-
-    // ---- 最小帧长度检查 ----
-    // 空帧（所有字符串为空）最少需要：
-    //   START(1) + pkLen(4) + msgReqLen(4) + serviceNameLen(4)
-    //   + errCode(4) + errInfoLen(4) + checkNum(4) + END(1) = 26
-    if (frameReadable < 26) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // ---- 起始符校验（frameRaw[0] 必然是 kTinyPbStart，但保持防御性检查）----
-    if (static_cast<unsigned char>(frameRaw[0]) != kTinyPbStart) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // ---- 读取 pkLen ----
-    int32_t pkLen = 0;
-    if (!readInt32(frameRaw, frameReadable, 1, &pkLen)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // pkLen 应大于最小帧长度
-    if (pkLen < 26) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // ---- 半包检查：帧数据不足一个完整帧 ----
-    if (static_cast<size_t>(pkLen) > frameReadable) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // ---- 结束符校验 ----
-    if (static_cast<unsigned char>(frameRaw[pkLen - 1]) != kTinyPbEnd) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-
-    // ---- 依次解析字段 ----
-    size_t offset = 5; // 跳过 START(1) + pkLen(4)
-
-    // msgReqLen
-    int32_t msgReqLen = 0;
-    if (!readInt32(frameRaw, pkLen, offset, &msgReqLen) || msgReqLen < 0) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    offset += 4;
-    pb->m_msgReqLen = msgReqLen;
-
-    // msgReq
-    if (offset + static_cast<size_t>(msgReqLen) > static_cast<size_t>(pkLen)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    pb->m_msgReq = std::string(frameRaw + offset, static_cast<size_t>(msgReqLen));
-    offset += static_cast<size_t>(msgReqLen);
-
-    // serviceNameLen
-    int32_t serviceNameLen = 0;
-    if (!readInt32(frameRaw, pkLen, offset, &serviceNameLen) || serviceNameLen < 0) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    offset += 4;
-    pb->m_serviceNameLen = serviceNameLen;
-
-    // serviceFullName
-    if (offset + static_cast<size_t>(serviceNameLen) > static_cast<size_t>(pkLen)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    pb->m_serviceFullName = std::string(frameRaw + offset, static_cast<size_t>(serviceNameLen));
-    offset += static_cast<size_t>(serviceNameLen);
-
-    // errCode
-    int32_t errCode = 0;
-    if (!readInt32(frameRaw, pkLen, offset, &errCode)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    offset += 4;
-    pb->m_errCode = errCode;
-
-    // errInfoLen
-    int32_t errInfoLen = 0;
-    if (!readInt32(frameRaw, pkLen, offset, &errInfoLen) || errInfoLen < 0) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    offset += 4;
-    pb->m_errInfoLen = errInfoLen;
-
-    // errInfo
-    if (offset + static_cast<size_t>(errInfoLen) > static_cast<size_t>(pkLen)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    pb->m_errInfo = std::string(frameRaw + offset, static_cast<size_t>(errInfoLen));
-    offset += static_cast<size_t>(errInfoLen);
-
-    // pbData：没有独立的长度字段，剩余字节 = pkLen - offset - 4(checkNum) - 1(PB_END)
-    size_t pbDataLen = static_cast<size_t>(pkLen) - offset - 4 - 1;
-    pb->m_pbData = std::string(frameRaw + offset, pbDataLen);
-    offset += pbDataLen;
-
-    // checkNum
-    int32_t checkNum = 0;
-    if (!readInt32(frameRaw, pkLen, offset, &checkNum)) {
-        pb->m_decodeSucc = false;
-        return;
-    }
-    pb->m_checkNum = checkNum;
-
-    // ---- 成功：回填 pkLen，消费 buffer，设置状态 ----
-    // 一次性消费 startPos（前置无效字节）+ pkLen（完整帧）
-    pb->m_pkLen = pkLen;
-    pb->m_decodeSucc = true;
-    buffer->retrieve(startPos + static_cast<size_t>(pkLen));
 }
 
-bool TinyPbCodec::findFrameStart(const char *base, size_t readable, size_t *start)
+bool TinyPbCodec::findFrameStart(const char *base, size_t readable, size_t from, size_t *start)
 {
-    // 线性扫描 base[0..readable-1]，查找第一个 kTinyPbStart (0x02)。
-    // 本任务不做"坏包跳过恢复"策略，只找第一个起始符。
-    for (size_t i = 0; i < readable; ++i) {
+    // 从 base[from..readable-1] 中查找第一个 kTinyPbStart (0x02)。
+    // *start 返回相对于 base 起始的绝对偏移。
+    for (size_t i = from; i < readable; ++i) {
         if (static_cast<unsigned char>(base[i]) == kTinyPbStart) {
             *start = i;
             return true;
         }
     }
     return false;
+}
+
+bool TinyPbCodec::isValidPackageLength(int32_t pkLen)
+{
+    return pkLen >= kTinyPbMinPackageLength && pkLen <= kTinyPbMaxPackageLength;
 }
 
 bool TinyPbCodec::readInt32(const char *base, size_t readable, size_t offset, int32_t *value)

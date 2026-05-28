@@ -1,5 +1,5 @@
 /*
- * test_tinypb_codec.cc — 任务二十七/二十八/二十九：TinyPbCodec 编解码验收测试。
+ * test_tinypb_codec.cc — 任务二十七/二十八/二十九/三十：TinyPbCodec 编解码验收测试。
  *
  * 测试覆盖：
  *   1. GetProtocolType：确认返回 ProtocolType::TinyPb。
@@ -17,6 +17,11 @@
  *  13. DecodeSecondFrameOnSecondCall：接上，第二次消费第二帧，buffer 清空。
  *  14. DecodePartialThenAppendRest：半包追加剩余后 decode 成功。
  *  15. DecodeWithNoiseThenPartialFrameDoesNotConsume：噪音+半包，decode 失败不消费。
+ *  16. DecodeSkipsBadFrameThenParsesNextValidFrame：坏帧后跟合法帧，跳过坏帧解析合法帧。
+ *  17. DecodeSkipsCandidateWithTooSmallPackageLength：pkLen 过小的坏候选后跟合法帧。
+ *  18. DecodeSkipsCandidateWithTooLargePackageLength：pkLen 过大的坏候选后跟合法帧。
+ *  19. DecodeKeepsIncompleteValidCandidateWithoutSkipping：合法半包不消费不跳过。
+ *  20. DecodeReturnsFalseWhenOnlyBadCandidatesExist：仅有坏候选时失败不消费。
  */
 
 #include "net/tcpbuffer.h"
@@ -675,6 +680,224 @@ TEST(TinyPbCodecTest, DecodeWithNoiseThenPartialFrameDoesNotConsume)
     // 半包的最后一字节不是 PB_END，所以即使 readable >= pkLen，结束符校验也会失败。
     // 但更有可能的情况是 readable < pkLen（因为截掉了部分字节）。
     // 无论如何，decode 应失败且不消费。
+    size_t before = buffer.getReadableBytes();
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    EXPECT_FALSE(decoded.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), before);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 辅助函数：构造一个有正确起始符但尾字节错误的坏帧。
+// 复制合法帧的字节流，把最后一个字节替换为 0xFF。
+// ─────────────────────────────────────────────────────────────────────────────
+static std::string makeBadEndFrame(const std::string &goodFrame)
+{
+    std::string bad = goodFrame;
+    bad[bad.size() - 1] = static_cast<char>(0xFF);
+    return bad;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 辅助函数：构造一个 pkLen 过小的坏候选（起始符 + pkLen=5 + 填充）。
+// START(0x02) + pkLen=5（网络序）+ 3 字节填充 = 8 字节。
+// ─────────────────────────────────────────────────────────────────────────────
+static std::string makeTooSmallPkLenCandidate()
+{
+    // htonl(5) 的大端字节序
+    uint32_t netLen = htonl(5);
+    std::string bad(1, static_cast<char>(tinyrpc::kTinyPbStart));
+    bad.append(reinterpret_cast<const char *>(&netLen), 4);
+    bad.append("xxx"); // 填充到 8 字节
+    return bad;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 辅助函数：构造一个 pkLen 过大的坏候选（起始符 + pkLen=2MB + 填充）。
+// START(0x02) + pkLen=2*1024*1024（网络序）+ 3 字节填充。
+// ─────────────────────────────────────────────────────────────────────────────
+static std::string makeTooLargePkLenCandidate()
+{
+    uint32_t netLen = htonl(2 * 1024 * 1024);
+    std::string bad(1, static_cast<char>(tinyrpc::kTinyPbStart));
+    bad.append(reinterpret_cast<const char *>(&netLen), 4);
+    bad.append("yyy");
+    return bad;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 16：坏帧（尾字节错误）后跟合法帧，decode 跳过坏帧解析合法帧
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeSkipsBadFrameThenParsesNextValidFrame)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-after-bad";
+    original.m_serviceFullName = "Svc.good";
+    original.m_errCode = 10;
+    original.m_errInfo = "ok";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string goodFrame = encBuf.retrieveAllAsString();
+
+    // 构造坏帧：合法帧内容但尾字节错误
+    std::string badFrame = makeBadEndFrame(goodFrame);
+
+    // buffer: 坏帧 + 合法帧
+    tinyrpc::TcpBuffer buffer(512);
+    buffer.append(badFrame);
+    buffer.append(goodFrame);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    // 应跳过坏帧，解析合法帧
+    EXPECT_TRUE(decoded.m_decodeSucc);
+    EXPECT_EQ(decoded.m_msgReq, "req-after-bad");
+    EXPECT_EQ(decoded.m_serviceFullName, "Svc.good");
+    EXPECT_EQ(decoded.m_errCode, 10);
+    EXPECT_EQ(decoded.m_errInfo, "ok");
+
+    // buffer 应为空（坏帧 + 合法帧都被消费）
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 17：pkLen 过小的坏候选后跟合法帧
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooSmallPackageLength)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-small";
+    original.m_serviceFullName = "Svc.ok";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string goodFrame = encBuf.retrieveAllAsString();
+
+    // 坏候选：pkLen = 5 < kTinyPbMinPackageLength(26)
+    std::string badCandidate = makeTooSmallPkLenCandidate();
+
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(badCandidate);
+    buffer.append(goodFrame);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    EXPECT_TRUE(decoded.m_decodeSucc);
+    EXPECT_EQ(decoded.m_msgReq, "req-small");
+    EXPECT_EQ(decoded.m_serviceFullName, "Svc.ok");
+
+    // buffer 应为空
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18：pkLen 过大的坏候选后跟合法帧
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooLargePackageLength)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-large";
+    original.m_serviceFullName = "Svc.ok";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string goodFrame = encBuf.retrieveAllAsString();
+
+    // 坏候选：pkLen = 2MB > kTinyPbMaxPackageLength(1MB)
+    std::string badCandidate = makeTooLargePkLenCandidate();
+
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(badCandidate);
+    buffer.append(goodFrame);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    EXPECT_TRUE(decoded.m_decodeSucc);
+    EXPECT_EQ(decoded.m_msgReq, "req-large");
+    EXPECT_EQ(decoded.m_serviceFullName, "Svc.ok");
+
+    // buffer 应为空
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 19：合法候选但数据不完整（半包），decode 失败不消费不跳过
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeKeepsIncompleteValidCandidateWithoutSkipping)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req-incomplete-valid";
+    original.m_serviceFullName = "Svc.iv";
+
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string fullFrame = encBuf.retrieveAllAsString();
+
+    // 取前半部分作为半包，pkLen 合法但数据不全
+    size_t half = fullFrame.size() / 2;
+    std::string partial = fullFrame.substr(0, half);
+
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(partial);
+
+    size_t before = buffer.getReadableBytes();
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(&buffer, &decoded);
+
+    // 合法半包应失败但不消费
+    EXPECT_FALSE(decoded.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), before);
+
+    // 追加剩余数据后应能成功
+    buffer.append(fullFrame.substr(half));
+    tinyrpc::TinyPbStruct decoded2;
+    codec.decode(&buffer, &decoded2);
+    EXPECT_TRUE(decoded2.m_decodeSucc);
+    EXPECT_EQ(decoded2.m_msgReq, "req-incomplete-valid");
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 20：仅有坏候选，decode 失败不消费
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(TinyPbCodecTest, DecodeReturnsFalseWhenOnlyBadCandidatesExist)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    // 坏候选 1：pkLen 过小
+    std::string bad1 = makeTooSmallPkLenCandidate();
+    // 坏候选 2：尾字节错误（基于一个合法帧）
+    tinyrpc::TinyPbStruct original;
+    original.m_msgReq = "req";
+    original.m_serviceFullName = "S.m";
+    tinyrpc::TcpBuffer encBuf(256);
+    codec.encode(&encBuf, &original);
+    ASSERT_TRUE(original.m_encodeSucc);
+    std::string bad2 = makeBadEndFrame(encBuf.retrieveAllAsString());
+
+    tinyrpc::TcpBuffer buffer(256);
+    buffer.append(bad1);
+    buffer.append(bad2);
+
     size_t before = buffer.getReadableBytes();
 
     tinyrpc::TinyPbStruct decoded;

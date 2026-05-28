@@ -13,6 +13,7 @@
 | 任务二十七：实现 TinyPB 编码器的最小 encode 路径 | 已完成 | `TinyPbCodec::encode` 完整帧编码；网络字节序；错误校验；`test_tinypb_codec` 测试通过。 |
 | 任务二十八：实现 TinyPB 解码器的完整单包 decode 路径 | 已完成 | `TinyPbCodec::decode` 单包解析；网络字节序还原；失败不消费 buffer；`test_tinypb_codec` 测试通过。 |
 | 任务二十九：增强 TinyPB decode 的流式拆包边界处理 | 已完成 | `TinyPbCodec::decode` 前置噪音跳过；半包保留；粘包单次消费一帧；`findFrameStart` 辅助；`test_tinypb_codec` 测试通过。 |
+| 任务三十：补充 TinyPB decode 的错误包恢复和包长安全校验 | 已完成 | `decode` 循环扫描跳过非法候选；包长上下限校验；合法半包保留；`test_tinypb_codec` 测试通过。 |
 
 ## 任务二十五记录
 
@@ -103,3 +104,24 @@
   - 新增五个流式拆包测试用例：前置噪音跳过、粘包单帧消费、连续两次 decode 两帧、半包追加后成功、噪音+半包不消费。
   - 所有任务二十七/二十八已有测试不退化。
 - 不接入 `TcpConnection`、不改 Echo Server、不做 checksum、不做坏包恢复、不做最大包长限制。
+
+## 任务三十记录
+
+任务三十完成的目标是补充 TinyPB decode 的错误包恢复和包长安全校验，使解码器不会被坏候选卡死：
+
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.h`：
+  - 新增常量 `kTinyPbMinPackageLength = 26`、`kTinyPbMaxPackageLength = 1024 * 1024`。
+  - 新增私有辅助 `isValidPackageLength()`：检查 pkLen 是否在合法范围内。
+  - 修改 `findFrameStart()` 签名：新增 `from` 参数，支持从指定位置开始扫描。
+  - 更新 `decode()` 注释。
+- 修改 `mytinyrpc/net/tinypb/tinypbcodec.cc`：
+  - `decode()` 从线性流程重构为循环扫描：遇到非法候选（包长越界、尾字节错误、字段解析失败）时 `scanPos = startOffset + 1` 继续向后查找下一个 `0x02`。
+  - 包长非法（< 26 或 > 1MB）的候选立即跳过，不当作半包等待。
+  - 包长合法但数据不完整的候选视为合法半包，失败返回且不消费 buffer。
+  - 字段解析失败时通过 `parseFailed` 标记 + `goto parse_done` 跳出，外层 `continue` 继续扫描。
+  - `findFrameStart()` 支持 `from` 参数。
+  - `isValidPackageLength()` 实现。
+- 修改 `testcases/test_tinypb_codec.cc`：
+  - 新增五个错误恢复测试：坏帧跳过、pkLen 过小跳过、pkLen 过大跳过、合法半包不跳过、仅有坏候选时失败。
+  - 所有任务二十七/二十八/二十九已有测试不退化。
+- 不接入 `TcpConnection`、不改 Echo Server、不做 checksum、不做连接级安全策略。

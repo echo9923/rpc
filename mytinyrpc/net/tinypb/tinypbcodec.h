@@ -12,6 +12,14 @@ namespace tinyrpc {
 constexpr char kTinyPbStart = 0x02;
 constexpr char kTinyPbEnd = 0x03;
 
+// TinyPB 协议帧长度上下限
+// 最小帧：START(1) + pkLen(4) + msgReqLen(4) + serviceNameLen(4)
+//         + errCode(4) + errInfoLen(4) + checkNum(4) + END(1) = 26
+constexpr int32_t kTinyPbMinPackageLength = 26;
+
+// 最大帧：1MB，防止恶意超大 pkLen 导致解码器误等待
+constexpr int32_t kTinyPbMaxPackageLength = 1024 * 1024;
+
 // TinyPbCodec 负责 TinyPB 协议的编码和解码。
 // 编码布局（按网络传输顺序）：
 //   PB_START(1) | pkLen(4) | msgReqLen(4) | msgReq(N) | serviceNameLen(4)
@@ -34,12 +42,11 @@ class TinyPbCodec : public AbstractCodec {
     // 并将 data->m_encodeSucc 置 true。
     void encode(TcpBuffer *buffer, AbstractData *data) override;
 
-    // 从 buffer 可读区间中查找第一个 kTinyPbStart，从该位置解析一个完整的 TinyPB 帧。
-    // 起始符前的无效字节（如有）会在解析成功时一并消费。
-    // 半包或无起始符时 decode 失败且不消费 buffer。
-    // 一次 decode 只解析第一个完整帧，后续帧保留在 buffer 中。
-    // 成功时设置 m_decodeSucc = true 并消费（前置无效字节 + pkLen）字节。
-    // 失败时设置 m_decodeSucc = false，不消费 buffer。
+    // 从 buffer 可读区间中扫描 kTinyPbStart 候选，尝试解析一个完整的 TinyPB 帧。
+    // 遇到非法候选（包长越界、尾字节错误、字段越界）时跳过，继续向后扫描。
+    // 遇到合法候选但数据不完整时视为半包，失败且不消费 buffer。
+    // 成功时消费从原始读位置到合法帧结束的所有字节（含被跳过的坏候选）。
+    // 一次 decode 只解析第一个合法帧，后续帧保留在 buffer 中。
     void decode(TcpBuffer *buffer, AbstractData *data) override;
 
     // 返回协议类型 TinyPb。
@@ -56,9 +63,13 @@ class TinyPbCodec : public AbstractCodec {
     // offset + 4 <= readable 时返回 true，否则返回 false（不修改 *value）。
     static bool readInt32(const char *base, size_t readable, size_t offset, int32_t *value);
 
-    // 在 base[0..readable-1] 中查找第一个 kTinyPbStart (0x02)。
-    // 找到时返回 true 并将 *start 设为其下标偏移；否则返回 false。
-    static bool findFrameStart(const char *base, size_t readable, size_t *start);
+    // 在 base[0..readable-1] 中从 from 位置开始查找第一个 kTinyPbStart (0x02)。
+    // 找到时返回 true 并将 *start 设为其下标（相对于 base 起始的绝对偏移）；
+    // 否则返回 false。
+    static bool findFrameStart(const char *base, size_t readable, size_t from, size_t *start);
+
+    // 检查 pkLen 是否在合法范围 [kTinyPbMinPackageLength, kTinyPbMaxPackageLength] 内。
+    static bool isValidPackageLength(int32_t pkLen);
 };
 
 }
