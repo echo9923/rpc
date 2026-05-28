@@ -11,9 +11,12 @@
 
 namespace tinyrpc {
 
-TcpServer::TcpServer(const IPAddress& addr, AbstractCodec::Ptr codec)
+TcpServer::TcpServer(const IPAddress& addr,
+                     AbstractCodec::Ptr codec,
+                     AbstractDispatcher::Ptr dispatcher)
     : m_addr(addr),
-      m_codec(std::move(codec))
+      m_codec(std::move(codec)),
+      m_dispatcher(std::move(dispatcher))
 {
     DebugLog("TcpServer constructed on " + m_addr.toString());
 }
@@ -122,7 +125,7 @@ void TcpServer::acceptLoop()
         }
 
         // 任务二十四：读写均走协程 hook，startConnection 完成 FdEvent 注册 + 启动连接协程。
-        auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor, m_codec);
+        auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor, m_codec, m_dispatcher);
         conn->setCloseCallback([this](int fd) {
             this->removeConnection(fd);
         });

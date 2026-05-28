@@ -10,10 +10,13 @@
 
 namespace tinyrpc {
 
-TcpConnection::TcpConnection(Socket fd, Reactor *reactor, AbstractCodec::Ptr codec)
+TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
+                             AbstractCodec::Ptr codec,
+                             AbstractDispatcher::Ptr dispatcher)
     : m_fd(fd),
       m_reactor(reactor),
-      m_codec(std::move(codec))
+      m_codec(std::move(codec)),
+      m_dispatcher(std::move(dispatcher))
 {
 }
 
@@ -25,6 +28,25 @@ TcpConnection::~TcpConnection()
 Socket TcpConnection::getFd() const
 {
     return m_fd;
+}
+
+AbstractCodec::Ptr TcpConnection::getCodec() const
+{
+    return m_codec;
+}
+
+TcpBuffer* TcpConnection::getOutputBuffer()
+{
+    return &m_outputBuffer;
+}
+
+void TcpConnection::sendProtocolData(AbstractData *data)
+{
+    // 将协议数据对象通过当前 codec 编码后写入输出缓冲区。
+    // 由后续的 output() 阶段通过 write_hook 发送到 socket。
+    if (m_codec != nullptr && data != nullptr) {
+        m_codec->encode(&m_outputBuffer, data);
+    }
 }
 
 void TcpConnection::startConnection()
@@ -156,8 +178,10 @@ void TcpConnection::execute()
     // 消费 m_inputBuffer，将结果写入 m_outputBuffer。
     //
     // 无 codec 时保持 Echo 语义：将输入原样写入输出。
-    // 有 codec 时循环调用 decode/encode 完成协议回环：
-    //   - decode 成功：消费一帧，encode 回写到输出，继续处理粘包。
+    // 有 codec 时循环调用 decode，处理粘包：
+    //   - decode 成功：
+    //     - 有 dispatcher：交给 dispatcher 处理，由 dispatcher 通过 sendProtocolData() 写回响应。
+    //     - 无 dispatcher：encode 回写到输出（向后兼容的回环行为）。
     //   - decode 失败：半包或非法数据，不消费 buffer，等下一轮 input()。
     if (m_inputBuffer.getReadableBytes() == 0) {
         return;
@@ -169,7 +193,7 @@ void TcpConnection::execute()
         return;
     }
 
-    // 有 codec：循环 decode → encode，处理粘包
+    // 有 codec：循环 decode → dispatcher / encode，处理粘包
     while (m_inputBuffer.getReadableBytes() > 0) {
         TinyPbStruct pb;
         m_codec->decode(&m_inputBuffer, &pb);
@@ -179,7 +203,13 @@ void TcpConnection::execute()
             break;
         }
 
-        m_codec->encode(&m_outputBuffer, &pb);
+        if (m_dispatcher != nullptr) {
+            // 有 dispatcher：交给分发器处理，由 dispatcher 内部调用 sendProtocolData() 写回响应
+            m_dispatcher->dispatch(&pb, this);
+        } else {
+            // 无 dispatcher：encode 回环（向后兼容）
+            m_codec->encode(&m_outputBuffer, &pb);
+        }
     }
 }
 

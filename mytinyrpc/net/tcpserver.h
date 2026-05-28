@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/abstractcodec.h"
+#include "net/abstractdispatcher.h"
 #include "net/fdevent.h"
 #include "net/netaddress.h"
 #include "net/reactor.h"
@@ -15,7 +16,9 @@ class TcpConnection;
 
 class TcpServer {
  public:
-    explicit TcpServer(const IPAddress& addr, AbstractCodec::Ptr codec = nullptr);
+    explicit TcpServer(const IPAddress& addr,
+                       AbstractCodec::Ptr codec = nullptr,
+                       AbstractDispatcher::Ptr dispatcher = nullptr);
     ~TcpServer();
 
     const IPAddress& getLocalAddress() const;
@@ -36,6 +39,7 @@ class TcpServer {
     Reactor m_reactor;
     FdEvent m_listenEvent;
     AbstractCodec::Ptr m_codec;
+    AbstractDispatcher::Ptr m_dispatcher;
     std::unordered_map<int, std::shared_ptr<TcpConnection>> m_connections;
     bool m_running {false};
 };

@@ -1,16 +1,20 @@
 /*
- * test_connection_codec.cc — 任务三十二：连接层协议接入验收测试。
+ * test_connection_codec.cc — 任务三十二/三十三：连接层协议接入验收测试。
  *
  * 本测试验证 TcpConnection::execute() 中使用的 decode→encode 回环模式：
  *   1. CodecRoundTrip：encode 一帧，decode 后拿到与输入一致的字段，
  *      再 encode 回第二帧，两次编码的输出字节完全一致。
  *   2. PartialFrameNoConsume：半包时 decode 失败且不消费 buffer。
+ *   3. SendProtocolDataWritesOutput：sendProtocolData() 将协议数据
+ *      编码后写入 outputBuffer，可从中解码出原始字段。
  *
  * 此模式与 execute() 内部逻辑等价（有 codec 时循环 decode→encode）。
  * 不需要访问 TcpConnection 的私有成员。
  */
 
+#include "net/reactor.h"
 #include "net/tcpbuffer.h"
+#include "net/tcpconnection.h"
 #include "net/tinypb/tinypbcodec.h"
 
 #include <gtest/gtest.h>
@@ -97,6 +101,48 @@ TEST(ConnectionCodecTest, PartialFrameNoConsume)
 
     // buffer 不应被消费
     EXPECT_EQ(inputBuf.getReadableBytes(), partialFrame.size());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 3：sendProtocolData() 将协议数据编码后写入 outputBuffer
+// 验证 dispatcher 通过 sendProtocolData() 写回响应的路径可通。
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(ConnectionCodecTest, SendProtocolDataWritesOutput)
+{
+    tinyrpc::TinyPbCodec codec;
+
+    // 创建 Reactor 和 TcpConnection（fd=-1 不对应真实 socket，仅用于测试）
+    tinyrpc::Reactor reactor;
+    auto conn = std::make_shared<tinyrpc::TcpConnection>(-1, &reactor, std::make_shared<tinyrpc::TinyPbCodec>());
+
+    // 构造请求
+    tinyrpc::TinyPbStruct request;
+    request.m_msgReq = "req-send-001";
+    request.m_serviceFullName = "OrderService.create";
+    request.m_pbData = "\xAB\xCD";
+    request.m_errCode = 42;
+    request.m_errInfo = "test error";
+
+    // 调用 sendProtocolData()
+    conn->sendProtocolData(&request);
+
+    // 从 outputBuffer 解码响应
+    tinyrpc::TcpBuffer *outputBuf = conn->getOutputBuffer();
+    ASSERT_GT(outputBuf->getReadableBytes(), 0u);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec.decode(outputBuf, &decoded);
+    ASSERT_TRUE(decoded.m_decodeSucc);
+
+    // 验证字段与请求一致
+    EXPECT_EQ(decoded.m_msgReq, "req-send-001");
+    EXPECT_EQ(decoded.m_serviceFullName, "OrderService.create");
+    EXPECT_EQ(decoded.m_pbData, std::string("\xAB\xCD", 2));
+    EXPECT_EQ(decoded.m_errCode, 42);
+    EXPECT_EQ(decoded.m_errInfo, "test error");
+
+    // outputBuffer 应被完全消费
+    EXPECT_EQ(outputBuf->getReadableBytes(), 0u);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

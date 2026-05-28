@@ -28,6 +28,7 @@ set(SRC
     mytinyrpc/net/tcpconnection.cc
     mytinyrpc/net/tcpserver.cc
     mytinyrpc/net/tinypb/tinypbcodec.cc
+    mytinyrpc/net/tinypb/tinypbdispatcher.cc
 )
 
 add_library(mytinyrpc_obj OBJECT ${SRC})
@@ -86,3 +87,9 @@ add_executable(test_connection_codec
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_connection_codec ${GTEST_LIBRARIES} pthread)
+
+add_executable(test_tinypb_dispatcher
+    testcases/test_tinypb_dispatcher.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tinypb_dispatcher ${GTEST_LIBRARIES} pthread)
