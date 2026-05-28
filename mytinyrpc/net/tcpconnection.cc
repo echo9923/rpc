@@ -2,6 +2,7 @@
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutine_hook.h"
+#include "net/tinypb/tinypbdata.h"
 
 #include <cerrno>
 #include <sys/epoll.h>
@@ -9,9 +10,10 @@
 
 namespace tinyrpc {
 
-TcpConnection::TcpConnection(Socket fd, Reactor *reactor)
+TcpConnection::TcpConnection(Socket fd, Reactor *reactor, AbstractCodec::Ptr codec)
     : m_fd(fd),
-      m_reactor(reactor)
+      m_reactor(reactor),
+      m_codec(std::move(codec))
 {
 }
 
@@ -152,14 +154,33 @@ bool TcpConnection::input()
 void TcpConnection::execute()
 {
     // 消费 m_inputBuffer，将结果写入 m_outputBuffer。
-    // 当前阶段保持 Echo 语义：将输入原样写入输出。
-    // 后续接入 TinyPbCodec 时替换此方法即可。
+    //
+    // 无 codec 时保持 Echo 语义：将输入原样写入输出。
+    // 有 codec 时循环调用 decode/encode 完成协议回环：
+    //   - decode 成功：消费一帧，encode 回写到输出，继续处理粘包。
+    //   - decode 失败：半包或非法数据，不消费 buffer，等下一轮 input()。
     if (m_inputBuffer.getReadableBytes() == 0) {
         return;
     }
 
-    std::string data = m_inputBuffer.retrieveAllAsString();
-    m_outputBuffer.append(data);
+    if (m_codec == nullptr) {
+        std::string data = m_inputBuffer.retrieveAllAsString();
+        m_outputBuffer.append(data);
+        return;
+    }
+
+    // 有 codec：循环 decode → encode，处理粘包
+    while (m_inputBuffer.getReadableBytes() > 0) {
+        TinyPbStruct pb;
+        m_codec->decode(&m_inputBuffer, &pb);
+
+        if (!pb.m_decodeSucc) {
+            // 半包或非法数据，不消费 buffer，等下一轮 input() 追加更多数据
+            break;
+        }
+
+        m_codec->encode(&m_outputBuffer, &pb);
+    }
 }
 
 void TcpConnection::output()
