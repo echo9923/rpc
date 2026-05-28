@@ -35,6 +35,11 @@ AbstractCodec::Ptr TcpConnection::getCodec() const
     return m_codec;
 }
 
+TcpBuffer* TcpConnection::getInputBuffer()
+{
+    return &m_inputBuffer;
+}
+
 TcpBuffer* TcpConnection::getOutputBuffer()
 {
     return &m_outputBuffer;

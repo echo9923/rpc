@@ -7,6 +7,10 @@
 #include "net/reactor.h"
 #include "net/socket.h"
 
+// [第三方 API] google::protobuf::Service：Protobuf 编译器生成的服务基类，
+// registerService() 的参数类型依赖此定义。
+#include <google/protobuf/service.h>
+
 #include <memory>
 #include <unordered_map>
 
@@ -26,6 +30,11 @@ class TcpServer {
     bool init();
 
     void start();
+
+    // 注册一个 Protobuf Service 到分发器。
+    // 内部转发给 TinyPbDispatcher::registerService()。
+    // dispatcher 为 nullptr 或不是 TinyPbDispatcher 时返回 false。
+    bool registerService(std::shared_ptr<google::protobuf::Service> service);
 
  private:
     void acceptLoop();

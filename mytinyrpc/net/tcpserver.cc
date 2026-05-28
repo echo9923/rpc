@@ -1,6 +1,7 @@
 #include "net/tcpserver.h"
 #include "net/tcpconnection.h"
 #include "net/fdutil.h"
+#include "net/tinypb/tinypbdispatcher.h"
 #include "comm/log.h"
 
 #include <cerrno>
@@ -137,6 +138,18 @@ void TcpServer::acceptLoop()
 void TcpServer::removeConnection(int fd)
 {
     m_connections.erase(fd);
+}
+
+bool TcpServer::registerService(std::shared_ptr<google::protobuf::Service> service)
+{
+    // dynamic_cast 将 AbstractDispatcher* 安全转为 TinyPbDispatcher*；
+    // 若 m_dispatcher 实际类型不是 TinyPbDispatcher 则返回 nullptr，注册失败。
+    auto *dispatcher = dynamic_cast<TinyPbDispatcher *>(m_dispatcher.get());
+    if (dispatcher == nullptr) {
+        ErrorLog("TcpServer::registerService failed: dispatcher is null or not TinyPbDispatcher");
+        return false;
+    }
+    return dispatcher->registerService(std::move(service));
 }
 
 }

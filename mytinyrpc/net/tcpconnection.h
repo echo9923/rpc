@@ -26,8 +26,10 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     Socket getFd() const;
 
     AbstractCodec::Ptr getCodec() const;
+    TcpBuffer* getInputBuffer();
     TcpBuffer* getOutputBuffer();
     void sendProtocolData(AbstractData *data);
+    void execute();
 
     void closeConnection();
     void setCloseCallback(std::function<void(int)> cb);
@@ -38,7 +40,6 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     void closeWithCallback();
     void coroutineReadLoop();
     bool input();
-    void execute();
     void output();
 
  private:

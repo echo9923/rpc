@@ -1,5 +1,5 @@
 /*
- * test_connection_codec.cc — 任务三十二/三十三：连接层协议接入验收测试。
+ * test_connection_codec.cc — 任务三十二/三十三/三十五：连接层协议接入验收测试。
  *
  * 本测试验证 TcpConnection::execute() 中使用的 decode→encode 回环模式：
  *   1. CodecRoundTrip：encode 一帧，decode 后拿到与输入一致的字段，
@@ -7,18 +7,20 @@
  *   2. PartialFrameNoConsume：半包时 decode 失败且不消费 buffer。
  *   3. SendProtocolDataWritesOutput：sendProtocolData() 将协议数据
  *      编码后写入 outputBuffer，可从中解码出原始字段。
- *
- * 此模式与 execute() 内部逻辑等价（有 codec 时循环 decode→encode）。
- * 不需要访问 TcpConnection 的私有成员。
+ *   4. ExecuteDispatchesTinyPbRpcRequest：从 execute() 入口打通整条
+ *      服务端 RPC 链路，验证 CallMethod 真正被调用。
  */
 
 #include "net/reactor.h"
 #include "net/tcpbuffer.h"
 #include "net/tcpconnection.h"
 #include "net/tinypb/tinypbcodec.h"
+#include "net/tinypb/tinypbdispatcher.h"
+#include "test_tinypb_server.pb.h"
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +145,94 @@ TEST(ConnectionCodecTest, SendProtocolDataWritesOutput)
 
     // outputBuffer 应被完全消费
     EXPECT_EQ(outputBuf->getReadableBytes(), 0u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QueryServiceImpl：QueryService 的最小实现，用于全链路测试。
+// ─────────────────────────────────────────────────────────────────────────────
+class QueryServiceImpl : public QueryService {
+ public:
+    void query_name(
+        google::protobuf::RpcController * /*controller*/,
+        const queryNameReq *request,
+        queryNameRes *response,
+        google::protobuf::Closure *done) override
+    {
+        response->set_ret_code(0);
+        response->set_res_info("ok");
+        response->set_req_no(request->req_no());
+        response->set_id(request->id());
+        response->set_name("Alice");
+
+        if (done != nullptr) {
+            done->Run();
+        }
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 4：从 execute() 入口打通整条服务端 RPC 链路
+// queryNameReq → SerializeToString → TinyPbStruct → encode → inputBuffer
+// → execute() → decode → dispatch → CallMethod → encode → outputBuffer
+// → decode → ParseFromString → queryNameRes
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(ConnectionCodecTest, ExecuteDispatchesTinyPbRpcRequest)
+{
+    auto codec = std::make_shared<tinyrpc::TinyPbCodec>();
+    auto dispatcher = std::make_shared<tinyrpc::TinyPbDispatcher>();
+
+    // 注册服务
+    auto service = std::make_shared<QueryServiceImpl>();
+    dispatcher->registerService(service);
+
+    tinyrpc::Reactor reactor;
+    auto conn = std::make_shared<tinyrpc::TcpConnection>(-1, &reactor, codec, dispatcher);
+
+    // 构造 Protobuf 请求消息并序列化
+    queryNameReq pbReq;
+    pbReq.set_req_no(7);
+    pbReq.set_id(200);
+    pbReq.set_type(3);
+    std::string pbData;
+    ASSERT_TRUE(pbReq.SerializeToString(&pbData));
+
+    // 构造 TinyPB 请求帧
+    tinyrpc::TinyPbStruct request;
+    request.m_msgReq = "req-chain-001";
+    request.m_serviceFullName = "QueryService.query_name";
+    request.m_pbData = pbData;
+    request.m_errCode = 0;
+    request.m_errInfo = "";
+
+    // encode 到完整帧并 append 到 inputBuffer
+    tinyrpc::TcpBuffer encodeBuf(256);
+    codec->encode(&encodeBuf, &request);
+    ASSERT_TRUE(request.m_encodeSucc);
+    conn->getInputBuffer()->append(encodeBuf.retrieveAllAsString());
+
+    // 调用 execute()，驱动整条链路
+    conn->execute();
+
+    // 从 outputBuffer 解码 TinyPB 响应
+    tinyrpc::TcpBuffer *outputBuf = conn->getOutputBuffer();
+    ASSERT_GT(outputBuf->getReadableBytes(), 0u);
+
+    tinyrpc::TinyPbStruct response;
+    codec->decode(outputBuf, &response);
+    ASSERT_TRUE(response.m_decodeSucc);
+
+    EXPECT_EQ(response.m_msgReq, "req-chain-001");
+    EXPECT_EQ(response.m_serviceFullName, "QueryService.query_name");
+    EXPECT_EQ(response.m_errCode, 0);
+
+    // 将 response.m_pbData 反序列化为 queryNameRes 并验证
+    queryNameRes pbRes;
+    ASSERT_TRUE(pbRes.ParseFromString(response.m_pbData));
+    EXPECT_EQ(pbRes.ret_code(), 0);
+    EXPECT_EQ(pbRes.res_info(), "ok");
+    EXPECT_EQ(pbRes.req_no(), 7);
+    EXPECT_EQ(pbRes.id(), 200);
+    EXPECT_EQ(pbRes.name(), "Alice");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
