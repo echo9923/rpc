@@ -30,3 +30,25 @@
 - 真实 Stub 到真实 `TcpServer` 的端到端验收留到任务三十九。
 - `msgReq` 自动生成工具和 mismatch 检查留到任务四十/四十六。
 - 超时、重试和连接池留到后续阶段。
+
+### 任务三十九：真实 Stub 到服务端端到端同步 RPC
+
+已完成能力：
+
+- 新增 `test_tinypb_server_client`，支持 `--server`、`--client`、`--probe` 三种模式。
+- 服务端模式启动真实 `TcpServer`，接入 `TinyPbCodec` 和 `TinyPbDispatcher`，注册 `QueryServiceImpl`。
+- 客户端模式使用 Protobuf 生成的 `QueryService_Stub` 与 `TinyPbRpcChannel` 发起真实网络 RPC。
+- 新增 `scripts/check_stage8_rpc.sh`，自动启动服务端、等待端口可连接、运行 Stub 客户端并清理服务端进程。
+
+验证命令：
+
+```bash
+./build.sh
+./scripts/check_stage8_rpc.sh
+./scripts/check_stage1.sh
+```
+
+当前限制：
+
+- 只验证单客户端单请求。
+- 不做超时、重试和异步 Stub。

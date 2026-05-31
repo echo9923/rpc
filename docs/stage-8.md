@@ -50,6 +50,47 @@ sequenceDiagram
 - 不检查响应 `msgReq` 是否与请求一致，该能力在任务四十/四十六补齐。
 - 本任务只使用 mock socket server 验证 Channel，不启动真实 `TcpServer`。
 
+### 任务三十九：真实 Stub 到服务端端到端同步 RPC
+
+已新增 `test_tinypb_server_client` 和 `scripts/check_stage8_rpc.sh`。同一个测试程序提供三种模式：
+
+- `--server <port>`：启动真实 `TcpServer`，注册 `QueryServiceImpl`。
+- `--probe <port>`：尝试连接服务端端口，供脚本等待服务就绪。
+- `--client <port>`：使用 `QueryService_Stub` 和 `TinyPbRpcChannel` 发起一次同步 RPC。
+
+端到端调用链如下：
+
+```mermaid
+sequenceDiagram
+    participant Stub as "QueryService_Stub"
+    participant Channel as "TinyPbRpcChannel"
+    participant Client as "TcpClient"
+    participant Server as "TcpServer"
+    participant Conn as "TcpConnection"
+    participant Dispatcher as "TinyPbDispatcher"
+    participant Service as "QueryServiceImpl"
+
+    Stub->>Channel: "query_name(request)"
+    Channel->>Client: "sendAndRecvTinyPb()"
+    Client->>Server: "TCP TinyPB request"
+    Server->>Conn: "accept client fd"
+    Conn->>Dispatcher: "dispatch(TinyPbStruct)"
+    Dispatcher->>Service: "CallMethod(query_name)"
+    Service->>Dispatcher: "queryNameRes"
+    Dispatcher->>Conn: "sendProtocolData(response)"
+    Conn->>Client: "TCP TinyPB response"
+    Client->>Channel: "TinyPbStruct response"
+    Channel->>Stub: "queryNameRes"
+```
+
+验收命令：
+
+```bash
+./build.sh
+./scripts/check_stage8_rpc.sh
+./scripts/check_stage1.sh
+```
+
 ## 验证命令
 
 ```bash
