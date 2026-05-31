@@ -49,6 +49,10 @@ class TcpClient {
     // 返回当前同步网络操作超时时间，单位毫秒。
     int getTimeout() const;
 
+    // 设置连接失败后的有限重试次数和重试间隔。
+    // retryCount 表示失败后额外重试次数，0 表示不重试。
+    void setConnectRetry(int retryCount, int retryIntervalMs);
+
     // 创建 socket 并调用阻塞式 connect() 连接对端。
     // 成功返回 true，m_isConnected 置为 true。
     // 失败返回 false，关闭 socket，错误信息可通过 getErrorInfo() 获取。
@@ -71,6 +75,7 @@ class TcpClient {
     bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
 
  private:
+    bool connectOnce();
     bool waitFdEvent(short event, const std::string& operation, int timeoutErrorCode);
     bool writeAll(const char *data, size_t len);
     bool readSomeToBuffer(TcpBuffer *buffer);
@@ -80,6 +85,8 @@ class TcpClient {
     bool m_isConnected {false};
     int m_errorCode {0};
     int m_timeoutMs {0};
+    int m_connectRetryCount {0};
+    int m_connectRetryIntervalMs {0};
     std::string m_errorInfo;
 };
 

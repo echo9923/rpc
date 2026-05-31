@@ -115,6 +115,72 @@ bool encodeTinyPbToString(tinyrpc::TinyPbStruct *pb, std::string *frame)
     return true;
 }
 
+uint16_t reserveFreePort()
+{
+    // socket(2) 创建临时 fd，只用于让内核分配一个空闲端口。
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return 0;
+    }
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(0);
+
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        closeIfValid(&fd);
+        return 0;
+    }
+
+    socklen_t len = sizeof(addr);
+    if (getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        closeIfValid(&fd);
+        return 0;
+    }
+
+    uint16_t port = ntohs(addr.sin_port);
+    closeIfValid(&fd);
+    return port;
+}
+
+int createListenerOnPort(uint16_t port, std::string *errorInfo)
+{
+    int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd < 0) {
+        *errorInfo = std::strerror(errno);
+        return -1;
+    }
+
+    int reuse = 1;
+    // setsockopt(2) 参数依次为：socket fd、选项层级、选项名、选项值地址、选项长度。
+    // SO_REUSEADDR 允许测试快速复用刚释放的本地端口。
+    if (setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {
+        *errorInfo = std::strerror(errno);
+        closeIfValid(&listenFd);
+        return -1;
+    }
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+
+    if (bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        *errorInfo = std::strerror(errno);
+        closeIfValid(&listenFd);
+        return -1;
+    }
+
+    if (listen(listenFd, 1) != 0) {
+        *errorInfo = std::strerror(errno);
+        closeIfValid(&listenFd);
+        return -1;
+    }
+
+    return listenFd;
+}
+
 } // namespace
 
 // 在测试内部创建一个临时监听 socket，用于验证 connect 成功路径。
@@ -612,6 +678,162 @@ TEST_F(TcpClientTest, SlowResponseBeforeTimeoutSucceeds)
     EXPECT_EQ(client.getErrorCode(), 0);
     EXPECT_EQ(response.m_msgReq, "slow-ok");
     EXPECT_EQ(response.m_pbData, "slow-response");
+}
+
+TEST_F(TcpClientTest, RetryConnectSucceedsWhenServerStartsLater)
+{
+    uint16_t port = reserveFreePort();
+    ASSERT_NE(port, 0);
+
+    tinyrpc::TinyPbStruct decodedRequest;
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+
+        int retryListenFd = createListenerOnPort(port, &serverError);
+        if (retryListenFd < 0) {
+            return;
+        }
+
+        int clientFd = accept(retryListenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            closeIfValid(&retryListenFd);
+            return;
+        }
+
+        if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            closeIfValid(&clientFd);
+            closeIfValid(&retryListenFd);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct response;
+        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_serviceFullName = decodedRequest.m_serviceFullName;
+        response.m_errCode = 0;
+        response.m_pbData = "retry-response";
+
+        std::string frame;
+        if (!encodeTinyPbToString(&response, &frame)) {
+            serverError = "encode retry response failed";
+            closeIfValid(&clientFd);
+            closeIfValid(&retryListenFd);
+            return;
+        }
+
+        serverOk = writeAllToFd(clientFd, frame.data(), frame.size(), &serverError);
+        closeIfValid(&clientFd);
+        closeIfValid(&retryListenFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", port));
+    client.setConnectRetry(5, 50);
+
+    tinyrpc::TinyPbStruct request;
+    request.m_msgReq = "retry-req";
+    request.m_serviceFullName = "QueryService.query_name";
+    request.m_pbData = "retry-request";
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.sendAndRecvTinyPb(&request, &response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(clientOk) << clientError;
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_EQ(decodedRequest.m_msgReq, "retry-req");
+    EXPECT_EQ(response.m_pbData, "retry-response");
+    EXPECT_EQ(client.getErrorCode(), 0);
+}
+
+TEST_F(TcpClientTest, RetryConnectStopsAfterConfiguredAttempts)
+{
+    uint16_t port = reserveFreePort();
+    ASSERT_NE(port, 0);
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", port));
+    client.setConnectRetry(2, 10);
+
+    bool ok = client.connectServer();
+
+    EXPECT_FALSE(ok);
+    EXPECT_FALSE(client.isConnected());
+    EXPECT_EQ(client.getFd(), tinyrpc::kInvalidSocket);
+    EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
+    EXPECT_FALSE(client.getErrorInfo().empty());
+}
+
+TEST_F(TcpClientTest, SendAndRecvReconnectsAfterExplicitClose)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        for (int i = 0; i < 2; ++i) {
+            int clientFd = accept(m_listenFd, nullptr, nullptr);
+            if (clientFd < 0) {
+                serverError = std::strerror(errno);
+                return;
+            }
+
+            tinyrpc::TinyPbStruct decodedRequest;
+            if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            tinyrpc::TinyPbStruct response;
+            response.m_msgReq = decodedRequest.m_msgReq;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            response.m_errCode = 0;
+            response.m_pbData = "close-reconnect-response-" + std::to_string(i + 1);
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "encode close reconnect response failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+            closeIfValid(&clientFd);
+        }
+        serverOk = true;
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+
+    tinyrpc::TinyPbStruct request1;
+    request1.m_msgReq = "close-reconnect-1";
+    request1.m_serviceFullName = "QueryService.query_name";
+    request1.m_pbData = "request-1";
+
+    tinyrpc::TinyPbStruct response1;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request1, &response1)) << client.getErrorInfo();
+    EXPECT_EQ(response1.m_pbData, "close-reconnect-response-1");
+
+    client.closeConnection();
+    EXPECT_FALSE(client.isConnected());
+    EXPECT_EQ(client.getFd(), tinyrpc::kInvalidSocket);
+
+    tinyrpc::TinyPbStruct request2;
+    request2.m_msgReq = "close-reconnect-2";
+    request2.m_serviceFullName = "QueryService.query_name";
+    request2.m_pbData = "request-2";
+
+    tinyrpc::TinyPbStruct response2;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request2, &response2)) << client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_EQ(response2.m_pbData, "close-reconnect-response-2");
+    EXPECT_EQ(client.getErrorCode(), 0);
 }
 
 int main(int argc, char **argv)

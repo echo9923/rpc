@@ -119,3 +119,29 @@
 ```bash
 ./scripts/check_rpc_sync_basic.sh
 ```
+
+## 阶段 9：同步客户端连接语义收口
+
+### 任务四十三：`TcpClient` 重连和关闭边界
+
+已完成能力：
+
+- `TcpClient` 新增 `setConnectRetry(retryCount, retryIntervalMs)`。
+- 连接失败后关闭失败 fd，有限重试时每次重新创建 fd。
+- 主动 `closeConnection()` 后，下一次 `sendAndRecvTinyPb()` 可以重新连接并完成请求。
+- 重试耗尽后保留 `ERROR_TCP_CONNECT_FAILED` 和包含尝试次数的错误文本。
+- `test_tcp_client` 覆盖服务端稍后启动后的重试成功、重试耗尽失败、显式 close 后再次请求成功。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_tcp_client
+./scripts/check_rpc_sync_basic.sh
+```
+
+当前限制：
+
+- 不做后台自动重连。
+- 不做连接池。
+- 不做多服务节点负载均衡。

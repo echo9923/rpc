@@ -10,6 +10,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <thread>
+
 namespace tinyrpc {
 
 TcpClient::TcpClient(const IPAddress& peerAddr)
@@ -64,6 +67,12 @@ int TcpClient::getTimeout() const
     return m_timeoutMs;
 }
 
+void TcpClient::setConnectRetry(int retryCount, int retryIntervalMs)
+{
+    m_connectRetryCount = retryCount > 0 ? retryCount : 0;
+    m_connectRetryIntervalMs = retryIntervalMs > 0 ? retryIntervalMs : 0;
+}
+
 bool TcpClient::connectServer()
 {
     // 已经连接则直接返回成功
@@ -71,6 +80,32 @@ bool TcpClient::connectServer()
         return true;
     }
 
+    int maxAttempts = m_connectRetryCount + 1;
+    for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+        if (connectOnce()) {
+            return true;
+        }
+
+        std::string lastError = getErrorInfo();
+        if (attempt >= maxAttempts) {
+            m_errorInfo = "connect failed after " + std::to_string(maxAttempts)
+                + " attempt(s): " + lastError;
+            return false;
+        }
+
+        DebugLog("TcpClient connect attempt " + std::to_string(attempt)
+                 + " failed, retry after " + std::to_string(m_connectRetryIntervalMs)
+                 + " ms, peer = " + m_peerAddr.toString());
+        if (m_connectRetryIntervalMs > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_connectRetryIntervalMs));
+        }
+    }
+
+    return false;
+}
+
+bool TcpClient::connectOnce()
+{
     // AF_INET: IPv4 协议族
     // SOCK_STREAM: 面向连接的 TCP 字节流
     // 0: 协议自动选择（TCP）
