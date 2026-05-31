@@ -314,3 +314,25 @@
 ./build/test_tcp_timewheel
 ./scripts/check_rpc_sync.sh
 ```
+
+## 阶段 11：IOThread 与服务端多 Reactor
+
+### 任务五十三：`Mutex`、`RWMutex` 和基础线程工具
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/mutex.h` 和 `mytinyrpc/net/mutex.cc`。
+- `Mutex` 封装 `std::mutex`，提供 `lock()`、`unlock()`、`tryLock()`。
+- `MutexLockGuard` 提供互斥锁 RAII 使用方式。
+- `RWMutex` 封装 `std::shared_mutex`，提供读锁和写锁接口。
+- `ReadLockGuard` 和 `WriteLockGuard` 提供读写锁 RAII 使用方式。
+- 新增 `test_mutex`，覆盖多线程互斥递增、多读并发、写锁独占。
+- 新增 `docs/stage-11.md` 记录阶段 11 起点和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_mutex
+./scripts/check_rpc_sync.sh
+```

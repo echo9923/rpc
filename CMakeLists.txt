@@ -30,6 +30,7 @@ set(SRC
     mytinyrpc/coroutine/coroutine_hook.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
+    mytinyrpc/net/mutex.cc
     mytinyrpc/net/netaddress.cc
     mytinyrpc/net/reactor.cc
     mytinyrpc/net/tcpbuffer.cc
@@ -160,3 +161,9 @@ add_executable(test_tcp_timewheel
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_tcp_timewheel ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_mutex
+    testcases/test_mutex.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_mutex ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
