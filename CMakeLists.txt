@@ -33,6 +33,7 @@ set(SRC
     mytinyrpc/net/reactor.cc
     mytinyrpc/net/tcpbuffer.cc
     mytinyrpc/net/tcpconnection.cc
+    mytinyrpc/net/tcpclient.cc
     mytinyrpc/net/tcpserver.cc
     mytinyrpc/net/tinypb/tinypbcodec.cc
     mytinyrpc/net/tinypb/tinypbdispatcher.cc
@@ -113,3 +114,9 @@ add_executable(test_protobuf_service
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_protobuf_service ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_tcp_client
+    testcases/test_tcp_client.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tcp_client ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

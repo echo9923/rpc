@@ -60,7 +60,7 @@ Install WSL dependencies if needed:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake netcat-openbsd
+sudo apt install -y build-essential cmake netcat-openbsd libgtest-dev protobuf-compiler libprotobuf-dev
 ```
 
 ## Run
@@ -107,6 +107,27 @@ server process down before exiting.
 
 The script depends on `nc`. Install `netcat-openbsd` or another compatible
 netcat package if `nc` is missing.
+
+## Windsurf C++ 跳转
+
+如果在 Windsurf 里 `F12`、`Ctrl+Click` 或 `Go to Definition` 失效，优先按下面的顺序排查：
+
+1. 使用 **WSL 窗口** 打开仓库，不要继续在 Windows 本地窗口里复用已有的 `build/`。
+2. 切换到 Linux/WSL 环境后，先清理旧的构建目录，再重新生成编译数据库：
+
+```bash
+cd /mnt/d/codeproject/cpp/rpc
+rm -rf build
+bash build.sh
+```
+
+3. 仓库已提供下列工作区配置，供 `clangd` 和 `CMake Tools` 复用同一个 `build/` 目录：
+   - `.clangd` 固定从 `build/` 读取 compilation database。
+   - `.vscode/settings.json` 固定 `cmake.buildDirectory` 为 `${workspaceFolder}/build`，并开启 `CMAKE_EXPORT_COMPILE_COMMANDS`。
+   - `.vscode/extensions.json` 推荐安装 `Windsurf C++ Tools`、`clangd` 和 `CMake Tools`。
+4. 重建完成后先验证 `F12`。如果 `F12` 正常但 `Ctrl+Click` 不跳转，继续检查 Windsurf/VS Code 的 `editor.multiCursorModifier` 设置；这类情况下通常会变成 `Alt+Click` 跳转定义。
+
+如果重新生成后的 `build/compile_commands.json` 仍然是 Windows 路径或 Docker 路径，说明当前工作区仍然不是你实际使用的 C++ 语言服务器环境，需要先统一打开方式再继续排查。
 
 ## Current Limitations
 

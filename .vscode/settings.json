@@ -1,0 +1,10 @@
+{
+    // Keep the compilation database in the repo-local build directory.
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    // Avoid reconfiguring build/ automatically from the wrong host environment.
+    "cmake.configureOnOpen": false,
+    "cmake.configureSettings": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+    }
+}
