@@ -56,6 +56,28 @@ Linux/WSL:
 ./build.sh
 ```
 
+## Sync RPC Basic Check
+
+Stage 8 has a minimal synchronous TinyPB RPC path:
+
+```text
+QueryService_Stub -> TinyPbRpcChannel -> TcpClient -> TinyPB -> TcpServer -> TinyPbDispatcher -> QueryServiceImpl -> response
+```
+
+Run the basic synchronous RPC regression in Linux/WSL:
+
+```bash
+./scripts/check_rpc_sync_basic.sh
+```
+
+Expected final output:
+
+```text
+[rpc-sync-basic] PASS
+```
+
+Current Stage 8 limitations: no async RPC, no connection pool, no response multiplexing, and no out-of-order response cache.
+
 Install WSL dependencies if needed:
 
 ```bash

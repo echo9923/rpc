@@ -104,3 +104,18 @@
 - 不做异步重试。
 - 不做连接池。
 - 不做客户端 Reactor 化。
+
+### 任务四十二：阶段八调用链文档和同步 RPC 回归脚本
+
+已完成能力：
+
+- `docs/stage-8.md` 补充同步 RPC 主调用链图。
+- `docs/stage-8.md` 明确阶段八暂不支持异步、连接池、多路复用和乱序响应缓存。
+- 新增 `scripts/check_rpc_sync_basic.sh`，串联构建、TinyPB codec、dispatcher、TcpClient、TinyPbRpcChannel 和真实端到端同步 RPC 验收。
+- README 增加阶段八同步 RPC 基础回归入口。
+
+验证命令：
+
+```bash
+./scripts/check_rpc_sync_basic.sh
+```

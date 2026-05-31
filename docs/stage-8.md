@@ -4,6 +4,51 @@
 
 ## 当前进度
 
+## 同步 RPC 主调用链
+
+阶段八结束后，同步 RPC 的完整主链路如下：
+
+```mermaid
+sequenceDiagram
+    participant Caller as "业务调用方"
+    participant Stub as "QueryService_Stub"
+    participant Channel as "TinyPbRpcChannel"
+    participant Client as "TcpClient"
+    participant Codec as "TinyPbCodec"
+    participant Server as "TcpServer"
+    participant Conn as "TcpConnection"
+    participant Dispatcher as "TinyPbDispatcher"
+    participant Service as "QueryServiceImpl"
+
+    Caller->>Stub: "query_name(controller, request, response)"
+    Stub->>Channel: "CallMethod()"
+    Channel->>Channel: "生成/读取 msgReq"
+    Channel->>Channel: "序列化 request pbData"
+    Channel->>Client: "sendAndRecvTinyPb()"
+    Client->>Codec: "encode TinyPB request"
+    Client->>Server: "TCP 写入请求帧"
+    Server->>Conn: "accept 后创建 TcpConnection"
+    Conn->>Codec: "decode TinyPB request"
+    Conn->>Dispatcher: "dispatch()"
+    Dispatcher->>Service: "CallMethod()"
+    Service->>Dispatcher: "填充 queryNameRes"
+    Dispatcher->>Codec: "encode TinyPB response"
+    Conn->>Client: "TCP 写回响应帧"
+    Client->>Codec: "decode TinyPB response"
+    Client->>Channel: "TinyPbStruct response"
+    Channel->>Channel: "校验 msgReq 和 errCode"
+    Channel->>Stub: "反序列化 response pbData"
+    Stub->>Caller: "返回业务 response"
+```
+
+## 阶段八当前限制
+
+- 不支持异步 RPC。
+- 不支持连接池。
+- 不支持多路复用和并发 pending map。
+- 不缓存乱序响应，response `msgReq` 不匹配时直接失败。
+- timeout 仅覆盖同步客户端的 connect/read/write 等待，不包含服务端业务执行超时。
+
 ### 任务三十八：最小 `TinyPbRpcChannel`
 
 已新增 `TinyPbRpcChannel`，它继承 `google::protobuf::RpcChannel`，作为 Protobuf Stub 与 TinyPB/TcpClient 之间的同步适配层。
@@ -115,6 +160,29 @@ sequenceDiagram
 ./build/test_msg_req
 ./build/test_tinypb_rpc_channel
 ./scripts/check_stage8_rpc.sh
+```
+
+### 任务四十二：阶段八回归脚本
+
+已新增 `scripts/check_rpc_sync_basic.sh`，串联以下验证：
+
+- build
+- `test_tinypb_codec`
+- `test_tinypb_dispatcher`
+- `test_tcp_client`
+- `test_tinypb_rpc_channel`
+- `scripts/check_stage8_rpc.sh`
+
+验收命令：
+
+```bash
+./scripts/check_rpc_sync_basic.sh
+```
+
+脚本通过时输出：
+
+```text
+[rpc-sync-basic] PASS
 ```
 
 ### 任务四十一：同步客户端超时与失败路径
