@@ -30,6 +30,7 @@ set(SRC
     mytinyrpc/coroutine/coroutine_hook.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
+    mytinyrpc/net/http/httpcodec.cc
     mytinyrpc/net/http/http_define.cc
     mytinyrpc/net/http/http_request.cc
     mytinyrpc/net/http/http_response.cc
@@ -190,3 +191,9 @@ add_executable(test_http_define
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_http_define ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_http_codec
+    testcases/test_http_codec.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_http_codec ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

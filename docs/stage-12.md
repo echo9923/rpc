@@ -20,10 +20,30 @@
 - 当前不做 chunked、multipart、HTTP/2 或 keep-alive 完整语义。
 - `HttpResponse::toString()` 会在缺少 `Content-Length` 时自动补齐 body 长度，后续 `HttpCodec::encode()` 会复用该行为。
 
+## 任务五十九：HTTP 请求解码
+
+已完成能力：
+
+- 新增 `HttpCodec`，继承 `AbstractCodec` 并返回 `ProtocolType::Http`。
+- 实现 `HttpCodec::decode()`，可解析 HTTP request line、headers 和 body。
+- request line 当前要求格式为 `METHOD path HTTP/x.y`，并只接受 `GET` 与 `POST`。
+- headers 按 `key: value` 解析，key 和 value 两侧空白会被裁剪。
+- `Content-Length` 存在时按长度读取 body；body 未补齐时不消费 buffer，且不误判成功。
+- 非法 request line 或非法 header 会返回失败并消费当前坏包头部，避免 parser 对同一坏包死循环。
+- 新增 `test_http_codec`，覆盖 GET、POST、半包补齐和非法 request line。
+
+## HTTP decode 当前边界
+
+- 当前 decode 只处理 request，不处理 response。
+- 当前不做 chunked、multipart 或 HTTP/2。
+- 当前不做大小写无关 header 查找，`Content-Length` 需要使用标准大小写。
+- `HttpCodec::encode()` 仍保持安全失败，任务六十会实现 response 编码。
+
 ## 验证命令
 
 ```bash
 ./build.sh
 ./build/test_http_define
+./build/test_http_codec
 ./scripts/check_rpc_sync.sh
 ```

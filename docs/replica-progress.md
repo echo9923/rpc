@@ -435,3 +435,21 @@
 ./build/test_http_define
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十九：HTTP 请求解码
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/http/httpcodec.h` 和 `httpcodec.cc`。
+- `HttpCodec::decode()` 支持解析 request line、headers 和 `Content-Length` body。
+- GET 请求、POST 请求、半包补齐和非法 request line 均有 `test_http_codec` 覆盖。
+- 半包路径不消费 `TcpBuffer`，补齐 body 后可继续解析成功。
+- 非法 request line 路径返回失败并消费坏包，避免对同一非法输入死循环。
+- `HttpCodec::encode()` 暂保持安全失败，任务六十再实现响应编码。
+
+验证命令：
+```bash
+./build.sh
+./build/test_http_codec
+./scripts/check_rpc_sync.sh
+```
