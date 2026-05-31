@@ -25,6 +25,7 @@
 #include <cstring>
 #include <poll.h>
 #include <sys/socket.h>
+#include <csignal>
 #include <thread>
 #include <unistd.h>
 
@@ -629,6 +630,56 @@ TEST_F(TcpClientTest, RecvTinyPbResponseFailsWhenServerClosesEarly)
     ASSERT_TRUE(serverClosed) << serverError;
     EXPECT_FALSE(clientOk);
     EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_RECV_FAILED);
+    EXPECT_FALSE(clientError.empty());
+}
+
+TEST_F(TcpClientTest, SendTinyPbRequestFailsWhenPeerResetsConnection)
+{
+    std::signal(SIGPIPE, SIG_IGN);
+
+    bool serverClosed = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        linger lingerOpt {};
+        lingerOpt.l_onoff = 1;
+        lingerOpt.l_linger = 0;
+        // setsockopt(2) 参数依次为：socket fd、选项层级、选项名、选项值地址、选项长度。
+        // SO_LINGER {on,0} 让 close(2) 发送 RST，稳定制造客户端写失败。
+        if (setsockopt(clientFd, SOL_SOCKET, SO_LINGER, &lingerOpt, sizeof(lingerOpt)) != 0) {
+            serverError = std::strerror(errno);
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        serverClosed = true;
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    client.setTimeout(500);
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    tinyrpc::TinyPbStruct request;
+    request.m_msgReq = "send-fail";
+    request.m_serviceFullName = "QueryService.query_name";
+    request.m_pbData.assign(1024 * 1024, 'x');
+
+    bool clientOk = client.sendTinyPbRequest(&request);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverClosed) << serverError;
+    EXPECT_FALSE(clientOk);
+    EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_SEND_FAILED);
     EXPECT_FALSE(clientError.empty());
 }
 

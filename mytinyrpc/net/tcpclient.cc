@@ -263,8 +263,9 @@ bool TcpClient::writeAll(const char *data, size_t len)
             return false;
         }
 
-        // write(2) 参数依次为：socket fd、待写缓冲区地址、待写字节数。
-        ssize_t n = write(m_fd, data + written, len - written);
+        // send(2) 参数依次为：socket fd、待写缓冲区地址、待写字节数、发送标志。
+        // MSG_NOSIGNAL 表示对端已关闭时不向进程发送 SIGPIPE，而是让 send 返回 -1/EPIPE。
+        ssize_t n = send(m_fd, data + written, len - written, MSG_NOSIGNAL);
         if (n > 0) {
             written += static_cast<size_t>(n);
             continue;

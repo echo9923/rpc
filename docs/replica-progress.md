@@ -145,3 +145,22 @@
 - 不做后台自动重连。
 - 不做连接池。
 - 不做多服务节点负载均衡。
+
+### 任务四十四：同步客户端错误码矩阵
+
+已完成能力：
+
+- 整理 `comm/errorcode.h`，按序列化、dispatcher、channel、TcpClient 分组。
+- 新增 `docs/error-code.md`，列出错误码、层级、触发场景和测试覆盖。
+- 明确 controller error、TinyPB `errCode`、业务 response `ret_code` 三层含义。
+- `TcpClient` 写 socket 改为 `send(..., MSG_NOSIGNAL)`，避免对端关闭时 `SIGPIPE` 终止进程。
+- `test_tcp_client` 新增 send failed 覆盖 `ERROR_TCP_SEND_FAILED`。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_tcp_client
+./build/test_tinypb_rpc_channel
+./scripts/check_rpc_sync_basic.sh
+```

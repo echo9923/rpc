@@ -34,3 +34,13 @@
 ./build/test_tcp_client
 ./scripts/check_rpc_sync_basic.sh
 ```
+
+## 任务四十四：同步客户端错误码矩阵
+
+已补充 [错误码说明](error-code.md)，明确三层错误承载位置：
+
+- controller error：客户端框架层错误。
+- TinyPB `errCode`：服务端框架层错误。
+- business `ret_code`：业务 response 中的业务结果。
+
+`ERROR_TCP_SEND_FAILED` 现在通过 `TcpClientTest.SendTinyPbRequestFailsWhenPeerResetsConnection` 覆盖。客户端写入 socket 时使用 `send(..., MSG_NOSIGNAL)`，避免对端关闭后触发 `SIGPIPE` 终止进程。
