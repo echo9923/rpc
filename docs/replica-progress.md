@@ -215,3 +215,23 @@
 ./build/test_timer_event
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务四十八：`Timer` + `timerfd` 接入 Reactor
+
+已完成能力：
+
+- 新增 `Timer`，通过 `timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)` 把时间到期转换成 fd 可读事件。
+- `Reactor` 构造时持有 `Timer`，并通过 `getTimer()` 提供添加/删除定时任务入口。
+- `Timer` 使用 `FdEvent` 注册 timerfd，Reactor 可通过 `epoll_wait()` 唤醒并执行 timer callback。
+- `Timer` 添加、删除、执行任务后都会按最近到期任务刷新 `timerfd_settime()`。
+- `test_timer` 覆盖一次性任务、重复任务、多个任务按到期时间触发、删除任务后不触发。
+- `docs/stage-10.md` 补充 timerfd 触发路径和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_timer
+./build/test_reactor
+./scripts/check_rpc_sync.sh
+```

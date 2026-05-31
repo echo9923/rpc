@@ -2,6 +2,7 @@
 
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
+#include "net/timer.h"
 
 #include <cerrno>
 #include <cstring>
@@ -20,11 +21,15 @@ Reactor::Reactor()
         ErrorLog(
             "epoll_create1 failed, errno = " + std::to_string(errno)
         );
+        return;
     }
+
+    m_timer = std::make_unique<Timer>(this);
 }
 
 Reactor::~Reactor()
 {
+    m_timer.reset();
     if (m_epollFd >= 0) {
         close(m_epollFd);
         m_epollFd = -1;
@@ -34,6 +39,11 @@ Reactor::~Reactor()
 int Reactor::getEpollFd() const
 {
     return m_epollFd;
+}
+
+Timer* Reactor::getTimer() const
+{
+    return m_timer.get();
 }
 
 bool Reactor::epollAdd(FdEvent* event)
