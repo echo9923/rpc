@@ -54,11 +54,30 @@
 - 当前不做 streaming response。
 - 当前不主动追加 `Connection` 语义，连接生命周期仍由上层服务端流程控制。
 
+## 任务六十一：HttpServlet 与 HttpDispatcher
+
+已完成能力：
+
+- 新增 `HttpServlet` 抽象类，以 `handle(HttpRequest*, HttpResponse*)` 作为 HTTP 业务处理入口。
+- 新增 `NotFoundHttpServlet`，未知 path 默认返回 404、`Content-Type: text/plain` 和 body `404 Not Found`。
+- 新增 `HttpDispatcher`，按 path 精确匹配 servlet。
+- `HttpDispatcher::registerServlet()` 支持注册固定路径，重复路径不覆盖并返回失败。
+- `HttpDispatcher::dispatch(HttpRequest*, HttpResponse*)` 支持单测直接分发。
+- `HttpDispatcher::dispatch(AbstractData*, TcpConnection*)` 保持 `AbstractDispatcher` 接口兼容，后续接入 `TcpServer` 时会生成 `HttpResponse` 并通过连接写回。
+- 新增 `test_http_dispatcher`，覆盖 `/hello` 业务 body、未知 path 404 和重复注册失败。
+
+## HTTP dispatcher 当前边界
+
+- 当前只做精确路径匹配，不做正则路由。
+- 当前不做中间件。
+- 当前不做静态文件服务。
+
 ## 验证命令
 
 ```bash
 ./build.sh
 ./build/test_http_define
 ./build/test_http_codec
+./build/test_http_dispatcher
 ./scripts/check_rpc_sync.sh
 ```

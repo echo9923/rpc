@@ -34,6 +34,8 @@ set(SRC
     mytinyrpc/net/http/http_define.cc
     mytinyrpc/net/http/http_request.cc
     mytinyrpc/net/http/http_response.cc
+    mytinyrpc/net/http/httpdispatcher.cc
+    mytinyrpc/net/http/httpservlet.cc
     mytinyrpc/net/iothread.cc
     mytinyrpc/net/iothread_pool.cc
     mytinyrpc/net/mutex.cc
@@ -197,3 +199,9 @@ add_executable(test_http_codec
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_http_codec ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_http_dispatcher
+    testcases/test_http_dispatcher.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_http_dispatcher ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

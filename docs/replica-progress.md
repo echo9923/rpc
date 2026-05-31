@@ -469,3 +469,21 @@
 ./build/test_http_codec
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十一：HttpServlet 与 HttpDispatcher
+
+已完成能力：
+
+- 新增 `HttpServlet` 抽象类，业务处理统一通过 `handle(HttpRequest*, HttpResponse*)` 完成。
+- 新增 `NotFoundHttpServlet`，未知 path 返回 404 响应。
+- 新增 `HttpDispatcher`，支持按 path 注册和分发 servlet。
+- `HttpDispatcher` 保持 `AbstractDispatcher` 接口兼容，为后续接入 `TcpServer` 做准备。
+- 新增 `test_http_dispatcher`，覆盖 `/hello` 路由、未知 path 和重复注册。
+- `docs/stage-12.md` 补充 dispatcher 能力和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_http_dispatcher
+./scripts/check_rpc_sync.sh
+```
