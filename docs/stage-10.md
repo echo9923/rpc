@@ -178,6 +178,25 @@ sequenceDiagram
 - 关闭 fd 的动作通过 Reactor task 执行，避免其他线程直接关闭连接所属 fd。
 - 当前 `TcpServer` 还未默认接入空闲超时，后续多 Reactor 阶段再统一接入服务端连接管理。
 
+## 任务五十二：Reactor / Timer / TcpConnection 调试文档
+
+已完成能力：
+
+- 新增 [Reactor 事件生命周期调试文档](reactor-event-lifecycle.md)，集中记录 fd event、timerfd、wakeup、stop 和 callback 线程归属。
+- 新增 [TcpConnection 生命周期调试文档](tcpconnection-lifetime.md)，集中记录连接创建、读写、关闭、空闲超时和 fd 归属。
+- 本文保留阶段 10 的主线说明；独立文档作为后续多 Reactor、IOThread 和异步 RPC 排查问题的入口。
+
+## 阶段 10 调试索引
+
+| 问题 | 优先查看 |
+|---|---|
+| fd callback 在哪个线程执行 | `reactor-event-lifecycle.md` 的 callback 线程归属 |
+| fd 注册后不触发或删除后仍触发 | `reactor-event-lifecycle.md` 的 fd event 注册与删除 |
+| Timer 不触发或重复触发异常 | `reactor-event-lifecycle.md` 的 timerfd 触发路径 |
+| `addTask()` 不执行或 `stop()` 不退出 | `reactor-event-lifecycle.md` 的 wakeup 与 task queue |
+| 连接对象由谁持有、fd 由谁关闭 | `tcpconnection-lifetime.md` 的对象和 fd 归属 |
+| 空闲超时是否跨线程直接关 fd | `tcpconnection-lifetime.md` 的空闲超时路径 |
+
 ## 验证命令
 
 ```bash

@@ -295,3 +295,22 @@
 ./build/test_timer
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十二：Reactor / Timer / TcpConnection 调试文档
+
+已完成能力：
+
+- 新增 `docs/reactor-event-lifecycle.md`，说明 fd event、timerfd、wakeup、stop、callback 线程归属和常见排查点。
+- 新增 `docs/tcpconnection-lifetime.md`，说明 TcpConnection 创建、读写、关闭、空闲超时、fd 归属和排查清单。
+- `docs/stage-10.md` 增加阶段 10 调试索引，指向独立生命周期文档。
+- 文档明确：fd callback、Timer callback、wakeup task 和空闲超时关闭动作都在 Reactor 线程执行。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_reactor
+./build/test_timer
+./build/test_tcp_timewheel
+./scripts/check_rpc_sync.sh
+```
