@@ -61,11 +61,48 @@ sequenceDiagram
 - 不接入 TcpConnection 空闲超时。
 - Timer callback 在调用 `Reactor::waitOnce()` 的线程执行。
 
+## 任务四十九：Reactor 任务队列和 wakeup fd
+
+已完成能力：
+
+- `Reactor::addTask()` 支持从其他线程投递任务。
+- Reactor 内部使用 `eventfd` 作为 wakeup fd。
+- `addTask()` 会写入 eventfd，使阻塞中的 `epoll_wait()` 被唤醒。
+- wakeup 回调在 Reactor 线程中读取 eventfd 并执行待处理任务队列。
+- 多个任务按提交顺序执行。
+- `stop()` 设置停止标记并写入 wakeup fd，可以在没有网络事件时唤醒 `loop()` 并退出。
+
+## wakeup 任务投递路径
+
+```mermaid
+sequenceDiagram
+    participant Worker as Worker Thread
+    participant Reactor as Reactor
+    participant Wakeup as eventfd
+    participant Loop as Reactor Loop
+
+    Worker->>Reactor: addTask(callback)
+    Reactor->>Reactor: push pending task
+    Reactor->>Wakeup: write(eventfd, 1)
+    Loop->>Wakeup: epoll_wait() returns readable
+    Loop->>Reactor: handleWakeup()
+    Reactor->>Wakeup: read(eventfd counter)
+    Reactor->>Reactor: runPendingTasks()
+```
+
+## Reactor 当前线程归属
+
+- fd callback 在调用 `waitOnce()` 或 `loop()` 的 Reactor 线程执行。
+- Timer callback 在 Reactor 线程执行。
+- `addTask()` 的 task 在 Reactor 线程执行，而不是提交线程执行。
+- `stop()` 可从其他线程调用，退出动作在 Reactor 线程下一次 wakeup 后完成。
+
 ## 验证命令
 
 ```bash
 ./build.sh
 ./build/test_timer_event
 ./build/test_timer
+./build/test_reactor
 ./scripts/check_rpc_sync.sh
 ```

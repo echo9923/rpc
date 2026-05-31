@@ -235,3 +235,23 @@
 ./build/test_reactor
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务四十九：Reactor 任务队列和 wakeup fd
+
+已完成能力：
+
+- `Reactor` 新增 `addTask()`、`loop()`、`stop()`。
+- Reactor 内部使用 `eventfd(EFD_NONBLOCK | EFD_CLOEXEC)` 作为 wakeup fd，并注册到 epoll。
+- 其他线程调用 `addTask()` 后会写 eventfd，唤醒阻塞中的 `epoll_wait()`。
+- wakeup 回调读取 eventfd 计数并在 Reactor 线程按提交顺序执行任务队列。
+- `stop()` 不依赖额外网络事件，可唤醒阻塞中的 loop 并退出。
+- `test_reactor` 覆盖跨线程 addTask、任务顺序和 stop 唤醒。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_reactor
+./build/test_timer
+./scripts/check_rpc_sync.sh
+```

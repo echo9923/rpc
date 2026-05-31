@@ -7,8 +7,10 @@
 #include <cerrno>
 #include <cstring>
 #include <string>
+#include <sys/eventfd.h>
 #include <sys/epoll.h>
 #include <unistd.h>
+#include <utility>
 
 namespace tinyrpc {
 
@@ -25,10 +27,16 @@ Reactor::Reactor()
     }
 
     m_timer = std::make_unique<Timer>(this);
+    initWakeupFd();
 }
 
 Reactor::~Reactor()
 {
+    m_wakeupEvent.unregisterFromReactor();
+    if (m_wakeupFd >= 0) {
+        close(m_wakeupFd);
+        m_wakeupFd = -1;
+    }
     m_timer.reset();
     if (m_epollFd >= 0) {
         close(m_epollFd);
@@ -44,6 +52,34 @@ int Reactor::getEpollFd() const
 Timer* Reactor::getTimer() const
 {
     return m_timer.get();
+}
+
+void Reactor::addTask(std::function<void()> task)
+{
+    if (!task) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_taskMutex);
+        m_pendingTasks.push(std::move(task));
+    }
+
+    wakeup();
+}
+
+void Reactor::loop()
+{
+    m_stop.store(false);
+    while (!m_stop.load()) {
+        waitOnce(-1);
+    }
+}
+
+void Reactor::stop()
+{
+    m_stop.store(true);
+    wakeup();
 }
 
 bool Reactor::epollAdd(FdEvent* event)
@@ -147,6 +183,101 @@ int Reactor::waitOnce(int timeoutMs)
     }
 
     return nfds;
+}
+
+bool Reactor::initWakeupFd()
+{
+    // eventfd(2) 参数依次为：初始计数值、文件描述符标志。
+    // EFD_NONBLOCK 让 read(2) 在计数为 0 时返回 EAGAIN；EFD_CLOEXEC
+    // 避免 fd 泄漏到 exec 后的子进程。
+    m_wakeupFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (m_wakeupFd < 0) {
+        ErrorLog("eventfd failed, errno = " + std::to_string(errno));
+        return false;
+    }
+
+    m_wakeupEvent.setFd(m_wakeupFd);
+    m_wakeupEvent.setReactor(this);
+    m_wakeupEvent.addListenEvent(EPOLLIN);
+    m_wakeupEvent.setReadCallback([this]() {
+        handleWakeup();
+    });
+
+    if (!m_wakeupEvent.registerToReactor()) {
+        ErrorLog("wakeup event registerToReactor failed, fd = " + std::to_string(m_wakeupFd));
+        return false;
+    }
+
+    return true;
+}
+
+void Reactor::wakeup()
+{
+    if (m_wakeupFd < 0) {
+        return;
+    }
+
+    uint64_t value = 1;
+    while (true) {
+        // write(2) 参数依次为：eventfd、待写计数值地址、写入长度。
+        // 向 eventfd 写入 8 字节整数会累加计数，使 epoll_wait() 被 EPOLLIN 唤醒。
+        ssize_t n = write(m_wakeupFd, &value, sizeof(value));
+        if (n == static_cast<ssize_t>(sizeof(value))) {
+            return;
+        }
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
+        if (n < 0) {
+            ErrorLog("eventfd write failed, errno = " + std::to_string(errno));
+        }
+        return;
+    }
+}
+
+void Reactor::handleWakeup()
+{
+    uint64_t value = 0;
+    while (true) {
+        // read(2) 参数依次为：eventfd、接收计数值地址、读取长度。
+        // 读取 eventfd 会取出当前计数并清零，随后执行已投递任务。
+        ssize_t n = read(m_wakeupFd, &value, sizeof(value));
+        if (n == static_cast<ssize_t>(sizeof(value))) {
+            continue;
+        }
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            break;
+        }
+        if (n < 0) {
+            ErrorLog("eventfd read failed, errno = " + std::to_string(errno));
+        }
+        break;
+    }
+
+    runPendingTasks();
+}
+
+void Reactor::runPendingTasks()
+{
+    std::queue<std::function<void()>> tasks;
+    {
+        std::lock_guard<std::mutex> lock(m_taskMutex);
+        tasks.swap(m_pendingTasks);
+    }
+
+    while (!tasks.empty()) {
+        auto task = std::move(tasks.front());
+        tasks.pop();
+        if (task) {
+            task();
+        }
+    }
 }
 
 }

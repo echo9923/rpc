@@ -2,13 +2,19 @@
 #include "net/fdutil.h"
 #include "net/reactor.h"
 
+#include <atomic>
+#include <chrono>
 #include <sys/epoll.h>
+#include <thread>
 #include <unistd.h>
 
 #include <iostream>
 #include <string>
+#include <vector>
 
-int main()
+namespace {
+
+bool testFdEventReadCallbackAndDelete()
 {
     int readCount = 0;
     std::string received;
@@ -22,7 +28,7 @@ int main()
     int pipeFds[2];
     if (pipe(pipeFds) < 0) {
         std::cerr << "[reactor] FAIL: pipe() failed" << std::endl;
-        return 1;
+        return false;
     }
 
     // 2. 对读端 pipeFds[0] 设置非阻塞。
@@ -48,21 +54,21 @@ int main()
     readEvent.setReactor(&reactor);
     if (!readEvent.registerToReactor()) {
         std::cerr << "[reactor] FAIL: registerToReactor failed" << std::endl;
-        return 1;
+        return false;
     }
     if (!readEvent.isRegistered()) {
         std::cerr << "[reactor] FAIL: event is not registered" << std::endl;
-        return 1;
+        return false;
     }
     if (!readEvent.updateToReactor()) {
         std::cerr << "[reactor] FAIL: updateToReactor failed" << std::endl;
-        return 1;
+        return false;
     }
 
     // 8. 向 pipe 写端写入 "x"。
     if (write(pipeFds[1], "x", 1) < 0) {
         std::cerr << "[reactor] FAIL: write to pipe failed" << std::endl;
-        return 1;
+        return false;
     }
 
     // 9. 调用 waitOnce(1000)，超时 1 秒。
@@ -70,35 +76,35 @@ int main()
     if (nfds <= 0) {
         std::cerr << "[reactor] FAIL: waitOnce returned " << nfds
                   << ", expected > 0" << std::endl;
-        return 1;
+        return false;
     }
 
     // 10. 验证读回调被调用一次，读取内容是 "x"。
     if (readCount != 1) {
         std::cerr << "[reactor] FAIL: readCount != 1, got " << readCount
                   << std::endl;
-        return 1;
+        return false;
     }
     if (received != "x") {
         std::cerr << "[reactor] FAIL: received != \"x\", got \""
                   << received << "\"" << std::endl;
-        return 1;
+        return false;
     }
 
     // 11. 通过 FdEvent 删除事件。
     if (!readEvent.unregisterFromReactor()) {
         std::cerr << "[reactor] FAIL: unregisterFromReactor failed" << std::endl;
-        return 1;
+        return false;
     }
     if (readEvent.isRegistered()) {
         std::cerr << "[reactor] FAIL: event is still registered after unregister" << std::endl;
-        return 1;
+        return false;
     }
 
     // 12. 再向 pipe 写端写入 "y"。
     if (write(pipeFds[1], "y", 1) < 0) {
         std::cerr << "[reactor] FAIL: second write to pipe failed" << std::endl;
-        return 1;
+        return false;
     }
 
     // 13. 调用 waitOnce(100)，超时 100ms。事件已删除，应超时返回 0。
@@ -106,19 +112,127 @@ int main()
     if (nfds != 0) {
         std::cerr << "[reactor] FAIL: waitOnce after epollDel returned "
                   << nfds << ", expected 0" << std::endl;
-        return 1;
+        return false;
     }
 
     // 14. 验证回调次数没有继续增加。
     if (readCount != 1) {
         std::cerr << "[reactor] FAIL: readCount changed after epollDel, got "
                   << readCount << std::endl;
-        return 1;
+        return false;
     }
 
     // 15. 关闭 pipe 两端 fd。
     close(pipeFds[0]);
     close(pipeFds[1]);
+
+    return true;
+}
+
+bool testAddTaskWakesLoopAndRunsOnReactorThread()
+{
+    tinyrpc::Reactor reactor;
+    std::atomic<bool> taskDone {false};
+    std::thread::id loopThreadId;
+    std::thread::id callbackThreadId;
+
+    std::thread loopThread([&]() {
+        loopThreadId = std::this_thread::get_id();
+        while (!taskDone.load()) {
+            reactor.waitOnce(1000);
+        }
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    reactor.addTask([&]() {
+        callbackThreadId = std::this_thread::get_id();
+        taskDone.store(true);
+    });
+    loopThread.join();
+
+    if (!taskDone.load()) {
+        std::cerr << "[reactor] FAIL: task did not run" << std::endl;
+        return false;
+    }
+    if (callbackThreadId != loopThreadId) {
+        std::cerr << "[reactor] FAIL: task did not run on reactor thread" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool testAddTaskRunsInSubmitOrder()
+{
+    tinyrpc::Reactor reactor;
+    std::vector<int> order;
+    std::atomic<bool> done {false};
+
+    std::thread loopThread([&]() {
+        while (!done.load()) {
+            reactor.waitOnce(1000);
+        }
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    reactor.addTask([&]() {
+        order.push_back(1);
+    });
+    reactor.addTask([&]() {
+        order.push_back(2);
+    });
+    reactor.addTask([&]() {
+        order.push_back(3);
+        done.store(true);
+    });
+    loopThread.join();
+
+    if (order != std::vector<int>({1, 2, 3})) {
+        std::cerr << "[reactor] FAIL: task order mismatch" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool testStopWakesBlockedLoop()
+{
+    tinyrpc::Reactor reactor;
+    std::atomic<bool> loopExited {false};
+
+    std::thread loopThread([&]() {
+        reactor.loop();
+        loopExited.store(true);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    reactor.stop();
+    loopThread.join();
+
+    if (!loopExited.load()) {
+        std::cerr << "[reactor] FAIL: stop did not wake blocked loop" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+}
+
+int main()
+{
+    if (!testFdEventReadCallbackAndDelete()) {
+        return 1;
+    }
+    if (!testAddTaskWakesLoopAndRunsOnReactorThread()) {
+        return 1;
+    }
+    if (!testAddTaskRunsInSubmitOrder()) {
+        return 1;
+    }
+    if (!testStopWakesBlockedLoop()) {
+        return 1;
+    }
 
     std::cout << "[reactor] PASS" << std::endl;
     return 0;
