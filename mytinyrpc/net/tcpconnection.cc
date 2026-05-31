@@ -2,6 +2,7 @@
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutine_hook.h"
+#include "net/http/http_request.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbdata.h"
 
@@ -218,21 +219,45 @@ void TcpConnection::execute()
 
     // 有 codec：循环 decode → dispatcher / encode，处理粘包
     while (m_inputBuffer.getReadableBytes() > 0) {
-        TinyPbStruct pb;
-        m_codec->decode(&m_inputBuffer, &pb);
+        std::unique_ptr<AbstractData> data = createProtocolData();
+        if (data == nullptr) {
+            ErrorLog("TcpConnection::execute unsupported protocol, fd = " + std::to_string(m_fd));
+            closeWithCallback();
+            break;
+        }
 
-        if (!pb.m_decodeSucc) {
+        m_codec->decode(&m_inputBuffer, data.get());
+
+        if (!data->m_decodeSucc) {
             // 半包或非法数据，不消费 buffer，等下一轮 input() 追加更多数据
             break;
         }
 
         if (m_dispatcher != nullptr) {
             // 有 dispatcher：交给分发器处理，由 dispatcher 内部调用 sendProtocolData() 写回响应
-            m_dispatcher->dispatch(&pb, this);
+            m_dispatcher->dispatch(data.get(), this);
         } else {
             // 无 dispatcher：encode 回环（向后兼容）
-            m_codec->encode(&m_outputBuffer, &pb);
+            m_codec->encode(&m_outputBuffer, data.get());
         }
+    }
+}
+
+std::unique_ptr<AbstractData> TcpConnection::createProtocolData() const
+{
+    if (m_codec == nullptr) {
+        return nullptr;
+    }
+
+    // 根据 codec 的协议类型创建对应的协议数据对象。
+    // TinyPB 与 HTTP 共用 TcpServer/TcpConnection 时，不能把解码对象写死为某一种协议。
+    switch (m_codec->getProtocolType()) {
+    case ProtocolType::TinyPb:
+        return std::make_unique<TinyPbStruct>();
+    case ProtocolType::Http:
+        return std::make_unique<HttpRequest>();
+    default:
+        return nullptr;
     }
 }
 

@@ -487,3 +487,20 @@
 ./build/test_http_dispatcher
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十二：HTTP Server 集成和脚本
+
+已完成能力：
+
+- 新增 `testcases/test_http_server.cc`，启动 `TcpServer` + `HttpCodec` + `HttpDispatcher`。
+- 新增 `scripts/check_stage12_http.sh`，使用 curl 验证 `/hello` 返回 `hello http`，未知 path 返回 404。
+- `TcpConnection::execute()` 按 codec 的 `ProtocolType` 创建对应协议数据对象，使 HTTP 和 TinyPB 共用同一套 server/connection 抽象。
+- HTTP 验收脚本增加 curl 超时，避免失败路径长时间挂住。
+- `docs/stage-12.md` 补充 HTTP server 集成路径和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./scripts/check_stage12_http.sh
+./scripts/check_rpc_sync.sh
+```

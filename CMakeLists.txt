@@ -205,3 +205,9 @@ add_executable(test_http_dispatcher
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_http_dispatcher ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_http_server
+    testcases/test_http_server.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_http_server pthread ${Protobuf_LIBRARIES})

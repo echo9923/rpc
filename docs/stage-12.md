@@ -72,6 +72,23 @@
 - 当前不做中间件。
 - 当前不做静态文件服务。
 
+## 任务六十二：HTTP Server 集成和脚本
+
+已完成能力：
+
+- 新增 `test_http_server`，使用 `TcpServer` + `HttpCodec` + `HttpDispatcher` 启动最小 HTTP server。
+- `test_http_server` 注册 `/hello` servlet，返回 `hello http`。
+- 未知 path 通过 `NotFoundHttpServlet` 返回 404 和 body `404 Not Found`。
+- 新增 `scripts/check_stage12_http.sh`，使用 `curl` 验证 `/hello` 与未知 path。
+- `TcpConnection::execute()` 根据 `AbstractCodec::getProtocolType()` 创建 `TinyPbStruct` 或 `HttpRequest`，让 TinyPB 和 HTTP 共用 `TcpServer` / `TcpConnection` 抽象。
+- HTTP 脚本中的 curl 调用带 `--max-time`，避免失败时无限等待。
+
+## HTTP server 当前边界
+
+- 当前只提供测试用最小 HTTP server，不做 HTTPS。
+- 当前不做 HTTP/2。
+- 当前不做压力测试。
+
 ## 验证命令
 
 ```bash
@@ -79,5 +96,6 @@
 ./build/test_http_define
 ./build/test_http_codec
 ./build/test_http_dispatcher
+./scripts/check_stage12_http.sh
 ./scripts/check_rpc_sync.sh
 ```
