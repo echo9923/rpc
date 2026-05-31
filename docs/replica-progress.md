@@ -164,3 +164,18 @@
 ./build/test_tinypb_rpc_channel
 ./scripts/check_rpc_sync_basic.sh
 ```
+
+### 任务四十五：同步 RPC 稳定性回归脚本
+
+已完成能力：
+
+- 新增 `scripts/check_rpc_sync.sh`，作为后续阶段必须运行的同步 RPC 回归入口。
+- 脚本覆盖构建、TcpBuffer、AbstractCodec、TinyPB data/codec、连接编解码、Protobuf service、dispatcher、msgReq、TcpClient、TinyPbRpcChannel 和真实端到端同步 RPC。
+- README 将推荐入口从基础脚本更新为 `./scripts/check_rpc_sync.sh`。
+- 阶段 9 文档明确后续阶段完成前需要运行该脚本。
+
+验证命令：
+
+```bash
+./scripts/check_rpc_sync.sh
+```

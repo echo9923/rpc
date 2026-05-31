@@ -32,7 +32,7 @@
 ```bash
 ./build.sh
 ./build/test_tcp_client
-./scripts/check_rpc_sync_basic.sh
+./scripts/check_rpc_sync.sh
 ```
 
 ## 任务四十四：同步客户端错误码矩阵
@@ -44,3 +44,27 @@
 - business `ret_code`：业务 response 中的业务结果。
 
 `ERROR_TCP_SEND_FAILED` 现在通过 `TcpClientTest.SendTinyPbRequestFailsWhenPeerResetsConnection` 覆盖。客户端写入 socket 时使用 `send(..., MSG_NOSIGNAL)`，避免对端关闭后触发 `SIGPIPE` 终止进程。
+
+## 任务四十五：同步 RPC 稳定性回归脚本
+
+新增 `scripts/check_rpc_sync.sh` 作为后续阶段的同步 RPC 稳定性安全网。脚本会先构建项目，再串联运行同步 RPC 主链路相关测试：
+
+- `test_tcp_buffer`
+- `test_abstract_codec`
+- `test_tinypb_data`
+- `test_tinypb_codec`
+- `test_connection_codec`
+- `test_protobuf_service`
+- `test_tinypb_dispatcher`
+- `test_msg_req`
+- `test_tcp_client`
+- `test_tinypb_rpc_channel`
+- `scripts/check_stage8_rpc.sh`
+
+后续 Reactor、IOThread、HTTP、配置日志、协程整理和异步 RPC 阶段完成前，都应运行：
+
+```bash
+./scripts/check_rpc_sync.sh
+```
+
+验收通过以输出 `[rpc-sync] PASS` 为准。
