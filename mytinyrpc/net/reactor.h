@@ -26,6 +26,9 @@ class Reactor {
   void loop();
   void stop();
 
+  bool addFdEvent(FdEvent* event);
+  bool delFdEvent(FdEvent* event);
+
   bool epollAdd(FdEvent* event);
   bool epollMod(FdEvent* event);
   bool epollDel(FdEvent* event);

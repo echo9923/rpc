@@ -82,8 +82,40 @@ void Reactor::stop()
     wakeup();
 }
 
+bool Reactor::addFdEvent(FdEvent* event)
+{
+    if (event == nullptr) {
+        return false;
+    }
+
+    event->setReactor(this);
+    return event->registerToReactor();
+}
+
+bool Reactor::delFdEvent(FdEvent* event)
+{
+    if (event == nullptr) {
+        return false;
+    }
+
+    return event->unregisterFromReactor();
+}
+
 bool Reactor::epollAdd(FdEvent* event)
 {
+    if (event == nullptr || event->getFd() < 0 || m_epollFd < 0) {
+        return false;
+    }
+
+    auto iter = m_events.find(event->getFd());
+    if (iter != m_events.end()) {
+        ErrorLog(
+            "epoll_ctl ADD rejected duplicate fd = " +
+            std::to_string(event->getFd())
+        );
+        return iter->second == event;
+    }
+
     struct epoll_event ev;
     ev.events = event->getListenEvents();
     // data 是 epoll_event 的联合体，有 ptr / fd / u32 / u64 四种存法。
@@ -108,6 +140,19 @@ bool Reactor::epollAdd(FdEvent* event)
 
 bool Reactor::epollMod(FdEvent* event)
 {
+    if (event == nullptr || event->getFd() < 0 || m_epollFd < 0) {
+        return false;
+    }
+
+    auto iter = m_events.find(event->getFd());
+    if (iter == m_events.end() || iter->second != event) {
+        ErrorLog(
+            "epoll_ctl MOD rejected unregistered fd = " +
+            std::to_string(event->getFd())
+        );
+        return false;
+    }
+
     // epoll_ctl(EPOLL_CTL_MOD) 修改已注册 fd 的关注事件。
     // 用于连接对象按需启停 EPOLLIN / EPOLLOUT。
     struct epoll_event ev;
@@ -128,6 +173,22 @@ bool Reactor::epollMod(FdEvent* event)
 
 bool Reactor::epollDel(FdEvent* event)
 {
+    if (event == nullptr || event->getFd() < 0 || m_epollFd < 0) {
+        return false;
+    }
+
+    auto iter = m_events.find(event->getFd());
+    if (iter == m_events.end()) {
+        return true;
+    }
+    if (iter->second != event) {
+        ErrorLog(
+            "epoll_ctl DEL rejected non-owner fd = " +
+            std::to_string(event->getFd())
+        );
+        return false;
+    }
+
     // epoll_ctl(EPOLL_CTL_DEL) 从 epoll 实例中删除指定 fd。
     // 第四个参数可传 nullptr，因为 EPOLL_CTL_DEL 会忽略 events 数据。
     if (epoll_ctl(m_epollFd, EPOLL_CTL_DEL, event->getFd(), nullptr) < 0) {

@@ -195,6 +195,44 @@ bool testAddTaskRunsInSubmitOrder()
     return true;
 }
 
+bool testAddFdEventRejectsDuplicateFd()
+{
+    int pipeFds[2];
+    if (pipe(pipeFds) < 0) {
+        std::cerr << "[reactor] FAIL: pipe() for duplicate test failed" << std::endl;
+        return false;
+    }
+    tinyrpc::setNonBlock(pipeFds[0]);
+
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent firstEvent(pipeFds[0]);
+    tinyrpc::FdEvent duplicateEvent(pipeFds[0]);
+    firstEvent.addListenEvent(EPOLLIN);
+    duplicateEvent.addListenEvent(EPOLLIN);
+
+    bool firstAdded = reactor.addFdEvent(&firstEvent);
+    bool duplicateAdded = reactor.addFdEvent(&duplicateEvent);
+    bool deleted = reactor.delFdEvent(&firstEvent);
+
+    close(pipeFds[0]);
+    close(pipeFds[1]);
+
+    if (!firstAdded) {
+        std::cerr << "[reactor] FAIL: first addFdEvent failed" << std::endl;
+        return false;
+    }
+    if (duplicateAdded) {
+        std::cerr << "[reactor] FAIL: duplicate fd registration unexpectedly succeeded" << std::endl;
+        return false;
+    }
+    if (!deleted) {
+        std::cerr << "[reactor] FAIL: delFdEvent failed after duplicate test" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 bool testStopWakesBlockedLoop()
 {
     tinyrpc::Reactor reactor;
@@ -217,6 +255,75 @@ bool testStopWakesBlockedLoop()
     return true;
 }
 
+bool testCallbackCanStopLoop()
+{
+    int pipeFds[2];
+    if (pipe(pipeFds) < 0) {
+        std::cerr << "[reactor] FAIL: pipe() for stop callback test failed" << std::endl;
+        return false;
+    }
+    tinyrpc::setNonBlock(pipeFds[0]);
+
+    tinyrpc::Reactor reactor;
+    std::atomic<bool> loopExited {false};
+    std::atomic<bool> callbackRan {false};
+    std::thread::id loopThreadId;
+    std::thread::id callbackThreadId;
+
+    tinyrpc::FdEvent readEvent(pipeFds[0]);
+    readEvent.addListenEvent(EPOLLIN);
+    readEvent.setReadCallback([&]() {
+        char buf[8];
+        read(pipeFds[0], buf, sizeof(buf));
+        callbackThreadId = std::this_thread::get_id();
+        callbackRan.store(true);
+        reactor.stop();
+    });
+
+    if (!reactor.addFdEvent(&readEvent)) {
+        std::cerr << "[reactor] FAIL: addFdEvent for stop callback test failed" << std::endl;
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+        return false;
+    }
+
+    std::thread loopThread([&]() {
+        loopThreadId = std::this_thread::get_id();
+        reactor.loop();
+        loopExited.store(true);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    if (write(pipeFds[1], "s", 1) < 0) {
+        std::cerr << "[reactor] FAIL: write for stop callback test failed" << std::endl;
+        reactor.stop();
+        loopThread.join();
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+        return false;
+    }
+
+    loopThread.join();
+    reactor.delFdEvent(&readEvent);
+    close(pipeFds[0]);
+    close(pipeFds[1]);
+
+    if (!callbackRan.load()) {
+        std::cerr << "[reactor] FAIL: stop callback did not run" << std::endl;
+        return false;
+    }
+    if (!loopExited.load()) {
+        std::cerr << "[reactor] FAIL: loop did not exit after callback stop" << std::endl;
+        return false;
+    }
+    if (callbackThreadId != loopThreadId) {
+        std::cerr << "[reactor] FAIL: fd callback did not run on reactor thread" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 }
 
 int main()
@@ -230,7 +337,13 @@ int main()
     if (!testAddTaskRunsInSubmitOrder()) {
         return 1;
     }
+    if (!testAddFdEventRejectsDuplicateFd()) {
+        return 1;
+    }
     if (!testStopWakesBlockedLoop()) {
+        return 1;
+    }
+    if (!testCallbackCanStopLoop()) {
         return 1;
     }
 

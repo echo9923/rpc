@@ -97,6 +97,45 @@ sequenceDiagram
 - `addTask()` 的 task 在 Reactor 线程执行，而不是提交线程执行。
 - `stop()` 可从其他线程调用，退出动作在 Reactor 线程下一次 wakeup 后完成。
 
+## 任务五十：Reactor 安全退出和事件生命周期回归
+
+已完成能力：
+
+- 新增 `Reactor::addFdEvent()` 和 `Reactor::delFdEvent()`，作为外部注册/删除 fd event 的语义入口。
+- `addFdEvent()` 会把事件绑定到当前 Reactor，再交给 `FdEvent::registerToReactor()` 注册。
+- 同一个 `FdEvent` 重复调用 `registerToReactor()` 是幂等成功，不会再次调用 `epoll_ctl(ADD)`。
+- 不同 `FdEvent` 重复注册同一个 fd 会被 Reactor 拒绝，避免 epoll `data.ptr` 所属对象被悄悄覆盖。
+- `delFdEvent()` 只允许注册该 fd 的 owner event 删除；非 owner 删除会失败。
+- fd callback 中可以直接调用 `stop()`，loop 会在当前回调返回后退出，不需要额外网络事件唤醒。
+- `test_reactor` 覆盖 fd 注册、可读回调、删除后不触发、重复 fd 注册、跨线程任务投递、任务顺序和 callback 内 stop。
+
+## fd event 生命周期
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Event as FdEvent
+    participant Reactor as Reactor
+    participant Kernel as epoll
+
+    User->>Reactor: addFdEvent(event)
+    Reactor->>Event: setReactor(this)
+    Event->>Reactor: epollAdd(event)
+    Reactor->>Kernel: epoll_ctl(ADD, fd, events)
+    Kernel-->>Reactor: epoll_wait() returns event
+    Reactor->>Event: handleEvent(triggerEvents)
+    Event->>User: read/write callback
+    User->>Reactor: delFdEvent(event)
+    Reactor->>Kernel: epoll_ctl(DEL, fd)
+```
+
+## Reactor 事件生命周期边界
+
+- fd 的关闭仍由创建该 fd 的上层对象负责，Reactor 只负责从 epoll 中注册或删除。
+- 删除事件前应先调用 `delFdEvent()` 或 `FdEvent::unregisterFromReactor()`，再关闭 fd。
+- `Reactor` 不拥有业务 `FdEvent` 对象，只保存非拥有指针；业务对象需要保证注册期间自身存活。
+- 当前阶段仍是单 Reactor 模型，不做多 Reactor 线程归属迁移。
+
 ## 验证命令
 
 ```bash

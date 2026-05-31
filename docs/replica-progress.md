@@ -255,3 +255,22 @@
 ./build/test_timer
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十：Reactor 安全退出和事件生命周期回归
+
+已完成能力：
+
+- `Reactor` 新增 `addFdEvent()` 和 `delFdEvent()`，作为 fd event 生命周期的清晰入口。
+- 同一个 `FdEvent` 重复注册保持幂等，不同 `FdEvent` 重复注册同一个 fd 会被拒绝。
+- `epollMod()` 和 `epollDel()` 增加 owner 检查，避免非注册对象修改或删除同一 fd。
+- `test_reactor` 补充重复注册、callback 内调用 `stop()`、callback 线程归属验证。
+- `docs/stage-10.md` 补充 fd event 生命周期图和 Reactor 事件生命周期边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_reactor
+./build/test_timer
+./scripts/check_rpc_sync.sh
+```
