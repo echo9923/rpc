@@ -379,3 +379,24 @@
 ./build/test_iothread
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十六：`TcpServer` 接入 IOThreadPool
+
+已完成能力：
+
+- `TcpServer` 新增 `setIOThreadNum()` 和 `getIOThreadNum()`。
+- `TcpServer` 启用 IOThreadPool 后，Main Reactor 只负责 accept，新连接按 round-robin 分配到 Sub Reactor。
+- `TcpConnection` 使用目标 Sub Reactor 创建，并把 `startConnection()` 投递到对应 IOThread 执行。
+- 单线程模式保持旧行为，不设置 IOThread 数量时仍由 Main Reactor 处理连接。
+- 连接表使用 `Mutex` 保护，关闭回调可从 Sub Reactor 线程安全删除连接记录。
+- `test_tinypb_server_client` 新增 `--server-multi <port> <threads>` 模式。
+- 新增 `scripts/check_stage11_server.sh`，并发运行 8 个 Stub 客户端验证多 Reactor 同步 RPC。
+- `docs/stage-11.md` 补充 TcpServer 多 Reactor 分发路径和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./scripts/check_stage11_server.sh
+./scripts/check_rpc_sync.sh
+```

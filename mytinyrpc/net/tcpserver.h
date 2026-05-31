@@ -3,6 +3,8 @@
 #include "net/abstractcodec.h"
 #include "net/abstractdispatcher.h"
 #include "net/fdevent.h"
+#include "net/iothread_pool.h"
+#include "net/mutex.h"
 #include "net/netaddress.h"
 #include "net/reactor.h"
 #include "net/socket.h"
@@ -27,6 +29,10 @@ class TcpServer {
 
     const IPAddress& getLocalAddress() const;
 
+    void setIOThreadNum(int ioThreadNum);
+    int getIOThreadNum() const;
+    std::size_t getConnectionCount() const;
+
     bool init();
 
     void start();
@@ -39,6 +45,7 @@ class TcpServer {
  private:
     void acceptLoop();
 
+    void addConnection(Socket clientFd);
     void removeConnection(int fd);
 
  private:
@@ -49,7 +56,10 @@ class TcpServer {
     FdEvent m_listenEvent;
     AbstractCodec::Ptr m_codec;
     AbstractDispatcher::Ptr m_dispatcher;
+    std::unique_ptr<IOThreadPool> m_ioThreadPool;
+    int m_ioThreadNum {0};
     std::unordered_map<int, std::shared_ptr<TcpConnection>> m_connections;
+    mutable Mutex m_connectionMutex;
     bool m_running {false};
 };
 

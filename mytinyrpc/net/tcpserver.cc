@@ -24,6 +24,9 @@ TcpServer::TcpServer(const IPAddress& addr,
 
 TcpServer::~TcpServer()
 {
+    if (m_ioThreadPool != nullptr) {
+        m_ioThreadPool->stop();
+    }
     if (m_listenFd != kInvalidSocket) {
         close(m_listenFd);
     }
@@ -32,6 +35,25 @@ TcpServer::~TcpServer()
 const IPAddress& TcpServer::getLocalAddress() const
 {
     return m_addr;
+}
+
+void TcpServer::setIOThreadNum(int ioThreadNum)
+{
+    if (ioThreadNum < 0) {
+        ioThreadNum = 0;
+    }
+    m_ioThreadNum = ioThreadNum;
+}
+
+int TcpServer::getIOThreadNum() const
+{
+    return m_ioThreadNum;
+}
+
+std::size_t TcpServer::getConnectionCount() const
+{
+    MutexLockGuard lock(m_connectionMutex);
+    return m_connections.size();
 }
 
 bool TcpServer::init()
@@ -64,6 +86,9 @@ bool TcpServer::init()
     }
 
     InfoLog("TcpServer listen on " + m_addr.toString());
+    if (m_ioThreadNum > 0) {
+        m_ioThreadPool = std::make_unique<IOThreadPool>(static_cast<std::size_t>(m_ioThreadNum));
+    }
     return true;
 }
 
@@ -125,18 +150,45 @@ void TcpServer::acceptLoop()
             continue;
         }
 
-        // 任务二十四：读写均走协程 hook，startConnection 完成 FdEvent 注册 + 启动连接协程。
-        auto conn = std::make_shared<TcpConnection>(clientFd, &m_reactor, m_codec, m_dispatcher);
-        conn->setCloseCallback([this](int fd) {
-            this->removeConnection(fd);
-        });
-        conn->startConnection();
+        addConnection(clientFd);
+    }
+}
+
+void TcpServer::addConnection(Socket clientFd)
+{
+    Reactor *connectionReactor = &m_reactor;
+    IOThread *ioThread = nullptr;
+    if (m_ioThreadPool != nullptr) {
+        ioThread = m_ioThreadPool->getNextIOThread();
+        if (ioThread != nullptr) {
+            connectionReactor = ioThread->getReactor();
+        }
+    }
+
+    auto conn = std::make_shared<TcpConnection>(clientFd, connectionReactor, m_codec, m_dispatcher);
+    conn->setCloseCallback([this](int fd) {
+        this->removeConnection(fd);
+    });
+
+    {
+        MutexLockGuard lock(m_connectionMutex);
         m_connections[clientFd] = conn;
     }
+
+    if (ioThread != nullptr) {
+        ioThread->addTask([conn]() {
+            conn->startConnection();
+        });
+        return;
+    }
+
+    // 单线程模式保持旧语义：Main Reactor 负责连接读写。
+    conn->startConnection();
 }
 
 void TcpServer::removeConnection(int fd)
 {
+    MutexLockGuard lock(m_connectionMutex);
     m_connections.erase(fd);
 }
 

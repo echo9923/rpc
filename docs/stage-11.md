@@ -93,6 +93,47 @@ sequenceDiagram
 - round-robin 只按调用次数轮转，不做负载感知。
 - 当前尚未接入 `TcpServer`，任务五十六会处理新连接分发。
 
+## 任务五十六：`TcpServer` 接入 IOThreadPool
+
+已完成能力：
+
+- `TcpServer` 新增 `setIOThreadNum()`，可选择启用 Sub Reactor 线程池。
+- 未设置 IOThread 数量时保持旧单 Reactor 模式。
+- 启用 IOThreadPool 后，Main Reactor 只负责监听 fd 和 accept。
+- accept 到新连接后，`TcpServer` 按 IOThreadPool round-robin 选择一个 Sub Reactor。
+- `TcpConnection` 使用 Sub Reactor 创建，`startConnection()` 投递到目标 IOThread 执行。
+- 连接关闭回调会回到 `TcpServer::removeConnection()`，连接表使用 `Mutex` 保护。
+- 新增 `scripts/check_stage11_server.sh`，启动多 Reactor TinyPB server 并并发运行 8 个 Stub 客户端。
+
+## TcpServer 多 Reactor 分发路径
+
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant Main as Main Reactor
+    participant Server as TcpServer
+    participant Pool as IOThreadPool
+    participant Sub as Sub Reactor
+    participant Conn as TcpConnection
+
+    Client->>Main: connect
+    Main->>Server: acceptLoop()
+    Server->>Pool: getNextIOThread()
+    Pool-->>Server: IOThread
+    Server->>Conn: create with Sub Reactor
+    Server->>Pool: addTask(startConnection)
+    Pool->>Sub: Reactor::addTask()
+    Sub->>Conn: startConnection()
+    Sub->>Conn: input / execute / output
+```
+
+## TcpServer 多 Reactor 当前边界
+
+- 当前只做固定线程数和 round-robin 分发，不做动态扩缩容。
+- `TcpServer` 单线程模式仍可用，阶段 8 同步 RPC 回归继续覆盖旧路径。
+- 连接表已加锁，但连接对象内部仍假定由所属 Reactor 线程驱动。
+- 关闭服务器仍依赖测试脚本杀进程，尚未实现独立 stop API。
+
 ## 验证命令
 
 ```bash
@@ -100,5 +141,6 @@ sequenceDiagram
 ./build/test_mutex
 ./build/test_iothread
 ./build/test_iothread_pool
+./scripts/check_stage11_server.sh
 ./scripts/check_rpc_sync.sh
 ```

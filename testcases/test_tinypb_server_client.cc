@@ -2,9 +2,10 @@
  * test_tinypb_server_client.cc -- 任务三十九：真实 Stub 到 TcpServer 端到端验收程序。
  *
  * 运行模式：
- *   --server <port>：启动真实 TcpServer，注册 QueryServiceImpl。
- *   --client <port>：使用 QueryService_Stub + TinyPbRpcChannel 发起一次真实 RPC。
- *   --probe <port> ：尝试建立 TCP 连接，用于脚本等待端口就绪。
+ *   --server <port>                 ：启动单 Reactor TcpServer，注册 QueryServiceImpl。
+ *   --server-multi <port> <threads> ：启动 Main Reactor + Sub Reactor TcpServer。
+ *   --client <port>                 ：使用 QueryService_Stub + TinyPbRpcChannel 发起一次真实 RPC。
+ *   --probe <port>                  ：尝试建立 TCP 连接，用于脚本等待端口就绪。
  */
 
 #include "net/netaddress.h"
@@ -84,6 +85,29 @@ int runServer(uint16_t port)
     return 0;
 }
 
+int runMultiServer(uint16_t port, int ioThreadNum)
+{
+    auto codec = std::make_shared<tinyrpc::TinyPbCodec>();
+    auto dispatcher = std::make_shared<tinyrpc::TinyPbDispatcher>();
+    tinyrpc::TcpServer server(tinyrpc::IPAddress(kHost, port), codec, dispatcher);
+    server.setIOThreadNum(ioThreadNum);
+
+    if (!server.init()) {
+        std::cerr << "[stage11-server] init failed" << std::endl;
+        return 1;
+    }
+
+    if (!server.registerService(std::make_shared<QueryServiceImpl>())) {
+        std::cerr << "[stage11-server] register service failed" << std::endl;
+        return 1;
+    }
+
+    std::cout << "[stage11-server] listen " << port
+              << ", io_threads = " << ioThreadNum << std::endl;
+    server.start();
+    return 0;
+}
+
 int runClient(uint16_t port)
 {
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress(kHost, port));
@@ -130,14 +154,16 @@ int runProbe(uint16_t port)
 
 void printUsage(const char *program)
 {
-    std::cerr << "usage: " << program << " --server|--client|--probe <port>" << std::endl;
+    std::cerr << "usage: " << program
+              << " --server|--client|--probe <port> | --server-multi <port> <threads>"
+              << std::endl;
 }
 
 } // namespace
 
 int main(int argc, char **argv)
 {
-    if (argc != 3) {
+    if (argc != 3 && argc != 4) {
         printUsage(argv[0]);
         return 1;
     }
@@ -150,12 +176,37 @@ int main(int argc, char **argv)
 
     std::string mode = argv[1];
     if (mode == "--server") {
+        if (argc != 3) {
+            printUsage(argv[0]);
+            return 1;
+        }
         return runServer(port);
     }
+    if (mode == "--server-multi") {
+        if (argc != 4) {
+            printUsage(argv[0]);
+            return 1;
+        }
+        char *end = nullptr;
+        long value = std::strtol(argv[3], &end, 10);
+        if (*argv[3] == '\0' || *end != '\0' || value <= 0 || value > 64) {
+            std::cerr << "invalid io thread num: " << argv[3] << std::endl;
+            return 1;
+        }
+        return runMultiServer(port, static_cast<int>(value));
+    }
     if (mode == "--client") {
+        if (argc != 3) {
+            printUsage(argv[0]);
+            return 1;
+        }
         return runClient(port);
     }
     if (mode == "--probe") {
+        if (argc != 3) {
+            printUsage(argv[0]);
+            return 1;
+        }
         return runProbe(port);
     }
 
