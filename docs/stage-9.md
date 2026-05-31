@@ -68,3 +68,16 @@
 ```
 
 验收通过以输出 `[rpc-sync] PASS` 为准。
+
+## 任务四十六：推迟响应缓存，仅保留 msgReq mismatch 检查
+
+当前同步 RPC 明确采用单 in-flight 请求模型：
+
+1. `TinyPbRpcChannel::CallMethod()` 构造一个 TinyPB request。
+2. 内部 `TcpClient::sendAndRecvTinyPb()` 发送该 request，并阻塞读取一个 TinyPB response。
+3. Channel 比较 response `msgReq` 和 request `msgReq`。
+4. 如果不一致，直接设置 `ERROR_RPC_MSGREQ_MISMATCH` 并结束本次调用。
+
+同步客户端不维护 `msgReq -> response` 缓存，也不保存乱序 response。这样做的原因是同步调用一次只等待一个响应；如果此时收到了不匹配的响应，继续把它缓存起来反而会把异步多请求模型提前塞进同步客户端，增加生命周期、清理和超时语义复杂度。
+
+响应缓存、pending map、迟到响应丢弃和并发请求匹配都留到异步 RPC 阶段实现。当前行为由 `TinyPbRpcChannelTest.MismatchedResponseMsgReqSetsControllerError` 覆盖，并由 `scripts/check_rpc_sync.sh` 纳入后续回归。

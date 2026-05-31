@@ -179,3 +179,19 @@
 ```bash
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务四十六：推迟响应缓存，仅保留 msgReq mismatch 检查
+
+已完成能力：
+
+- 明确同步 RPC 只有单 in-flight request，`TinyPbRpcChannel` 收到一个 response 后立即进行 `msgReq` 校验。
+- `msgReq` 不匹配时直接设置 `ERROR_RPC_MSGREQ_MISMATCH`，不反序列化业务 response。
+- 同步 `TcpClient` 和 `TinyPbRpcChannel` 文档注释明确不维护 `msgReq -> response` 缓存。
+- 阶段 9 文档说明 pending map、乱序响应缓存和迟到响应处理留到异步 RPC 阶段。
+
+验证命令：
+
+```bash
+./build/test_tinypb_rpc_channel
+./scripts/check_rpc_sync.sh
+```

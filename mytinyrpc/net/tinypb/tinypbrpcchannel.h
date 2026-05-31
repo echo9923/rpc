@@ -15,9 +15,12 @@ namespace tinyrpc {
 // 当前阶段只支持一问一答的同步 RPC：
 //   1. 把 Protobuf request 序列化到 TinyPbStruct::m_pbData
 //   2. 调用 TcpClient::sendAndRecvTinyPb()
-//   3. 把 TinyPB response 的 m_pbData 反序列化到 Protobuf response
+//   3. 校验 response msgReq 与 request msgReq 是否一致
+//   4. 不匹配时直接设置框架错误，不缓存乱序 response
+//   5. 把 TinyPB response 的 m_pbData 反序列化到 Protobuf response
 //
-// 不包含：超时、重试、连接池、异步 pending map。
+// 同步 Channel 每次 CallMethod 只有一个 in-flight request。
+// 不包含：连接池、并发请求、乱序响应缓存、异步 pending map。
 class TinyPbRpcChannel : public google::protobuf::RpcChannel {
  public:
     explicit TinyPbRpcChannel(const IPAddress& peerAddr);

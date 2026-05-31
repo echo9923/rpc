@@ -71,7 +71,9 @@ class TcpClient {
     // 当前方法要求调用前已经连接，不会单独发起 connect()。
     bool recvTinyPbResponse(TinyPbStruct *response);
 
-    // 最小同步请求/响应闭环：先发送 TinyPB 请求，再读取 TinyPB 响应。
+    // 最小同步请求/响应闭环：先发送 TinyPB 请求，再读取一个 TinyPB 响应。
+    // TcpClient 只负责字节收发，不维护 msgReq -> response 缓存。
+    // msgReq 匹配由上层 TinyPbRpcChannel 判断；异步 pending map 留到异步 RPC 阶段。
     bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
 
  private:
