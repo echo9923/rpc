@@ -400,3 +400,19 @@
 ./scripts/check_stage11_server.sh
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十七：`TcpConnection` 所有权和状态机文档
+
+已完成能力：
+
+- 完善 `docs/tcpconnection-lifetime.md`，覆盖单 Reactor 和多 Reactor 两种连接生命周期。
+- 明确 `TcpConnection` 对象由 `TcpServer::m_connections` 主要持有，读协程和 IOThread task 通过捕获 `shared_ptr` 临时保活。
+- 明确 fd、`FdEvent`、input buffer、output buffer、codec 和 dispatcher 的所有权关系。
+- 明确 Main Reactor 负责 accept，多 Reactor 模式下连接注册、读写、dispatcher 和关闭动作都归属连接所在 Sub Reactor。
+- `docs/stage-11.md` 补充 TcpConnection 线程归属速查表和当前边界。
+
+验证命令：
+```bash
+./scripts/check_stage11_server.sh
+./scripts/check_rpc_sync.sh
+```

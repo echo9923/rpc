@@ -134,6 +134,36 @@ sequenceDiagram
 - 连接表已加锁，但连接对象内部仍假定由所属 Reactor 线程驱动。
 - 关闭服务器仍依赖测试脚本杀进程，尚未实现独立 stop API。
 
+## 任务五十七：`TcpConnection` 所有权和状态机文档
+
+已完成能力：
+
+- 完善 `docs/tcpconnection-lifetime.md`，把阶段 11 的单 Reactor 和多 Reactor 两种路径放在同一份生命周期文档中。
+- 明确连接对象主要由 `TcpServer::m_connections` 持有，读协程和 IOThread 投递任务只临时捕获 `shared_ptr` 保活。
+- 明确 fd 由 `TcpConnection::closeConnection()` 关闭，`FdEvent` 和 `Reactor` 都不拥有 fd。
+- 明确 Main Reactor 负责监听 fd 和 accept；多 Reactor 模式下，连接注册、读写、codec、dispatcher 和关闭动作都在连接所属 Sub Reactor 线程执行。
+- 明确 input buffer、output buffer、codec 和 dispatcher 的关系：buffer 归 `TcpConnection` 所有，dispatcher 只处理协议对象并写入响应，不拥有连接资源。
+- 补充关闭和析构边界：`closeConnection()` 幂等，析构由最后一个 `shared_ptr` 释放线程触发，正常关闭路径围绕所属 Reactor 线程执行。
+
+## TcpConnection 阶段 11 线程归属速查
+
+| 动作 | 单 Reactor 模式 | 多 Reactor 模式 |
+| --- | --- | --- |
+| accept 新连接 | Main Reactor 线程 | Main Reactor 线程 |
+| 创建 `TcpConnection` | Main Reactor 线程 | Main Reactor 线程 |
+| 写入连接表 | Main Reactor 线程 | Main Reactor 线程，使用 `Mutex` 保护 |
+| 注册连接 fd | Main Reactor 线程 | 目标 Sub Reactor 线程 |
+| 读写协程恢复 | Main Reactor 线程 | 目标 Sub Reactor 线程 |
+| dispatcher 调用 | Main Reactor 线程 | 目标 Sub Reactor 线程 |
+| close callback 删除连接表 | Main Reactor 线程 | 目标 Sub Reactor 线程，使用 `Mutex` 保护 |
+| fd 关闭 | `TcpConnection::closeConnection()` | `TcpConnection::closeConnection()` |
+
+## TcpConnection 文档当前边界
+
+- 当前任务只补齐所有权和状态机文档，不做内存池优化。
+- `TcpServer` 仍未提供正式 stop API，阶段验收脚本继续通过结束 server 进程完成清理。
+- 空闲超时管理器仍是独立能力，尚未默认接入 `TcpServer`。
+
 ## 验证命令
 
 ```bash
