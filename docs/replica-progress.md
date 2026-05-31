@@ -453,3 +453,19 @@
 ./build/test_http_codec
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十：HTTP 响应编码
+
+已完成能力：
+
+- 实现 `HttpCodec::encode()`，将 `HttpResponse` 编码到 `TcpBuffer`。
+- encode 前自动按 body 实际大小写入 `Content-Length`，旧的错误长度会被覆盖。
+- `test_http_codec` 补充 200 response、404 response 和 `Content-Length` 修正测试。
+- `docs/stage-12.md` 补充 HTTP encode 能力和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_http_codec
+./scripts/check_rpc_sync.sh
+```

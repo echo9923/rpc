@@ -1,5 +1,6 @@
 #include "net/http/httpcodec.h"
 #include "net/http/http_request.h"
+#include "net/http/http_response.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -17,11 +18,28 @@ constexpr size_t kHttpHeaderEndLength = 4;
 
 void HttpCodec::encode(TcpBuffer *buffer, AbstractData *data)
 {
-    // HTTP response 编码在任务六十实现；当前保持安全失败，不写入 buffer。
-    (void)buffer;
-    if (data != nullptr) {
-        data->m_encodeSucc = false;
+    if (buffer == nullptr) {
+        if (data != nullptr) {
+            data->m_encodeSucc = false;
+        }
+        return;
     }
+    if (data == nullptr) {
+        return;
+    }
+
+    // dynamic_cast 将 AbstractData* 安全转为 HttpResponse*；
+    // 若 data 实际类型不是 HttpResponse，则不能编码为 HTTP 响应。
+    auto *response = dynamic_cast<HttpResponse *>(data);
+    if (response == nullptr) {
+        data->m_encodeSucc = false;
+        return;
+    }
+
+    response->setHeader("Content-Length", std::to_string(response->getBody().size()));
+    std::string raw = response->toString();
+    buffer->append(raw);
+    response->m_encodeSucc = true;
 }
 
 void HttpCodec::decode(TcpBuffer *buffer, AbstractData *data)

@@ -1,4 +1,5 @@
 #include "net/http/http_request.h"
+#include "net/http/http_response.h"
 #include "net/http/httpcodec.h"
 #include "net/tcpbuffer.h"
 
@@ -74,6 +75,60 @@ TEST(HttpCodecTest, DecodeInvalidRequestLineFailsAndConsumesBadPacket)
 
     EXPECT_FALSE(request.m_decodeSucc);
     EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, EncodeOkResponse)
+{
+    tinyrpc::HttpResponse response;
+    response.setStatusCode(tinyrpc::HttpStatusCode::OK);
+    response.setHeader("Content-Type", "text/plain");
+    response.setBody("hello");
+
+    tinyrpc::TcpBuffer buffer;
+    tinyrpc::HttpCodec codec;
+    codec.encode(&buffer, &response);
+
+    EXPECT_TRUE(response.m_encodeSucc);
+    std::string raw = buffer.retrieveAllAsString();
+    EXPECT_NE(raw.find("HTTP/1.1 200 OK\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("Content-Type: text/plain\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("Content-Length: 5\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("\r\n\r\nhello"), std::string::npos);
+}
+
+TEST(HttpCodecTest, EncodeNotFoundResponse)
+{
+    tinyrpc::HttpResponse response;
+    response.setStatusCode(tinyrpc::HttpStatusCode::NotFound);
+    response.setHeader("Content-Type", "text/plain");
+    response.setBody("missing");
+
+    tinyrpc::TcpBuffer buffer;
+    tinyrpc::HttpCodec codec;
+    codec.encode(&buffer, &response);
+
+    EXPECT_TRUE(response.m_encodeSucc);
+    std::string raw = buffer.retrieveAllAsString();
+    EXPECT_NE(raw.find("HTTP/1.1 404 Not Found\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("Content-Length: 7\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("\r\n\r\nmissing"), std::string::npos);
+}
+
+TEST(HttpCodecTest, EncodeResponseCorrectsContentLength)
+{
+    tinyrpc::HttpResponse response;
+    response.setStatusCode(tinyrpc::HttpStatusCode::OK);
+    response.setHeader("Content-Length", "999");
+    response.setBody("abc");
+
+    tinyrpc::TcpBuffer buffer;
+    tinyrpc::HttpCodec codec;
+    codec.encode(&buffer, &response);
+
+    EXPECT_TRUE(response.m_encodeSucc);
+    std::string raw = buffer.retrieveAllAsString();
+    EXPECT_NE(raw.find("Content-Length: 3\r\n"), std::string::npos);
+    EXPECT_EQ(raw.find("Content-Length: 999\r\n"), std::string::npos);
 }
 
 int main(int argc, char **argv)

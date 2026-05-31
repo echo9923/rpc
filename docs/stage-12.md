@@ -39,6 +39,21 @@
 - 当前不做大小写无关 header 查找，`Content-Length` 需要使用标准大小写。
 - `HttpCodec::encode()` 仍保持安全失败，任务六十会实现 response 编码。
 
+## 任务六十：HTTP 响应编码
+
+已完成能力：
+
+- 实现 `HttpCodec::encode()`，可将 `HttpResponse` 编码到 `TcpBuffer`。
+- encode 前会按 body 实际长度设置 `Content-Length`，覆盖调用方传入的旧值，避免响应长度和 body 不一致。
+- 编码结果使用 `HttpResponse::toString()` 生成标准 HTTP/1.x 响应文本：状态行、headers、空行、body。
+- `test_http_codec` 补充 200 response、404 response 和 `Content-Length` 修正测试。
+
+## HTTP encode 当前边界
+
+- 当前只编码完整内存 body，不做 gzip。
+- 当前不做 streaming response。
+- 当前不主动追加 `Connection` 语义，连接生命周期仍由上层服务端流程控制。
+
 ## 验证命令
 
 ```bash
