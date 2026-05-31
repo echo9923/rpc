@@ -195,3 +195,23 @@
 ./build/test_tinypb_rpc_channel
 ./scripts/check_rpc_sync.sh
 ```
+
+## 阶段 10：Timer、Reactor wakeup 和连接生命周期
+
+### 任务四十七：`TimerEvent` 与基础时间函数
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/timer.h` 和 `mytinyrpc/net/timer.cc`。
+- 新增 `getNowMs()`，提供毫秒级时间基准。
+- 新增 `TimerEvent`，支持一次性任务、重复任务、cancel、reset 和到期判断。
+- 新增 `test_timer_event`，以内存级测试覆盖 TimerEvent 行为，不依赖 Reactor。
+- 新增 `docs/stage-10.md` 记录当前边界：本任务不接入 `timerfd`，不接入 TcpConnection。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_timer_event
+./scripts/check_rpc_sync.sh
+```

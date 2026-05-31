@@ -36,6 +36,7 @@ set(SRC
     mytinyrpc/net/tcpconnection.cc
     mytinyrpc/net/tcpclient.cc
     mytinyrpc/net/tcpserver.cc
+    mytinyrpc/net/timer.cc
     mytinyrpc/net/tinypb/tinypbcodec.cc
     mytinyrpc/net/tinypb/tinypbdispatcher.cc
     mytinyrpc/net/tinypb/tinypbrpcchannel.cc
@@ -140,3 +141,9 @@ add_executable(test_msg_req
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_msg_req ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_timer_event
+    testcases/test_timer_event.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_timer_event ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
