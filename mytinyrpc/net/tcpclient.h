@@ -2,19 +2,23 @@
 
 #include "net/netaddress.h"
 #include "net/socket.h"
+#include "net/tcpbuffer.h"
+#include "net/tinypb/tinypbcodec.h"
+#include "net/tinypb/tinypbdata.h"
 
 #include <string>
 
 namespace tinyrpc {
 
-// TcpClient 是一个最小同步 TCP 客户端，只负责：
+// TcpClient 是一个最小同步 TCP 客户端，负责：
 //   1. 保存对端地址
 //   2. 创建 socket 并调用 connect()
 //   3. 记录连接错误
 //   4. 关闭 socket
+//   5. 发送/接收一个 TinyPB 请求/响应帧
 // 析构时自动释放资源。
 //
-// 不包含：TinyPB 编解码、RpcChannel、超时、重试、连接池、
+// 不包含：RpcChannel、超时、重试、连接池、
 // 异步回调、协程 hook 或 Reactor 集成。
 class TcpClient {
  public:
@@ -45,11 +49,26 @@ class TcpClient {
     // 多次调用安全（幂等）。
     void closeConnection();
 
+    // 将 TinyPbStruct 编码为 TinyPB 请求帧并完整写入 socket。
+    // 若当前未连接，会先调用 connectServer() 建立阻塞式 TCP 连接。
+    bool sendTinyPbRequest(TinyPbStruct *request);
+
+    // 从 socket 读取字节流，直到解码出一个完整 TinyPB 响应帧。
+    // 当前方法要求调用前已经连接，不会单独发起 connect()。
+    bool recvTinyPbResponse(TinyPbStruct *response);
+
+    // 最小同步请求/响应闭环：先发送 TinyPB 请求，再读取 TinyPB 响应。
+    bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
+
  private:
+    bool writeAll(const char *data, size_t len);
+    bool readSomeToBuffer(TcpBuffer *buffer);
+
     IPAddress m_peerAddr;
     Socket m_fd {kInvalidSocket};
     bool m_isConnected {false};
     int m_errorCode {0};
+    std::string m_errorInfo;
 };
 
 }
