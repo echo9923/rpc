@@ -117,6 +117,34 @@ sequenceDiagram
 ./scripts/check_stage8_rpc.sh
 ```
 
+### 任务四十一：同步客户端超时与失败路径
+
+`TcpClient` 已支持最小同步超时语义：
+
+- `setTimeout(timeoutMs)` 设置 connect/read/write 等待超时时间，单位毫秒。
+- `getErrorCode()` 返回最近一次网络操作的框架错误码。
+- connect 超时时使用非阻塞 `connect()` + `poll(POLLOUT)` 等待。
+- read/write 在系统调用前使用 `poll(POLLIN/POLLOUT)` 等待 fd 就绪。
+- `timeoutMs <= 0` 时保持阻塞等待语义。
+
+新增错误码：
+
+- `ERROR_TCP_CONNECT_FAILED`：连接建立失败。
+- `ERROR_TCP_SEND_FAILED`：写入失败。
+- `ERROR_TCP_RECV_FAILED`：读取失败或对端提前关闭。
+- `ERROR_TCP_TIMEOUT`：同步等待超时。
+
+`TinyPbRpcChannel` 会把 `TinyPbRpcController::Timeout()` 传递给内部 `TcpClient`。如果 TcpClient 返回明确错误码，Channel 会把该错误码写入 controller；否则才使用泛化的 `ERROR_RPC_CHANNEL_NETWORK`。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_tcp_client
+./build/test_tinypb_rpc_channel
+./scripts/check_stage8_rpc.sh
+```
+
 ## 验证命令
 
 ```bash

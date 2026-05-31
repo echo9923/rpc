@@ -77,3 +77,30 @@
 
 - `Timeout()` 仅保存数值，不驱动实际读写超时。
 - 同步客户端仍不缓存乱序响应。
+
+### 任务四十一：同步客户端超时与失败路径
+
+已完成能力：
+
+- `TcpClient` 新增 `setTimeout()`、`getTimeout()` 和 `getErrorCode()`。
+- connect 支持非阻塞 `connect()` + `poll(POLLOUT)` 等待，失败映射为 `ERROR_TCP_CONNECT_FAILED`。
+- read/write 支持 `poll(POLLIN/POLLOUT)` 等待，超时映射为 `ERROR_TCP_TIMEOUT`。
+- 对端提前关闭映射为 `ERROR_TCP_RECV_FAILED`。
+- Channel 会把 controller timeout 传给内部 TcpClient，并透传明确的 TcpClient 错误码。
+- `test_tcp_client` 覆盖读超时、服务端提前关闭、慢响应未超时成功。
+- `test_tinypb_rpc_channel` 覆盖 controller timeout 传递。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_tcp_client
+./build/test_tinypb_rpc_channel
+./scripts/check_stage8_rpc.sh
+```
+
+当前限制：
+
+- 不做异步重试。
+- 不做连接池。
+- 不做客户端 Reactor 化。

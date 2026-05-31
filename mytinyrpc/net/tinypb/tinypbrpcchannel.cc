@@ -69,12 +69,16 @@ void TinyPbRpcChannel::CallMethod(
 
     TinyPbStruct tinyResponse;
     TcpClient client(m_peerAddr);
+    if (tinyController != nullptr && tinyController->Timeout() > 0) {
+        client.setTimeout(tinyController->Timeout());
+    }
     if (!client.sendAndRecvTinyPb(&tinyRequest, &tinyResponse)) {
         std::string errorInfo = client.getErrorInfo();
         if (errorInfo.empty()) {
             errorInfo = "TinyPB network request failed";
         }
-        setControllerError(controller, ERROR_RPC_CHANNEL_NETWORK, errorInfo);
+        int errorCode = client.getErrorCode() == 0 ? ERROR_RPC_CHANNEL_NETWORK : client.getErrorCode();
+        setControllerError(controller, errorCode, errorInfo);
         finish();
         return;
     }

@@ -24,6 +24,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include <chrono>
 #include <functional>
 #include <string>
 
@@ -469,7 +470,46 @@ TEST_F(TinyPbRpcChannelTest, NetworkFailureSetsControllerError)
 
     EXPECT_TRUE(doneCalled);
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_NETWORK);
+    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
+    EXPECT_FALSE(controller.ErrorText().empty());
+}
+
+TEST_F(TinyPbRpcChannelTest, ControllerTimeoutIsPassedToTcpClient)
+{
+    bool serverAccepted = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        serverAccepted = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    channel.setMsgReqGenerator([]() { return "channel-timeout-req"; });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq request;
+    request.set_req_no(13);
+    request.set_id(106);
+    request.set_type(1);
+
+    queryNameRes response;
+    tinyrpc::TinyPbRpcController controller;
+    controller.SetTimeout(50);
+
+    stub.query_name(&controller, &request, &response, nullptr);
+    serverThread.join();
+
+    ASSERT_TRUE(serverAccepted) << serverError;
+    EXPECT_TRUE(controller.Failed());
+    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 

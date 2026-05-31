@@ -39,6 +39,16 @@ class TcpClient {
     // 无错误时返回空字符串。
     std::string getErrorInfo() const;
 
+    // 返回最近一次同步网络操作的框架错误码，0 表示无错误。
+    int getErrorCode() const;
+
+    // 设置同步 connect/read/write 超时时间，单位毫秒。
+    // timeoutMs <= 0 表示使用阻塞等待，不启用 poll 超时。
+    void setTimeout(int timeoutMs);
+
+    // 返回当前同步网络操作超时时间，单位毫秒。
+    int getTimeout() const;
+
     // 创建 socket 并调用阻塞式 connect() 连接对端。
     // 成功返回 true，m_isConnected 置为 true。
     // 失败返回 false，关闭 socket，错误信息可通过 getErrorInfo() 获取。
@@ -61,6 +71,7 @@ class TcpClient {
     bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
 
  private:
+    bool waitFdEvent(short event, const std::string& operation, int timeoutErrorCode);
     bool writeAll(const char *data, size_t len);
     bool readSomeToBuffer(TcpBuffer *buffer);
 
@@ -68,6 +79,7 @@ class TcpClient {
     Socket m_fd {kInvalidSocket};
     bool m_isConnected {false};
     int m_errorCode {0};
+    int m_timeoutMs {0};
     std::string m_errorInfo;
 };
 

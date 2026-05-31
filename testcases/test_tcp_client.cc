@@ -13,6 +13,7 @@
  *  10. TcpClient 拒绝缺少必要字段的 TinyPB 请求且不写出非法帧
  */
 
+#include "comm/errorcode.h"
 #include "net/tcpclient.h"
 #include "net/tcpbuffer.h"
 #include "net/tinypb/tinypbcodec.h"
@@ -27,6 +28,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include <chrono>
 #include <string>
 
 namespace {
@@ -497,6 +499,119 @@ TEST_F(TcpClientTest, SendTinyPbRequestRejectsInvalidRequest)
     emptyServiceName.m_serviceFullName = "";
     emptyServiceName.m_pbData = "invalid-request";
     runInvalidRequest(&emptyServiceName);
+}
+
+TEST_F(TcpClientTest, RecvTinyPbResponseTimesOutWhenServerDoesNotReply)
+{
+    bool serverAccepted = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        serverAccepted = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::IPAddress peerAddr("127.0.0.1", getListenPort());
+    tinyrpc::TcpClient client(peerAddr);
+    client.setTimeout(50);
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.recvTinyPbResponse(&response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverAccepted) << serverError;
+    EXPECT_FALSE(clientOk);
+    EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
+    EXPECT_FALSE(clientError.empty());
+}
+
+TEST_F(TcpClientTest, RecvTinyPbResponseFailsWhenServerClosesEarly)
+{
+    bool serverClosed = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        serverClosed = true;
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::IPAddress peerAddr("127.0.0.1", getListenPort());
+    tinyrpc::TcpClient client(peerAddr);
+    client.setTimeout(500);
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.recvTinyPbResponse(&response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverClosed) << serverError;
+    EXPECT_FALSE(clientOk);
+    EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_RECV_FAILED);
+    EXPECT_FALSE(clientError.empty());
+}
+
+TEST_F(TcpClientTest, SlowResponseBeforeTimeoutSucceeds)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        tinyrpc::TinyPbStruct response;
+        response.m_msgReq = "slow-ok";
+        response.m_serviceFullName = "QueryService.query_name";
+        response.m_errCode = 0;
+        response.m_pbData = "slow-response";
+
+        std::string frame;
+        if (!encodeTinyPbToString(&response, &frame)) {
+            serverError = "encode slow response failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        serverOk = writeAllToFd(clientFd, frame.data(), frame.size(), &serverError);
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::IPAddress peerAddr("127.0.0.1", getListenPort());
+    tinyrpc::TcpClient client(peerAddr);
+    client.setTimeout(500);
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.recvTinyPbResponse(&response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    ASSERT_TRUE(clientOk) << clientError;
+    EXPECT_EQ(client.getErrorCode(), 0);
+    EXPECT_EQ(response.m_msgReq, "slow-ok");
+    EXPECT_EQ(response.m_pbData, "slow-response");
 }
 
 int main(int argc, char **argv)
