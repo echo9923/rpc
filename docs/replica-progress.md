@@ -336,3 +336,24 @@
 ./build/test_mutex
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十四：`IOThread` 生命周期
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/iothread.h` 和 `mytinyrpc/net/iothread.cc`。
+- `IOThread` 内部持有一个 `Reactor`，构造时启动后台线程并进入 `Reactor::loop()`。
+- 提供 `getReactor()`、`addTask()`、`stop()`、`getThreadId()` 和 `isStarted()`。
+- `addTask()` 投递的任务在线程内部 Reactor 执行，线程归属可观察。
+- `stop()` 可重复调用，析构时会兜底停止并 join 线程。
+- 新增 `test_iothread`，覆盖线程启动、任务执行线程、stop 幂等。
+- `docs/stage-11.md` 补充 IOThread 生命周期图和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_iothread
+./build/test_reactor
+./scripts/check_rpc_sync.sh
+```

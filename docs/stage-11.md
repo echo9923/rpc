@@ -18,10 +18,49 @@
 - 不做无锁结构。
 - 暂未替换 Reactor 内部已有 `std::mutex`，后续 IOThreadPool 需要统一风格时再逐步调整。
 
+## 任务五十四：`IOThread` 生命周期
+
+已完成能力：
+
+- 新增 `IOThread`，内部持有一个 `Reactor`。
+- `IOThread` 构造时启动后台线程，并在线程函数中进入 `Reactor::loop()`。
+- 提供 `getReactor()`，后续 TcpServer 和 IOThreadPool 可拿到线程所属 Reactor。
+- 提供 `addTask()`，把任务投递到 IOThread 内部 Reactor，由 IOThread 所在线程执行。
+- 提供 `stop()`，可唤醒 Reactor 并 join 后台线程。
+- 析构函数会兜底调用 `stop()`，避免线程泄漏。
+- 新增 `test_iothread`，覆盖线程启动、任务线程归属、stop 幂等和析构安全。
+
+## IOThread 生命周期路径
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant IOThread as IOThread
+    participant Thread as std::thread
+    participant Reactor as Reactor
+
+    User->>IOThread: constructor
+    IOThread->>Thread: start threadFunc()
+    Thread->>Reactor: loop()
+    User->>IOThread: addTask(task)
+    IOThread->>Reactor: addTask(task)
+    Reactor->>Thread: run task
+    User->>IOThread: stop()
+    IOThread->>Reactor: stop()
+    IOThread->>Thread: join()
+```
+
+## IOThread 当前边界
+
+- 当前 `IOThread` 不直接接入 `TcpServer`，只提供单线程单 Reactor 能力。
+- 不管理多个线程；线程池在任务五十五实现。
+- 不提供动态重启语义，`stop()` 后当前对象视为已停止。
+
 ## 验证命令
 
 ```bash
 ./build.sh
 ./build/test_mutex
+./build/test_iothread
 ./scripts/check_rpc_sync.sh
 ```
