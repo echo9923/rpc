@@ -31,6 +31,7 @@ set(SRC
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/iothread.cc
+    mytinyrpc/net/iothread_pool.cc
     mytinyrpc/net/mutex.cc
     mytinyrpc/net/netaddress.cc
     mytinyrpc/net/reactor.cc
@@ -174,3 +175,9 @@ add_executable(test_iothread
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_iothread ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_iothread_pool
+    testcases/test_iothread_pool.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_iothread_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

@@ -56,11 +56,49 @@ sequenceDiagram
 - 不管理多个线程；线程池在任务五十五实现。
 - 不提供动态重启语义，`stop()` 后当前对象视为已停止。
 
+## 任务五十五：`IOThreadPool`
+
+已完成能力：
+
+- 新增 `IOThreadPool`，构造时启动固定数量的 `IOThread`。
+- `getNextIOThread()` 按 round-robin 返回下一个线程。
+- `getIOThreadByIndex()` 支持按下标获取指定线程。
+- `broadcastTask()` 会向每个 IOThread 各投递一次任务。
+- `addTaskByIndex()` 支持向指定 index 的线程投递任务，非法 index 返回失败。
+- `stop()` 会停止池内全部线程，析构时兜底调用。
+- 新增 `test_iothread_pool`，覆盖轮转、broadcast、指定 index 投递和线程归属。
+
+## IOThreadPool 任务投递路径
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Pool as IOThreadPool
+    participant IO as IOThread
+    participant Reactor as Reactor
+
+    User->>Pool: getNextIOThread()
+    Pool-->>User: IOThread
+    User->>Pool: addTaskByIndex(index, task)
+    Pool->>IO: addTask(task)
+    IO->>Reactor: addTask(task)
+    Reactor->>IO: run task in IOThread
+    User->>Pool: broadcastTask(task)
+    Pool->>IO: addTask(task) for each thread
+```
+
+## IOThreadPool 当前边界
+
+- 线程数量固定，暂不支持动态扩缩容。
+- round-robin 只按调用次数轮转，不做负载感知。
+- 当前尚未接入 `TcpServer`，任务五十六会处理新连接分发。
+
 ## 验证命令
 
 ```bash
 ./build.sh
 ./build/test_mutex
 ./build/test_iothread
+./build/test_iothread_pool
 ./scripts/check_rpc_sync.sh
 ```

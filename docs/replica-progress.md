@@ -357,3 +357,25 @@
 ./build/test_reactor
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十五：`IOThreadPool`
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/iothread_pool.h` 和 `mytinyrpc/net/iothread_pool.cc`。
+- `IOThreadPool` 构造时启动固定数量 `IOThread`。
+- `getNextIOThread()` 按 round-robin 分配线程。
+- `getIOThreadByIndex()` 和 `addTaskByIndex()` 支持指定 index 获取或投递任务。
+- `broadcastTask()` 向每个 IOThread 各投递一次任务。
+- `stop()` 停止池内全部线程，析构时兜底调用。
+- 新增 `test_iothread_pool`，覆盖轮转、广播、指定 index 投递和线程归属。
+- `docs/stage-11.md` 补充 IOThreadPool 任务投递路径和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_iothread_pool
+./build/test_iothread
+./scripts/check_rpc_sync.sh
+```
