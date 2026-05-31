@@ -6,6 +6,8 @@ void TinyPbRpcController::Reset()
 {
     m_failed = false;
     m_canceled = false;
+    m_errorCode = 0;
+    m_msgReq.clear();
     m_errorText.clear();
 }
 
@@ -22,7 +24,30 @@ std::string TinyPbRpcController::ErrorText() const
 void TinyPbRpcController::SetFailed(const std::string& reason)
 {
     m_failed = true;
+    m_errorCode = -1;
     m_errorText = reason;
+}
+
+void TinyPbRpcController::SetError(int code, const std::string& info)
+{
+    m_failed = true;
+    m_errorCode = code;
+    m_errorText = info;
+}
+
+int TinyPbRpcController::ErrorCode() const
+{
+    return m_errorCode;
+}
+
+void TinyPbRpcController::SetMsgReq(const std::string& msgReq)
+{
+    m_msgReq = msgReq;
+}
+
+const std::string& TinyPbRpcController::MsgReq() const
+{
+    return m_msgReq;
 }
 
 void TinyPbRpcController::StartCancel()
