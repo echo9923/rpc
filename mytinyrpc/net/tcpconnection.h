@@ -7,6 +7,7 @@
 #include "net/socket.h"
 #include "net/tcpbuffer.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -35,8 +36,13 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     void setCloseCallback(std::function<void(int)> cb);
     void sendData(const std::string& data);
     void startConnection();
+    bool isClosed() const;
+    int64_t getLastActiveTimeMs() const;
+    void refreshActiveTime();
 
  private:
+    friend class TcpConnectionTimeWheel;
+
     void closeWithCallback();
     void coroutineReadLoop();
     bool input();
@@ -52,6 +58,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     TcpBuffer m_inputBuffer;                  // 输入缓冲区，暂存从 Socket 读取到的数据
     TcpBuffer m_outputBuffer;                 // 输出缓冲区，暂存待发送给对端的数据
     bool m_isClosed {false};                  // 连接是否已关闭，防止重复关闭
+    int64_t m_lastActiveTimeMs {0};           // 最近一次读到业务数据的时间，供空闲超时判断
     std::unique_ptr<Coroutine> m_readCoroutine; // 连接协程，读写均通过 hook 完成
 };
 

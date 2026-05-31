@@ -2,6 +2,7 @@
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutine_hook.h"
+#include "net/timer.h"
 #include "net/tinypb/tinypbdata.h"
 
 #include <cerrno>
@@ -18,6 +19,7 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
       m_codec(std::move(codec)),
       m_dispatcher(std::move(dispatcher))
 {
+    refreshActiveTime();
 }
 
 TcpConnection::~TcpConnection()
@@ -116,6 +118,21 @@ void TcpConnection::setCloseCallback(std::function<void(int)> cb)
     m_closeCallback = std::move(cb);
 }
 
+bool TcpConnection::isClosed() const
+{
+    return m_isClosed;
+}
+
+int64_t TcpConnection::getLastActiveTimeMs() const
+{
+    return m_lastActiveTimeMs;
+}
+
+void TcpConnection::refreshActiveTime()
+{
+    m_lastActiveTimeMs = getNowMs();
+}
+
 void TcpConnection::closeWithCallback()
 {
     Socket closedFd = m_fd;
@@ -154,6 +171,7 @@ bool TcpConnection::input()
 
         if (n > 0) {
             m_inputBuffer.append(buffer, static_cast<size_t>(n));
+            refreshActiveTime();
             return true;
         }
 

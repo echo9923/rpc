@@ -274,3 +274,24 @@
 ./build/test_timer
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务五十一：连接空闲超时 / 简化时间轮
+
+已完成能力：
+
+- 新增 `TcpConnectionTimeWheel`，用每连接一个重复 `TimerEvent` 的方式实现简化空闲超时管理。
+- `TcpConnection` 新增 `isClosed()`、`getLastActiveTimeMs()` 和 `refreshActiveTime()`，读到真实数据时刷新活跃时间。
+- 活跃连接刷新后不会被误关闭。
+- 空闲连接超时后会被时间轮移除，并通过连接所属 Reactor 的 task 队列执行关闭。
+- `test_tcp_timewheel` 覆盖活跃刷新、空闲关闭、关闭 callback 的 Reactor 线程归属。
+- 阶段 10 文档补充 TcpConnection 空闲超时路径和当前边界。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_tcp_timewheel
+./build/test_reactor
+./build/test_timer
+./scripts/check_rpc_sync.sh
+```

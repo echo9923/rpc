@@ -34,6 +34,7 @@ set(SRC
     mytinyrpc/net/reactor.cc
     mytinyrpc/net/tcpbuffer.cc
     mytinyrpc/net/tcpconnection.cc
+    mytinyrpc/net/tcpconnection_timewheel.cc
     mytinyrpc/net/tcpclient.cc
     mytinyrpc/net/tcpserver.cc
     mytinyrpc/net/timer.cc
@@ -153,3 +154,9 @@ add_executable(test_timer
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_timer ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_tcp_timewheel
+    testcases/test_tcp_timewheel.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tcp_timewheel ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

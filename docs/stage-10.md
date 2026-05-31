@@ -136,6 +136,48 @@ sequenceDiagram
 - `Reactor` 不拥有业务 `FdEvent` 对象，只保存非拥有指针；业务对象需要保证注册期间自身存活。
 - 当前阶段仍是单 Reactor 模型，不做多 Reactor 线程归属迁移。
 
+## 任务五十一：连接空闲超时 / 简化时间轮
+
+已完成能力：
+
+- 新增 `TcpConnectionTimeWheel`，用简化方式管理连接空闲超时。
+- 每条连接注册一个重复 `TimerEvent`，Timer 到期后检查连接最后活跃时间。
+- `TcpConnection` 新增 `refreshActiveTime()` 和 `getLastActiveTimeMs()`，读到真实数据时刷新活跃时间。
+- 连接活跃刷新后，时间轮会重置检查时间，避免误关活跃连接。
+- 连接真正空闲超过阈值后，时间轮先从内部表移除连接，再通过 `Reactor::addTask()` 把关闭动作投递回所属 Reactor。
+- `TcpConnection` 新增 `isClosed()`，测试和后续生命周期管理可明确观察关闭状态。
+- `test_tcp_timewheel` 覆盖活跃连接刷新、空闲连接关闭并移除、关闭 callback 在线程归属明确的 Reactor loop 线程执行。
+
+## TcpConnection 空闲超时路径
+
+```mermaid
+sequenceDiagram
+    participant Connection as TcpConnection
+    participant Wheel as TcpConnectionTimeWheel
+    participant Timer as Timer
+    participant Reactor as Reactor
+
+    Connection->>Connection: input() reads bytes
+    Connection->>Connection: refreshActiveTime()
+    Wheel->>Timer: add repeated TimerEvent
+    Timer-->>Wheel: onTimer(fd)
+    Wheel->>Connection: getLastActiveTimeMs()
+    alt still active
+        Wheel->>Timer: resetTime(next check)
+    else idle timeout
+        Wheel->>Wheel: removeConnection(fd)
+        Wheel->>Reactor: addTask(closeWithCallback)
+        Reactor->>Connection: closeWithCallback()
+    end
+```
+
+## TcpConnection 空闲超时边界
+
+- 当前实现是每连接一个 TimerEvent 的简化时间轮，不做分层 bucket，不追求高并发性能优化。
+- 时间轮不拥有连接对象，只保存 `weak_ptr`；连接提前销毁或关闭时，下一次 timer 检查会清理记录。
+- 关闭 fd 的动作通过 Reactor task 执行，避免其他线程直接关闭连接所属 fd。
+- 当前 `TcpServer` 还未默认接入空闲超时，后续多 Reactor 阶段再统一接入服务端连接管理。
+
 ## 验证命令
 
 ```bash
@@ -143,5 +185,6 @@ sequenceDiagram
 ./build/test_timer_event
 ./build/test_timer
 ./build/test_reactor
+./build/test_tcp_timewheel
 ./scripts/check_rpc_sync.sh
 ```
