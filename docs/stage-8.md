@@ -91,6 +91,32 @@ sequenceDiagram
 ./scripts/check_stage1.sh
 ```
 
+### 任务四十：请求号与 `TinyPbRpcController` 语义补齐
+
+已新增统一请求号工具 `MsgReqUtil::genMsgNumber()`。默认请求号格式为进程内唯一字符串，Channel 测试仍可通过 `setMsgReqGenerator()` 注入固定请求号，便于断言。
+
+`TinyPbRpcController` 当前记录以下框架层状态：
+
+- `MsgReq()`：本次 RPC 的请求号。
+- `ErrorCode()` / `ErrorText()`：框架层错误码和错误文本。
+- `Timeout()`：同步 RPC 超时时间占位，单位毫秒，真正超时行为留到任务四十一。
+
+`TinyPbRpcChannel` 的请求号规则：
+
+1. 如果传入的是 `TinyPbRpcController`，且 controller 已设置 `MsgReq()`，则直接复用该请求号。
+2. 否则调用 `MsgReqUtil::genMsgNumber()` 自动生成请求号。
+3. 收到 response 后先检查 response `msgReq` 是否等于 request `msgReq`。
+4. 不匹配时设置 `ERROR_RPC_MSGREQ_MISMATCH`，不会反序列化业务 response。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_msg_req
+./build/test_tinypb_rpc_channel
+./scripts/check_stage8_rpc.sh
+```
+
 ## 验证命令
 
 ```bash

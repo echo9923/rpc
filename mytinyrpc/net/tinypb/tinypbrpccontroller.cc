@@ -7,6 +7,7 @@ void TinyPbRpcController::Reset()
     m_failed = false;
     m_canceled = false;
     m_errorCode = 0;
+    m_timeoutMs = 0;
     m_msgReq.clear();
     m_errorText.clear();
 }
@@ -48,6 +49,16 @@ void TinyPbRpcController::SetMsgReq(const std::string& msgReq)
 const std::string& TinyPbRpcController::MsgReq() const
 {
     return m_msgReq;
+}
+
+void TinyPbRpcController::SetTimeout(int timeoutMs)
+{
+    m_timeoutMs = timeoutMs;
+}
+
+int TinyPbRpcController::Timeout() const
+{
+    return m_timeoutMs;
 }
 
 void TinyPbRpcController::StartCancel()

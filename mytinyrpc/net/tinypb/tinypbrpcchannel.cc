@@ -1,6 +1,7 @@
 #include "net/tinypb/tinypbrpcchannel.h"
 
 #include "comm/errorcode.h"
+#include "comm/msgreq.h"
 #include "net/tcpclient.h"
 #include "net/tinypb/tinypbdata.h"
 #include "net/tinypb/tinypbrpccontroller.h"
@@ -8,7 +9,6 @@
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 
-#include <atomic>
 #include <string>
 #include <utility>
 
@@ -47,10 +47,14 @@ void TinyPbRpcChannel::CallMethod(
     }
 
     TinyPbStruct tinyRequest;
-    tinyRequest.m_msgReq = genMsgReq();
+    auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
+    if (tinyController != nullptr && !tinyController->MsgReq().empty()) {
+        tinyRequest.m_msgReq = tinyController->MsgReq();
+    } else {
+        tinyRequest.m_msgReq = genMsgReq();
+    }
     tinyRequest.m_serviceFullName = method->full_name();
 
-    auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
     if (tinyController != nullptr) {
         tinyController->SetMsgReq(tinyRequest.m_msgReq);
     }
@@ -71,6 +75,16 @@ void TinyPbRpcChannel::CallMethod(
             errorInfo = "TinyPB network request failed";
         }
         setControllerError(controller, ERROR_RPC_CHANNEL_NETWORK, errorInfo);
+        finish();
+        return;
+    }
+
+    if (tinyResponse.m_msgReq != tinyRequest.m_msgReq) {
+        setControllerError(
+            controller,
+            ERROR_RPC_MSGREQ_MISMATCH,
+            "response msgReq mismatch, request = " + tinyRequest.m_msgReq
+                + ", response = " + tinyResponse.m_msgReq);
         finish();
         return;
     }
@@ -98,8 +112,7 @@ std::string TinyPbRpcChannel::genMsgReq() const
         return m_msgReqGenerator();
     }
 
-    static std::atomic<unsigned long long> sequence {0};
-    return "tinypb-rpc-" + std::to_string(sequence.fetch_add(1) + 1);
+    return MsgReqUtil::genMsgNumber();
 }
 
 void TinyPbRpcChannel::setControllerError(

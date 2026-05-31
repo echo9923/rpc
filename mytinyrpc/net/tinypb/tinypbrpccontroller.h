@@ -44,6 +44,12 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     // 返回本次 RPC 请求号。
     const std::string& MsgReq() const;
 
+    // 设置同步 RPC 超时时间占位，单位毫秒；0 表示未设置。
+    void SetTimeout(int timeoutMs);
+
+    // 返回同步 RPC 超时时间占位，单位毫秒。
+    int Timeout() const;
+
     // 发起取消请求，将 m_canceled 置为 true。
     void StartCancel() override;
 
@@ -59,6 +65,7 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     bool m_failed {false};
     bool m_canceled {false};
     int m_errorCode {0};
+    int m_timeoutMs {0};
     std::string m_msgReq;
     std::string m_errorText;
 };

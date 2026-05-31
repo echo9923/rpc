@@ -24,6 +24,7 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS testcases/test_tinypb_server.proto)
 
 set(SRC
     mytinyrpc/comm/log.cc
+    mytinyrpc/comm/msgreq.cc
     mytinyrpc/coroutine/coctx_swap.S
     mytinyrpc/coroutine/coroutine.cc
     mytinyrpc/coroutine/coroutine_hook.cc
@@ -133,3 +134,9 @@ add_executable(test_tinypb_server_client
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_tinypb_server_client pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_msg_req
+    testcases/test_msg_req.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_msg_req ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

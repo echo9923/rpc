@@ -52,3 +52,28 @@
 
 - 只验证单客户端单请求。
 - 不做超时、重试和异步 Stub。
+
+### 任务四十：请求号与 `TinyPbRpcController` 语义补齐
+
+已完成能力：
+
+- 新增 `MsgReqUtil::genMsgNumber()`，生成非空、递增且进程内不重复的请求号。
+- `TinyPbRpcController` 支持 `MsgReq()`、`ErrorCode()`、`ErrorText()` 和 `Timeout()` 占位。
+- `TinyPbRpcChannel` 在 controller 未预设 `msgReq` 时自动生成请求号。
+- `TinyPbRpcChannel` 在 controller 已预设 `msgReq` 时复用该请求号。
+- Channel 收到 response 后检查 `msgReq`，不匹配时设置 `ERROR_RPC_MSGREQ_MISMATCH`。
+- 新增 `test_msg_req`，并扩展 `test_tinypb_rpc_channel` 覆盖预设请求号和 mismatch。
+
+验证命令：
+
+```bash
+./build.sh
+./build/test_msg_req
+./build/test_tinypb_rpc_channel
+./scripts/check_stage8_rpc.sh
+```
+
+当前限制：
+
+- `Timeout()` 仅保存数值，不驱动实际读写超时。
+- 同步客户端仍不缓存乱序响应。

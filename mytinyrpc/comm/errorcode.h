@@ -9,5 +9,6 @@ constexpr int ERROR_FAILED_DESERIALIZE = 100003;     // 反序列化失败
 constexpr int ERROR_FAILED_SERIALIZE = 100004;       // 序列化失败
 constexpr int ERROR_RPC_CHANNEL_INVALID_ARGUMENT = 100011; // RPC Channel 参数非法
 constexpr int ERROR_RPC_CHANNEL_NETWORK = 100012;          // RPC Channel 网络收发失败
+constexpr int ERROR_RPC_MSGREQ_MISMATCH = 100013;          // RPC 响应请求号不匹配
 
 }
