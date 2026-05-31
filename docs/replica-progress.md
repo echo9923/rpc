@@ -416,3 +416,22 @@
 ./scripts/check_stage11_server.sh
 ./scripts/check_rpc_sync.sh
 ```
+
+## 阶段 12：HTTP 协议栈
+
+### 任务五十八：HTTP 基础数据结构
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/http/http_define.h` 和 `http_define.cc`，定义 HTTP method、status code、header 类型和基础转换函数。
+- 新增 `HttpRequest`，支持 method、path、version、header 和 body 的设置与读取。
+- 新增 `HttpResponse`，支持 status、version、header 和 body 的设置与读取，并可生成最小 HTTP response 字符串。
+- 新增 `test_http_define`，覆盖 `httpCodeToString(200)`、header 设置读取和 response 状态行、header、body 生成。
+- 新增 `docs/stage-12.md`，记录阶段 12 当前能力和边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_http_define
+./scripts/check_rpc_sync.sh
+```
