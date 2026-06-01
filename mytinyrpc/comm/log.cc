@@ -1,4 +1,5 @@
 #include "comm/log.h"
+#include "comm/runtime.h"
 
 #include <condition_variable>
 #include <chrono>
@@ -269,7 +270,7 @@ void Logger::flush()
 
 void Logger::log(LogLevel level, const char* file, int line, const std::string& msg)
 {
-    log(level, file, line, msg, "");
+    log(level, file, line, msg, getRuntime().getCurrentRequestContext().getMsgReq());
 }
 
 void Logger::log(

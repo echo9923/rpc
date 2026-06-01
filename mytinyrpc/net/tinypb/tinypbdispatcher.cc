@@ -2,6 +2,7 @@
 
 #include "comm/errorcode.h"
 #include "comm/log.h"
+#include "comm/runtime.h"
 #include "net/tcpconnection.h"
 #include "net/tinypb/tinypbdata.h"
 #include "net/tinypb/tinypbrpccontroller.h"
@@ -12,6 +13,28 @@
 #include <string>
 
 namespace tinyrpc {
+
+namespace {
+
+class RequestContextGuard {
+ public:
+    RequestContextGuard(
+        const std::string& msgReq,
+        const std::string& methodName,
+        const std::string& localAddr,
+        const std::string& peerAddr
+    )
+    {
+        getRuntime().setCurrentRequestContext(msgReq, methodName, localAddr, peerAddr);
+    }
+
+    ~RequestContextGuard()
+    {
+        getRuntime().clearCurrentRequestContext();
+    }
+};
+
+}  // namespace
 
 bool TinyPbDispatcher::registerService(ServicePtr service)
 {
@@ -111,6 +134,13 @@ void TinyPbDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
         conn->sendProtocolData(&reply);
         return;
     }
+
+    RequestContextGuard contextGuard(
+        request->m_msgReq,
+        request->m_serviceFullName,
+        "local",
+        "peer"
+    );
 
     // 第四步：找到 service + method，执行真正的 RPC 调用链路：
     //   pbData → ParseFromString → CallMethod → SerializeToString → pbData

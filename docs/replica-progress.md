@@ -577,3 +577,20 @@
 ./build/test_start
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十七：运行时 request context
+
+已完成能力：
+
+- `Runtime` 新增线程局部 `RequestContext`。
+- 请求上下文保存当前 msgReq、method name、local addr 和 peer addr。
+- `TinyPbDispatcher` 在调用业务 Service 前设置上下文，请求结束后自动清理。
+- `Logger` 未显式传 msgReq 时会读取当前线程 request context。
+- 新增 `test_runtime`，覆盖请求处理中读取 msgReq、请求后清理、多线程隔离和日志自动打印 msgReq。
+
+验证命令：
+```bash
+./build.sh
+./build/test_runtime
+./scripts/check_rpc_sync.sh
+```

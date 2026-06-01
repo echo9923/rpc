@@ -6,6 +6,53 @@
 
 namespace tinyrpc {
 
+namespace {
+
+thread_local RequestContext t_requestContext;
+
+}  // namespace
+
+const std::string& RequestContext::getMsgReq() const
+{
+    return m_msgReq;
+}
+
+const std::string& RequestContext::getMethodName() const
+{
+    return m_methodName;
+}
+
+const std::string& RequestContext::getLocalAddr() const
+{
+    return m_localAddr;
+}
+
+const std::string& RequestContext::getPeerAddr() const
+{
+    return m_peerAddr;
+}
+
+void RequestContext::set(
+    const std::string& msgReq,
+    const std::string& methodName,
+    const std::string& localAddr,
+    const std::string& peerAddr
+)
+{
+    m_msgReq = msgReq;
+    m_methodName = methodName;
+    m_localAddr = localAddr;
+    m_peerAddr = peerAddr;
+}
+
+void RequestContext::clear()
+{
+    m_msgReq.clear();
+    m_methodName.clear();
+    m_localAddr.clear();
+    m_peerAddr.clear();
+}
+
 Config& Runtime::getConfig()
 {
     return m_config;
@@ -82,6 +129,31 @@ bool Runtime::registerHttpServlet(const std::string& path, HttpServlet::Ptr serv
         return false;
     }
     return m_httpDispatcher->registerServlet(path, std::move(servlet));
+}
+
+RequestContext& Runtime::getCurrentRequestContext()
+{
+    return t_requestContext;
+}
+
+const RequestContext& Runtime::getCurrentRequestContext() const
+{
+    return t_requestContext;
+}
+
+void Runtime::setCurrentRequestContext(
+    const std::string& msgReq,
+    const std::string& methodName,
+    const std::string& localAddr,
+    const std::string& peerAddr
+)
+{
+    t_requestContext.set(msgReq, methodName, localAddr, peerAddr);
+}
+
+void Runtime::clearCurrentRequestContext()
+{
+    t_requestContext.clear();
 }
 
 Runtime& getRuntime()

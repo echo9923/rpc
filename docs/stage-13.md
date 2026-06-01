@@ -55,6 +55,16 @@
 - 新增 `REGISTER_HTTP_SERVLET(path, ServletType)`，把 HTTP servlet 注册到 HTTP dispatcher。
 - 新增 `test_start`，覆盖 XML 启动 TinyPB/HTTP server、服务注册宏和 HTTP servlet 注册宏。
 
+## 任务六十七：运行时 request context
+
+已完成能力：
+
+- `Runtime` 新增线程局部 `RequestContext`，保存当前请求号、方法名、local addr 和 peer addr。
+- `TinyPbDispatcher` 在调用业务 Service 前设置上下文，并通过 RAII 在请求结束时清理。
+- 多线程请求上下文互不污染，每个线程读取自己的 request context。
+- `Logger` 在未显式传入 `msgReq` 时，会自动读取当前线程 request context 中的请求号。
+- 新增 `test_runtime`，覆盖业务处理期间读取 msgReq、请求结束清理、多线程隔离和日志自动打印 msgReq。
+
 ## 当前边界
 
 - 当前只解析阶段 13 启动所需的简单标签，不实现完整 XML schema 校验。
@@ -62,6 +72,8 @@
 - 当前不做按大小滚动、压缩归档或多日志文件拆分。
 - 当前 `StartRpcServer()` 只负责创建并初始化 server，不进入阻塞事件循环；真正运行由 `GetServer()->start()` 显式触发。
 - 当前不做复杂生命周期管理器或插件系统。
+- 当前 request context 只做进程内线程局部上下文，不做完整 tracing 或分布式链路追踪。
+- 当前 local/peer addr 使用简化字段，后续连接层暴露真实地址后再替换来源。
 - 当前不做旧配置兼容或历史配置迁移。
 
 ## 验证命令
@@ -71,5 +83,6 @@
 ./build/test_config
 ./build/test_log
 ./build/test_start
+./build/test_runtime
 ./scripts/check_rpc_sync.sh
 ```
