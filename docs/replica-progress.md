@@ -615,3 +615,21 @@
 ./build/test_hook
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十九：`connect` hook
+
+已完成能力：
+
+- 新增 `connect_hook()`，主协程中直通原始 `connect()`。
+- 非主协程中，非阻塞 connect 返回 `EINPROGRESS` 后会挂载当前协程并等待 `EPOLLOUT`。
+- Reactor 监听到可写事件后恢复协程，`connect_hook()` 通过 `getsockopt(SO_ERROR)` 判断连接成功或失败。
+- 支持 timeout：到期后 TimerEvent 恢复协程，并返回 `ETIMEDOUT`。
+- 扩展 `test_hook`，覆盖连接成功、连接拒绝、连接超时和主协程直通路径。
+- 更新 `docs/coroutine-model.md`，补充 connect hook 的恢复和超时路径。
+
+验证命令：
+```bash
+./build.sh
+./build/test_hook
+./scripts/check_rpc_sync.sh
+```

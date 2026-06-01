@@ -14,13 +14,16 @@
 #include "coroutine/coroutine_hook.h"
 #include "net/fdevent.h"
 #include "net/reactor.h"
+#include "net/timer.h"
 
 #include <gtest/gtest.h>
 
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,6 +35,56 @@ static void setNonBlockLocal(int fd)
     int flags = fcntl(fd, F_GETFL, 0);
     ASSERT_GE(flags, 0) << "fcntl F_GETFL failed";
     ASSERT_EQ(fcntl(fd, F_SETFL, flags | O_NONBLOCK), 0) << "fcntl F_SETFL failed";
+}
+
+static int createLocalListenSocket(uint16_t *port)
+{
+    int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+    EXPECT_GE(listenFd, 0);
+
+    int opt = 1;
+    EXPECT_EQ(setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), 0);
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    EXPECT_EQ(bind(listenFd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+    EXPECT_EQ(listen(listenFd, 4), 0);
+
+    socklen_t len = sizeof(addr);
+    EXPECT_EQ(getsockname(listenFd, reinterpret_cast<sockaddr *>(&addr), &len), 0);
+    *port = ntohs(addr.sin_port);
+    return listenFd;
+}
+
+static int createLocalBoundSocket(uint16_t *port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    EXPECT_GE(fd, 0);
+
+    int opt = 1;
+    EXPECT_EQ(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), 0);
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    EXPECT_EQ(bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+
+    socklen_t len = sizeof(addr);
+    EXPECT_EQ(getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len), 0);
+    *port = ntohs(addr.sin_port);
+    return fd;
+}
+
+static sockaddr_in makeLoopbackAddr(uint16_t port)
+{
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+    return addr;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +283,165 @@ TEST(HookTest, ReactorResumesReadHookCoroutine)
 
     close(readFd);
     close(writeFd);
+}
+
+TEST(HookTest, ConnectHookInMainCoroutineUsesRawConnect)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(fd, 0);
+    setNonBlockLocal(fd);
+
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent event(fd);
+    event.setReactor(&reactor);
+
+    sockaddr_in addr = makeLoopbackAddr(1);
+    int ret = tinyrpc::connect_hook(
+        &event,
+        reinterpret_cast<sockaddr *>(&addr),
+        sizeof(addr),
+        10
+    );
+
+    EXPECT_TRUE(ret == 0 || ret == -1);
+    EXPECT_EQ(event.getCoroutine(), nullptr);
+    EXPECT_EQ(event.getListenEvents(), 0u);
+    close(fd);
+}
+
+TEST(HookTest, ConnectHookReactorSuccess)
+{
+    uint16_t port = 0;
+    int listenFd = createLocalListenSocket(&port);
+    ASSERT_GE(listenFd, 0);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(fd, 0);
+    setNonBlockLocal(fd);
+
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent event(fd);
+    event.setReactor(&reactor);
+
+    sockaddr_in addr = makeLoopbackAddr(port);
+    int connectResult = -1;
+    bool coroDone = false;
+    tinyrpc::Coroutine co([&]() {
+        connectResult = tinyrpc::connect_hook(
+            &event,
+            reinterpret_cast<sockaddr *>(&addr),
+            sizeof(addr),
+            1000
+        );
+        coroDone = true;
+    });
+
+    co.resume();
+    ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+    EXPECT_EQ(event.getCoroutine(), &co);
+    EXPECT_TRUE(event.getListenEvents() & EPOLLOUT);
+
+    int nfds = reactor.waitOnce(1000);
+    EXPECT_GE(nfds, 1);
+    EXPECT_TRUE(coroDone);
+    EXPECT_EQ(connectResult, 0);
+    EXPECT_EQ(event.getCoroutine(), nullptr);
+
+    int acceptedFd = accept(listenFd, nullptr, nullptr);
+    if (acceptedFd >= 0) {
+        close(acceptedFd);
+    }
+    event.unregisterFromReactor();
+    close(fd);
+    close(listenFd);
+}
+
+TEST(HookTest, ConnectHookReactorConnectionRefused)
+{
+    uint16_t port = 0;
+    int boundFd = createLocalBoundSocket(&port);
+    ASSERT_GE(boundFd, 0);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(fd, 0);
+    setNonBlockLocal(fd);
+
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent event(fd);
+    event.setReactor(&reactor);
+
+    sockaddr_in addr = makeLoopbackAddr(port);
+    int connectResult = 0;
+    int connectErrno = 0;
+    bool coroDone = false;
+    tinyrpc::Coroutine co([&]() {
+        connectResult = tinyrpc::connect_hook(
+            &event,
+            reinterpret_cast<sockaddr *>(&addr),
+            sizeof(addr),
+            1000
+        );
+        connectErrno = errno;
+        coroDone = true;
+    });
+
+    co.resume();
+    ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+
+    int nfds = reactor.waitOnce(1000);
+    EXPECT_GE(nfds, 1);
+    EXPECT_TRUE(coroDone);
+    EXPECT_EQ(connectResult, -1);
+    EXPECT_EQ(connectErrno, ECONNREFUSED);
+
+    event.unregisterFromReactor();
+    close(fd);
+    close(boundFd);
+}
+
+TEST(HookTest, ConnectHookTimeoutResumesCoroutine)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(fd, 0);
+    setNonBlockLocal(fd);
+
+    tinyrpc::Reactor reactor;
+    tinyrpc::FdEvent event(fd);
+    event.setReactor(&reactor);
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(0x0AFFFFFF);
+    addr.sin_port = htons(65000);
+
+    int connectResult = 0;
+    int connectErrno = 0;
+    bool coroDone = false;
+    tinyrpc::Coroutine co([&]() {
+        connectResult = tinyrpc::connect_hook(
+            &event,
+            reinterpret_cast<sockaddr *>(&addr),
+            sizeof(addr),
+            20
+        );
+        connectErrno = errno;
+        coroDone = true;
+    });
+
+    co.resume();
+    ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+
+    int64_t deadline = tinyrpc::getNowMs() + 1000;
+    while (!coroDone && tinyrpc::getNowMs() < deadline) {
+        reactor.waitOnce(100);
+    }
+
+    EXPECT_TRUE(coroDone);
+    EXPECT_EQ(connectResult, -1);
+    EXPECT_EQ(connectErrno, ETIMEDOUT);
+
+    event.unregisterFromReactor();
+    close(fd);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

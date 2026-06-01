@@ -2,6 +2,7 @@
 
 #include "net/fdevent.h"
 
+#include <sys/socket.h>
 #include <sys/types.h>
 
 namespace tinyrpc {
@@ -25,5 +26,13 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count);
 //
 // 在主协程中，直接透传 ::write 的返回值。
 ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count);
+
+// connect_hook — 协程感知的 connect 封装。
+//
+// 主协程中直接透传 ::connect()。
+// 非主协程中，如果非阻塞 connect 返回 EINPROGRESS，
+// 将当前协程挂到 fdEvent 并等待 EPOLLOUT；timeoutMs > 0 时还会注册定时器。
+// 恢复后通过 getsockopt(SO_ERROR) 判断连接成功、拒绝或超时。
+int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs);
 
 }  // namespace tinyrpc

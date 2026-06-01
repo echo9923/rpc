@@ -1,12 +1,28 @@
 #include "coroutine/coroutine_hook.h"
 
 #include "coroutine/coroutine.h"
+#include "net/reactor.h"
+#include "net/timer.h"
 
 #include <cerrno>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
+#include <memory>
+
 namespace tinyrpc {
+
+namespace {
+
+struct ConnectHookState {
+    Coroutine *coroutine {nullptr};
+    FdEvent *fdEvent {nullptr};
+    bool timedOut {false};
+    bool finished {false};
+};
+
+}  // namespace
 
 ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
 {
@@ -105,6 +121,87 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
 
     // 协程恢复后再次尝试写入，返回最终结果。
     return ::write(fd, buf, count);
+}
+
+int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
+{
+    int fd = fdEvent->getFd();
+
+    // connect(2) 参数依次为：socket fd、目标地址结构、地址长度。
+    // 对非阻塞 fd，连接尚未完成时返回 -1 并置 errno = EINPROGRESS。
+    int ret = ::connect(fd, addr, addrLen);
+
+    if (Coroutine::IsMainCoroutine()) {
+        return ret;
+    }
+
+    if (ret == 0) {
+        return 0;
+    }
+    if (errno != EINPROGRESS && errno != EALREADY && errno != EINTR) {
+        return ret;
+    }
+
+    auto state = std::make_shared<ConnectHookState>();
+    state->coroutine = Coroutine::GetCurrentCoroutine();
+    state->fdEvent = fdEvent;
+    std::shared_ptr<TimerEvent> timerEvent;
+
+    fdEvent->setCoroutine(state->coroutine);
+    fdEvent->setCoroutineListenEvent(EPOLLOUT);
+    fdEvent->addListenEvent(EPOLLOUT);
+
+    Reactor *reactor = fdEvent->getReactor();
+    if (reactor != nullptr) {
+        if (fdEvent->isRegistered()) {
+            fdEvent->updateToReactor();
+        } else {
+            fdEvent->registerToReactor();
+        }
+
+        if (timeoutMs > 0 && reactor->getTimer() != nullptr) {
+            // TimerEvent 到期后恢复同一个协程；恢复后通过 timedOut 标记返回 ETIMEDOUT。
+            timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
+                if (state->finished) {
+                    return;
+                }
+                state->timedOut = true;
+                state->fdEvent->clearCoroutine();
+                state->coroutine->resume();
+            });
+            reactor->getTimer()->addTimerEvent(timerEvent);
+        }
+    }
+
+    Coroutine::Yield();
+    state->finished = true;
+
+    if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->delTimerEvent(timerEvent);
+    }
+
+    fdEvent->delListenEvent(EPOLLOUT);
+    if (fdEvent->isRegistered()) {
+        fdEvent->updateToReactor();
+    }
+
+    if (state->timedOut) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+
+    int socketError = 0;
+    socklen_t optLen = sizeof(socketError);
+    // getsockopt(SO_ERROR) 读取非阻塞 connect 的最终结果：
+    // 0 表示连接成功，非 0 表示内核保存的连接错误码。
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError, &optLen) != 0) {
+        return -1;
+    }
+    if (socketError != 0) {
+        errno = socketError;
+        return -1;
+    }
+    return 0;
 }
 
 }  // namespace tinyrpc
