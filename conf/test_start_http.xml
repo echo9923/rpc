@@ -1,0 +1,7 @@
+<config>
+    <server_addr>127.0.0.1:0</server_addr>
+    <protocol>http</protocol>
+    <iothread_num>0</iothread_num>
+    <timeout>1000</timeout>
+    <log_level>error</log_level>
+</config>

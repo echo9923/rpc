@@ -22,6 +22,8 @@ class TcpConnection;
 
 class TcpServer {
  public:
+    using Ptr = std::shared_ptr<TcpServer>;
+
     explicit TcpServer(const IPAddress& addr,
                        AbstractCodec::Ptr codec = nullptr,
                        AbstractDispatcher::Ptr dispatcher = nullptr);

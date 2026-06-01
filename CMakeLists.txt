@@ -26,6 +26,8 @@ set(SRC
     mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
     mytinyrpc/comm/msgreq.cc
+    mytinyrpc/comm/runtime.cc
+    mytinyrpc/comm/start.cc
     mytinyrpc/coroutine/coctx_swap.S
     mytinyrpc/coroutine/coroutine.cc
     mytinyrpc/coroutine/coroutine_hook.cc
@@ -224,3 +226,9 @@ add_executable(test_log
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_log ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_start
+    testcases/test_start.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_start ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

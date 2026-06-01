@@ -95,7 +95,7 @@ bool parseServerAddr(
     }
 
     int port = 0;
-    if (!parseIntValue(portText, 1, 65535, port, error)) {
+    if (!parseIntValue(portText, 0, 65535, port, error)) {
         error = "invalid server_addr port: " + portText;
         return false;
     }

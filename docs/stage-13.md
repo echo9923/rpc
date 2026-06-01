@@ -43,11 +43,25 @@
 - 未显式初始化文件日志时，继续输出到控制台，保持现有调试输出可见。
 - 新增 `test_log`，覆盖级别过滤、文件输出、flush、关闭日志和异步落盘。
 
+## 任务六十六：启动入口和服务注册宏
+
+已完成能力：
+
+- 新增 `Runtime`，保存启动期配置、codec、dispatcher 和 `TcpServer`。
+- 新增 `InitConfig(path)`，读取 XML 配置。
+- 新增 `StartRpcServer()`，根据配置中的 `protocol` 创建 TinyPB 或 HTTP server，并完成 `TcpServer::init()`。
+- 新增 `GetServer()`，调用方可在注册完成后执行 `GetServer()->start()` 进入阻塞事件循环。
+- 新增 `REGISTER_SERVICE(ServiceType)`，把 Protobuf Service 注册到 TinyPB server。
+- 新增 `REGISTER_HTTP_SERVLET(path, ServletType)`，把 HTTP servlet 注册到 HTTP dispatcher。
+- 新增 `test_start`，覆盖 XML 启动 TinyPB/HTTP server、服务注册宏和 HTTP servlet 注册宏。
+
 ## 当前边界
 
 - 当前只解析阶段 13 启动所需的简单标签，不实现完整 XML schema 校验。
 - 当前不读取 MySQL 插件、线程命名等复杂配置。
 - 当前不做按大小滚动、压缩归档或多日志文件拆分。
+- 当前 `StartRpcServer()` 只负责创建并初始化 server，不进入阻塞事件循环；真正运行由 `GetServer()->start()` 显式触发。
+- 当前不做复杂生命周期管理器或插件系统。
 - 当前不做旧配置兼容或历史配置迁移。
 
 ## 验证命令
@@ -56,5 +70,6 @@
 ./build.sh
 ./build/test_config
 ./build/test_log
+./build/test_start
 ./scripts/check_rpc_sync.sh
 ```

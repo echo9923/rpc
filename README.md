@@ -80,6 +80,38 @@ The lighter Stage 8 script `./scripts/check_rpc_sync_basic.sh` remains available
 
 Current sync RPC limitations: no async RPC, no connection pool, no response multiplexing, and no out-of-order response cache.
 
+## Minimal RPC Server Entry
+
+Stage 13 adds a shorter startup entry for XML-driven servers:
+
+```cpp
+#include "comm/start.h"
+
+int main()
+{
+    tinyrpc::InitConfig("conf/test_tinypb_server.xml");
+    tinyrpc::StartRpcServer();
+    REGISTER_SERVICE(QueryServiceImpl);
+    tinyrpc::GetServer()->start();
+}
+```
+
+For HTTP:
+
+```cpp
+#include "comm/start.h"
+
+int main()
+{
+    tinyrpc::InitConfig("conf/test_http_server.xml");
+    tinyrpc::StartRpcServer();
+    REGISTER_HTTP_SERVLET("/hello", HelloServlet);
+    tinyrpc::GetServer()->start();
+}
+```
+
+`StartRpcServer()` creates and initializes the server from XML. `GetServer()->start()` enters the blocking event loop after services or servlets have been registered.
+
 Install WSL dependencies if needed:
 
 ```bash

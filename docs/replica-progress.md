@@ -559,3 +559,21 @@
 ./build/test_log
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十六：启动入口和服务注册宏
+
+已完成能力：
+
+- 新增 `Runtime`，保存启动期配置、codec、dispatcher 和 `TcpServer`。
+- 新增 `InitConfig(path)` 读取 XML 配置。
+- 新增 `StartRpcServer()`，按 `protocol` 创建 TinyPB 或 HTTP server 并完成初始化。
+- 新增 `GetServer()`，调用方可在注册完成后执行 `GetServer()->start()`。
+- 新增 `REGISTER_SERVICE(ServiceType)` 和 `REGISTER_HTTP_SERVLET(path, ServletType)`。
+- 新增 `test_start`，覆盖 XML 启动 TinyPB/HTTP server、服务注册宏和 HTTP servlet 注册宏。
+
+验证命令：
+```bash
+./build.sh
+./build/test_start
+./scripts/check_rpc_sync.sh
+```
