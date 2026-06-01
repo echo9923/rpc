@@ -218,3 +218,9 @@ add_executable(test_config
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_config ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_log
+    testcases/test_log.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_log ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

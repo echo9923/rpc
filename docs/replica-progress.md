@@ -540,3 +540,22 @@
 ./build/test_config
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十五：日志系统分步实现
+
+已完成能力：
+
+- `Logger` 支持同步文件日志初始化、级别过滤和 flush。
+- 日志格式包含时间、级别、线程 id、文件行号和正文。
+- 支持带 `msgReq` 的日志接口，便于记录请求号、方法名和错误码。
+- 支持关闭日志输出。
+- 支持简化异步队列模式，`flush()` 和 `shutdown()` 会等待日志落盘。
+- 未初始化文件日志时保持控制台输出，兼容现有调试路径。
+- 新增 `test_log`，覆盖级别过滤、文件输出、flush、关闭日志和异步落盘。
+
+验证命令：
+```bash
+./build.sh
+./build/test_log
+./scripts/check_rpc_sync.sh
+```
