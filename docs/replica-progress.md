@@ -522,3 +522,21 @@
 ./build/test_config
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务六十四：XML 配置读取
+
+已完成能力：
+
+- `Config` 支持通过 `loadFromXml()` 读取 XML 配置文件。
+- 支持读取 server addr、protocol、iothread_num、timeout 和 log level。
+- 缺失字段继续使用默认配置。
+- 非法路径和非法字段类型返回失败，并通过 `getLastError()` 提供错误文本。
+- 新增 TinyPB 与 HTTP XML 样例配置。
+- `test_config` 验证 TinyPB server 和 HTTP server 都可以根据 XML 配置初始化。
+
+验证命令：
+```bash
+./build.sh
+./build/test_config
+./scripts/check_rpc_sync.sh
+```

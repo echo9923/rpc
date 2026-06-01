@@ -1,0 +1,7 @@
+<config>
+    <server_addr>127.0.0.1:24139</server_addr>
+    <protocol>tinypb</protocol>
+    <iothread_num>2</iothread_num>
+    <timeout>3000</timeout>
+    <log_level>info</log_level>
+</config>
