@@ -1,0 +1,145 @@
+# 协程模型和 hook 调试文档
+
+本文记录当前最小协程实现、read/write hook 边界，以及 Reactor 如何恢复等待 IO 的协程。当前阶段只梳理已有能力，不新增复杂 hook 或协程池。
+
+## 当前组成
+
+- `Coroutine`：用户态协程对象，拥有独立栈和 `coctx` 寄存器上下文。
+- `coctx_swap.S`：x86-64 汇编上下文切换原语，负责保存当前寄存器并恢复目标协程寄存器。
+- `read_hook()` / `write_hook()`：协程感知的读写封装，只在非主协程且非阻塞 fd 返回 `EAGAIN`、`EWOULDBLOCK` 或 `EINTR` 时挂起。
+- `FdEvent`：保存 fd、epoll 监听事件、普通回调，以及一个非拥有的 `Coroutine*`。
+- `Reactor`：等待 epoll 事件；当事件匹配 `FdEvent` 上协程等待的事件时，恢复该协程。
+- `TcpConnection`：在连接读写协程里调用 `read_hook()` 和 `write_hook()`，形成 input、execute、output 的服务端路径。
+
+## 协程如何创建
+
+`Coroutine` 构造函数接收一个 `std::function<void()>` 作为协程入口，并分配默认 128KB 独立栈。
+
+创建子协程时会懒初始化当前线程的主协程：
+
+- `t_mainCoroutine` 是线程局部主协程，ID 固定为 `0`。
+- `t_curCoroutine` 是线程局部当前协程指针。
+- 子协程 ID 从 `1` 开始递增。
+- 子协程栈顶按 16 字节对齐。
+- `coctx.regs[kRETAddr]` 指向 `Coroutine::CoFunc`。
+- `coctx.regs[kRDI]` 保存 `this`，作为 `CoFunc(Coroutine*)` 的第一个参数。
+
+首次调用 `resume()` 时，主协程通过 `coctx_swap(&(t_mainCoroutine->m_coctx), &(m_coctx))` 切到子协程。汇编恢复子协程上下文后进入 `CoFunc()`，再执行用户回调。
+
+## Coroutine 状态
+
+当前状态枚举为：
+
+- `Ready`：已创建，尚未执行。
+- `Running`：正在协程回调中执行。
+- `Suspended`：调用 `Coroutine::Yield()` 后挂起，等待再次 `resume()`。
+- `Finished`：用户回调执行完毕。
+
+状态转换：
+
+```mermaid
+flowchart LR
+    Ready["Ready"] -->|"resume()"| Running["Running"]
+    Running -->|"Yield()"| Suspended["Suspended"]
+    Suspended -->|"resume()"| Running
+    Running -->|"callback return"| Finished["Finished"]
+    Finished -->|"resume() no-op"| Finished
+```
+
+当前实现只支持同一线程内切换，不支持把协程迁移到另一个线程恢复。
+
+## 何时 yield
+
+显式让出：
+
+- 用户代码在协程内部调用 `Coroutine::Yield()`。
+- `Yield()` 只允许在非主协程中生效。
+- 如果协程未结束，状态改为 `Suspended`。
+- 当前协程指针切回主协程。
+- 通过 `coctx_swap(&(co->m_coctx), &(t_mainCoroutine->m_coctx))` 回到主协程。
+
+IO hook 让出：
+
+- `read_hook()` 先调用 `::read(fd, buf, count)`。
+- `write_hook()` 先调用 `::write(fd, buf, count)`。
+- 如果当前在主协程中，hook 直接返回系统调用结果。
+- 如果系统调用成功，hook 直接返回结果。
+- 如果系统调用失败且错误不是 `EAGAIN`、`EWOULDBLOCK` 或 `EINTR`，hook 直接返回错误。
+- 如果当前在非主协程且遇到上述可等待错误，hook 会把当前协程挂到 `FdEvent`，注册等待事件，再调用 `Coroutine::Yield()`。
+
+## 何时 resume
+
+手动恢复：
+
+- 测试或业务代码可以直接调用 `co.resume()`。
+- `resume()` 只能从主协程恢复子协程。
+- 已经 `Finished` 的协程再次 `resume()` 会直接返回。
+
+Reactor 恢复：
+
+1. hook 遇到可等待错误后调用 `fdEvent->setCoroutine(Coroutine::GetCurrentCoroutine())`。
+2. hook 通过 `setCoroutineListenEvent(EPOLLIN)` 或 `setCoroutineListenEvent(EPOLLOUT)` 记录等待事件。
+3. hook 将对应事件加入 `FdEvent::m_listenEvents`。
+4. 如果 `FdEvent` 已有关联 Reactor，则调用 `registerToReactor()` 或 `updateToReactor()`。
+5. Reactor 的 `waitOnce()` 调用 `epoll_wait()`。
+6. epoll 返回后，Reactor 从 `event.data.ptr` 取回 `FdEvent*`。
+7. 如果 `FdEvent` 上有协程，且触发事件匹配协程等待事件，Reactor 先 `clearCoroutine()`，再 `coroutine->resume()`。
+8. 协程从 hook 内部的 `Coroutine::Yield()` 返回，hook 再次调用原始系统调用并返回结果。
+
+## hook 如何找到当前 Reactor
+
+hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模型是显式传入 `FdEvent*`：
+
+- `TcpConnection` 持有 `m_fdEvent`。
+- `TcpConnection::startConnection()` 把连接 fd 注册到连接所属 Reactor。
+- `read_hook(&m_fdEvent, ...)` 和 `write_hook(&m_fdEvent, ...)` 通过 `fdEvent->getReactor()` 获取 Reactor。
+- 如果 `getReactor()` 为 `nullptr`，hook 只挂载协程和事件标记，不会自动注册 epoll。
+
+这意味着 hook 的调用方必须保证 `FdEvent` 已经正确关联目标 Reactor。测试里也会显式 `readEvent.setReactor(&reactor)`。
+
+## hook 关闭时走什么路径
+
+当前没有全局 hook 开关。hook 的“关闭路径”体现在两种情况：
+
+- 当前在主协程：`Coroutine::IsMainCoroutine()` 为 true，`read_hook()` / `write_hook()` 直接透传 `::read()` / `::write()`。
+- 系统调用已经成功或返回不可等待错误：hook 不挂协程、不注册 Reactor，直接把系统调用结果返回给上层。
+
+因此主协程、阻塞 fd 成功路径、真实错误路径都不会进入协程挂起逻辑。
+
+## TcpConnection 读写路径
+
+`TcpConnection::coroutineReadLoop()` 是当前服务端协程读写入口：
+
+1. `input()` 循环调用 `read_hook()`。
+2. 读到字节后追加到 `m_inputBuffer`，刷新活跃时间。
+3. `execute()` 根据 codec 解码请求，交给 dispatcher，或在无 dispatcher 时回环编码。
+4. `output()` 循环调用 `write_hook()` 把 `m_outputBuffer` 写回 socket。
+5. 输出写空后删除 `EPOLLOUT`，避免可写事件空转。
+
+读到 `0` 表示对端关闭，连接会执行 `closeWithCallback()`。读写遇到不可恢复错误时也会关闭连接。
+
+## 当前边界
+
+- 只实现 `read_hook()` 和 `write_hook()`。
+- `connect()` hook、`sleep()` / `usleep()` hook 留到后续任务。
+- `recv()`、`send()`、`accept()` hook 暂未实现。
+- 当前 hook API 需要调用方传入 `FdEvent*`，不是 libc 符号级全局替换。
+- 当前 `FdEvent` 只保存非拥有的 `Coroutine*`，协程生命周期仍由调用方管理。
+- 当前不实现协程池。
+
+## 调试清单
+
+- 协程没有恢复：检查 `FdEvent::getCoroutine()` 是否非空，`getCoroutineListenEvent()` 是否与触发事件匹配。
+- Reactor 没收到事件：检查 `FdEvent::getReactor()` 是否已设置，`isRegistered()` 是否为 true，`getListenEvents()` 是否包含目标事件。
+- hook 没有 yield：确认当前不在主协程，并且 fd 是非阻塞 fd，系统调用实际返回 `EAGAIN` / `EWOULDBLOCK`。
+- 恢复后仍然失败：hook 恢复后只重试一次系统调用，若 fd 状态仍不可用，会把结果直接返回给上层。
+- fd 关闭后异常：关闭 fd 前应先从 Reactor 注销对应 `FdEvent`，避免 epoll 持有已关闭 fd 的旧事件对象。
+
+## 验证命令
+
+```bash
+./build.sh
+./build/test_coroutine
+./build/test_hook
+./scripts/check_rpc_sync.sh
+```

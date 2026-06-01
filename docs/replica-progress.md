@@ -594,3 +594,24 @@
 ./build/test_runtime
 ./scripts/check_rpc_sync.sh
 ```
+
+## 阶段 14：协程、hook、协程池和内存池整理
+
+### 任务六十八：协程现状梳理和调试文档
+
+已完成能力：
+
+- 新增 `docs/coroutine-model.md`。
+- 梳理 `Coroutine` 创建、状态转换、`Yield()` 和 `resume()` 路径。
+- 梳理 `read_hook()` / `write_hook()` 的启用边界和主协程直通路径。
+- 梳理 `FdEvent` 挂载协程、Reactor 事件匹配和恢复协程的链路。
+- 补充 `TcpConnection` 中 input、execute、output 与 hook 的关系。
+- 补充协程和 hook 调试清单。
+
+验证命令：
+```bash
+./build.sh
+./build/test_coroutine
+./build/test_hook
+./scripts/check_rpc_sync.sh
+```
