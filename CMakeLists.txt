@@ -23,6 +23,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS testcases/test_tinypb_server.proto)
 
 set(SRC
+    mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
     mytinyrpc/comm/msgreq.cc
     mytinyrpc/coroutine/coctx_swap.S
@@ -211,3 +212,9 @@ add_executable(test_http_server
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_http_server pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_config
+    testcases/test_config.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_config ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})

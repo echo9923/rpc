@@ -504,3 +504,21 @@
 ./scripts/check_stage12_http.sh
 ./scripts/check_rpc_sync.sh
 ```
+
+## 阶段 13：配置、日志、启动入口和运行时
+
+### 任务六十三：最小 Config 默认值整理
+
+已完成能力：
+
+- 新增 `mytinyrpc/comm/config.h` 和 `config.cc`。
+- `Config` 提供默认 server host、server port、protocol、IOThread 数量、timeout 和 log level。
+- 默认值写入 `docs/stage-13.md`。
+- 新增 `test_config`，覆盖默认字段，并验证默认配置可用于初始化测试 server。
+
+验证命令：
+```bash
+./build.sh
+./build/test_config
+./scripts/check_rpc_sync.sh
+```
