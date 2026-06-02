@@ -3,7 +3,7 @@
 #include "comm/errorcode.h"
 #include "comm/msgreq.h"
 #include "net/tcpclient.h"
-#include "net/tinypb/tinypbrpcchannel.h"
+#include "net/timer.h"
 #include "net/tinypb/tinypbrpccontroller.h"
 
 #include <google/protobuf/descriptor.h>
@@ -80,7 +80,19 @@ void TinyPbRpcAsyncChannel::CallMethod(
         return;
     }
 
+    if (tinyController != nullptr) {
+        tinyController->SetCancelCallback([this, msgReq = context->msgReq]() {
+            cancel(msgReq);
+        });
+    }
+
     registerPending(context);
+    registerTimeoutEvent(context);
+
+    if (tinyController != nullptr && tinyController->IsCanceled()) {
+        cancel(context->msgReq);
+        return;
+    }
 
     if (!m_syncFallbackEnabled) {
         return;
@@ -89,9 +101,9 @@ void TinyPbRpcAsyncChannel::CallMethod(
     m_ioThread->addTask([this, context]() {
         TinyPbStruct tinyResponse;
         TcpClient client(m_peerAddr);
-        auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->controller);
-        if (tinyController != nullptr && tinyController->Timeout() > 0) {
-            client.setTimeout(tinyController->Timeout());
+        int timeoutMs = getControllerTimeout(context->controller);
+        if (timeoutMs > 0) {
+            client.setTimeout(timeoutMs);
         }
 
         if (!client.sendAndRecvTinyPb(&context->tinyRequest, &tinyResponse)) {
@@ -100,18 +112,19 @@ void TinyPbRpcAsyncChannel::CallMethod(
                 errorInfo = "TinyPB async network request failed";
             }
             int errorCode = client.getErrorCode() == 0 ? ERROR_RPC_CHANNEL_NETWORK : client.getErrorCode();
-            removePending(context->msgReq);
-            setControllerError(context->controller, errorCode, errorInfo);
-            finishContext(context);
+            if (errorCode == ERROR_TCP_TIMEOUT) {
+                errorCode = ERROR_RPC_ASYNC_TIMEOUT;
+                errorInfo = "async rpc request timeout, msgReq = " + context->msgReq;
+            }
+            finishPendingWithError(context->msgReq, errorCode, errorInfo);
             return;
         }
 
         if (!handleTinyPbResponse(tinyResponse)) {
-            setControllerError(
-                context->controller,
+            finishPendingWithError(
+                context->msgReq,
                 ERROR_RPC_MSGREQ_MISMATCH,
                 "async response msgReq not found, response = " + tinyResponse.m_msgReq);
-            finishContext(context);
         }
     });
 }
@@ -146,16 +159,9 @@ bool TinyPbRpcAsyncChannel::hasPending(const std::string& msgReq) const
 
 bool TinyPbRpcAsyncChannel::handleTinyPbResponse(const TinyPbStruct& response)
 {
-    std::shared_ptr<AsyncCallContext> context;
-    {
-        std::lock_guard<std::mutex> lock(m_pendingMutex);
-        auto iter = m_pendingContexts.find(response.m_msgReq);
-        if (iter == m_pendingContexts.end()) {
-            return false;
-        }
-
-        context = iter->second;
-        m_pendingContexts.erase(iter);
+    auto context = takePending(response.m_msgReq);
+    if (context == nullptr) {
+        return false;
     }
 
     if (response.m_errCode != 0) {
@@ -175,6 +181,25 @@ bool TinyPbRpcAsyncChannel::handleTinyPbResponse(const TinyPbStruct& response)
         return true;
     }
 
+    finishContext(context);
+    return true;
+}
+
+bool TinyPbRpcAsyncChannel::cancel(const std::string& msgReq)
+{
+    auto context = takePending(msgReq);
+    if (context == nullptr) {
+        return false;
+    }
+
+    auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->controller);
+    if (tinyController != nullptr) {
+        tinyController->StartCancel();
+    }
+    setControllerError(
+        context->controller,
+        ERROR_RPC_ASYNC_CANCELED,
+        "async rpc request canceled, msgReq = " + msgReq);
     finishContext(context);
     return true;
 }
@@ -218,17 +243,96 @@ void TinyPbRpcAsyncChannel::registerPending(const std::shared_ptr<AsyncCallConte
     m_pendingContexts[context->msgReq] = context;
 }
 
-void TinyPbRpcAsyncChannel::removePending(const std::string& msgReq)
+void TinyPbRpcAsyncChannel::registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
+{
+    int timeoutMs = getControllerTimeout(context == nullptr ? nullptr : context->controller);
+    if (context == nullptr || context->msgReq.empty() || timeoutMs <= 0 || m_ioThread == nullptr) {
+        return;
+    }
+
+    context->timeoutEvent = std::make_shared<TimerEvent>(timeoutMs, false, [this, msgReq = context->msgReq]() {
+        handleTimeout(msgReq);
+    });
+
+    auto event = context->timeoutEvent;
+    m_ioThread->addTask([this, event]() {
+        if (event == nullptr || event->isCanceled() || m_ioThread == nullptr) {
+            return;
+        }
+        auto *reactor = m_ioThread->getReactor();
+        if (reactor == nullptr || reactor->getTimer() == nullptr) {
+            return;
+        }
+        reactor->getTimer()->addTimerEvent(event);
+    });
+}
+
+std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::string& msgReq)
 {
     std::lock_guard<std::mutex> lock(m_pendingMutex);
-    m_pendingContexts.erase(msgReq);
+    auto iter = m_pendingContexts.find(msgReq);
+    if (iter == m_pendingContexts.end()) {
+        return nullptr;
+    }
+
+    auto context = iter->second;
+    m_pendingContexts.erase(iter);
+    cancelTimeoutEvent(context);
+    return context;
+}
+
+void TinyPbRpcAsyncChannel::cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
+{
+    if (context != nullptr && context->timeoutEvent != nullptr) {
+        context->timeoutEvent->cancel();
+    }
+}
+
+void TinyPbRpcAsyncChannel::handleTimeout(const std::string& msgReq)
+{
+    finishPendingWithError(
+        msgReq,
+        ERROR_RPC_ASYNC_TIMEOUT,
+        "async rpc request timeout, msgReq = " + msgReq);
 }
 
 void TinyPbRpcAsyncChannel::finishContext(const std::shared_ptr<AsyncCallContext>& context)
 {
+    if (context != nullptr) {
+        auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->controller);
+        if (tinyController != nullptr) {
+            tinyController->ClearCancelCallback();
+        }
+    }
+
     if (context != nullptr && context->done != nullptr) {
         context->done->Run();
     }
+}
+
+bool TinyPbRpcAsyncChannel::finishPendingWithError(
+    const std::string& msgReq,
+    int errorCode,
+    const std::string& errorInfo)
+{
+    auto context = takePending(msgReq);
+    if (context == nullptr) {
+        return false;
+    }
+
+    setControllerError(context->controller, errorCode, errorInfo);
+    finishContext(context);
+    return true;
+}
+
+int TinyPbRpcAsyncChannel::getControllerTimeout(google::protobuf::RpcController *controller)
+{
+    auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
+    if (tinyController == nullptr) {
+        return 0;
+    }
+
+    return tinyController->Timeout();
 }
 
 void TinyPbRpcAsyncChannel::setControllerError(

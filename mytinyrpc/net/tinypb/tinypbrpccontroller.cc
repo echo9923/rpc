@@ -1,5 +1,7 @@
 #include "net/tinypb/tinypbrpccontroller.h"
 
+#include <utility>
+
 namespace tinyrpc {
 
 void TinyPbRpcController::Reset()
@@ -10,6 +12,8 @@ void TinyPbRpcController::Reset()
     m_timeoutMs = 0;
     m_msgReq.clear();
     m_errorText.clear();
+    m_cancelCallback = nullptr;
+    m_notifyCancelCallbacks.clear();
 }
 
 bool TinyPbRpcController::Failed() const
@@ -61,9 +65,33 @@ int TinyPbRpcController::Timeout() const
     return m_timeoutMs;
 }
 
+void TinyPbRpcController::SetCancelCallback(std::function<void()> callback)
+{
+    m_cancelCallback = std::move(callback);
+}
+
+void TinyPbRpcController::ClearCancelCallback()
+{
+    m_cancelCallback = nullptr;
+}
+
 void TinyPbRpcController::StartCancel()
 {
+    if (m_canceled) {
+        return;
+    }
+
     m_canceled = true;
+    auto cancelCallback = m_cancelCallback;
+    if (cancelCallback) {
+        cancelCallback();
+    }
+
+    for (auto *callback : m_notifyCancelCallbacks) {
+        if (callback != nullptr) {
+            callback->Run();
+        }
+    }
 }
 
 bool TinyPbRpcController::IsCanceled() const
@@ -71,9 +99,16 @@ bool TinyPbRpcController::IsCanceled() const
     return m_canceled;
 }
 
-void TinyPbRpcController::NotifyOnCancel(google::protobuf::Closure * /*callback*/)
+void TinyPbRpcController::NotifyOnCancel(google::protobuf::Closure *callback)
 {
-    // 当前阶段不支持取消回调，留空。
+    if (callback == nullptr) {
+        return;
+    }
+    if (m_canceled) {
+        callback->Run();
+        return;
+    }
+    m_notifyCancelCallbacks.push_back(callback);
 }
 
 }

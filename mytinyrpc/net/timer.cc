@@ -47,7 +47,7 @@ bool TimerEvent::isRepeated() const
 
 bool TimerEvent::isCanceled() const
 {
-    return m_canceled;
+    return m_canceled.load();
 }
 
 bool TimerEvent::isExpired(int64_t nowMs) const
@@ -57,7 +57,7 @@ bool TimerEvent::isExpired(int64_t nowMs) const
 
 void TimerEvent::cancel()
 {
-    m_canceled = true;
+    m_canceled.store(true);
 }
 
 void TimerEvent::resetTime()
@@ -69,12 +69,12 @@ void TimerEvent::resetTime(int64_t intervalMs)
 {
     m_intervalMs = normalizeInterval(intervalMs);
     m_expireTimeMs = getNowMs() + m_intervalMs;
-    m_canceled = false;
+    m_canceled.store(false);
 }
 
 void TimerEvent::run()
 {
-    if (m_canceled) {
+    if (m_canceled.load()) {
         return;
     }
 
@@ -83,7 +83,7 @@ void TimerEvent::run()
     }
 
     if (m_repeated) {
-        if (!m_canceled) {
+        if (!m_canceled.load()) {
             resetTime();
         }
         return;

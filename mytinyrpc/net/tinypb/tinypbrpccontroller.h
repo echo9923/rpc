@@ -2,7 +2,9 @@
 
 #include <google/protobuf/service.h>
 
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace tinyrpc {
 
@@ -16,8 +18,8 @@ namespace tinyrpc {
 //   - SetError()/ErrorCode() 记录框架层错误码
 //   - SetMsgReq()/MsgReq() 记录本次 RPC 请求号
 //
-// 取消机制（StartCancel / IsCanceled / NotifyOnCancel）为空实现，
-// 后续接入异步调用时再扩展。
+// 取消机制支持记录取消状态、触发 Protobuf 取消回调，并为异步 Channel 提供
+// 一个内部取消回调入口，用于把 StartCancel() 转换为 pending 清理。
 class TinyPbRpcController : public google::protobuf::RpcController {
  public:
     // 重置控制器状态，清除错误信息和取消标记。
@@ -50,13 +52,19 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     // 返回同步 RPC 超时时间占位，单位毫秒。
     int Timeout() const;
 
+    // 注册 TinyRPC 内部取消回调。异步 Channel 用它把 StartCancel() 转换为 pending 清理。
+    void SetCancelCallback(std::function<void()> callback);
+
+    // 清理 TinyRPC 内部取消回调，避免请求完成后再次触发旧 pending。
+    void ClearCancelCallback();
+
     // 发起取消请求，将 m_canceled 置为 true。
     void StartCancel() override;
 
     // 返回是否已被取消。
     bool IsCanceled() const override;
 
-    // 注册取消回调，当前为空实现。
+    // 注册取消回调。若已经取消则立即执行；否则在 StartCancel() 时执行。
     // [第三方 API] google::protobuf::Closure 是 Protobuf 提供的回调闭包抽象基类，
     // 用户需继承并实现 Run() 方法来定义回调逻辑。
     void NotifyOnCancel(google::protobuf::Closure *callback) override;
@@ -68,6 +76,8 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     int m_timeoutMs {0};
     std::string m_msgReq;
     std::string m_errorText;
+    std::function<void()> m_cancelCallback;
+    std::vector<google::protobuf::Closure *> m_notifyCancelCallbacks;
 };
 
 }

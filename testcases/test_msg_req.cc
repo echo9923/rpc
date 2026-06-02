@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <iostream>
 #include <set>
 #include <string>
 
@@ -51,6 +53,36 @@ TEST(TinyPbRpcControllerTest, SetErrorStoresCodeAndText)
     EXPECT_TRUE(controller.Failed());
     EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_FAILED_DESERIALIZE);
     EXPECT_EQ(controller.ErrorText(), "bad response");
+}
+
+TEST(TinyPbRpcControllerTest, StartCancelRunsRegisteredCallbackOnce)
+{
+    tinyrpc::TinyPbRpcController controller;
+    std::atomic<int> runCount {0};
+    controller.SetCancelCallback([&runCount]() {
+        runCount.fetch_add(1);
+    });
+
+    controller.StartCancel();
+    controller.StartCancel();
+
+    EXPECT_TRUE(controller.IsCanceled());
+    EXPECT_EQ(runCount.load(), 1);
+}
+
+TEST(TinyPbRpcControllerTest, ResetClearsCancelCallback)
+{
+    tinyrpc::TinyPbRpcController controller;
+    std::atomic<int> runCount {0};
+    controller.SetCancelCallback([&runCount]() {
+        runCount.fetch_add(1);
+    });
+
+    controller.Reset();
+    controller.StartCancel();
+
+    EXPECT_TRUE(controller.IsCanceled());
+    EXPECT_EQ(runCount.load(), 0);
 }
 
 int main(int argc, char **argv)

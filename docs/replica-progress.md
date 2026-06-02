@@ -813,3 +813,34 @@
 - 不做复杂连接池策略。
 - 不做自动负载均衡。
 - 不做异步超时和取消。
+
+### 任务七十七：异步超时和取消
+
+已完成能力：
+
+- `AsyncCallContext` 新增 `timeoutEvent`，保存本次异步请求对应的一次性 `TimerEvent`。
+- `TinyPbRpcAsyncChannel` 读取 `TinyPbRpcController::Timeout()`，在 pending 请求注册后把超时事件投递到内部 IOThread 的 Reactor Timer。
+- 超时到期后按 `msgReq` 从 pending map 取出上下文，设置 `ERROR_RPC_ASYNC_TIMEOUT` 并执行 closure。
+- `handleTinyPbResponse()`、网络失败、超时和取消统一通过 pending map 做一次性完成仲裁，避免二次回调。
+- 请求成功、失败、超时或取消完成后都会取消对应 `TimerEvent`，并清理 controller 上的内部取消回调。
+- `TinyPbRpcController::StartCancel()` 支持触发 Channel 注册的取消回调；Channel 会删除 pending、设置 `ERROR_RPC_ASYNC_CANCELED` 并执行 closure。
+- `TimerEvent` 的取消标记改为 atomic，并显式禁止拷贝，避免跨线程取消标记的数据竞争和误拷贝。
+- 扩展 `test_tinypb_rpc_async_channel`，覆盖超时清理、迟到响应不二次回调、controller 取消清理。
+- 扩展 `test_msg_req`，覆盖 controller 取消回调执行与 Reset 清理。
+- 更新 `docs/stage-15.md`，补充超时/取消调用链和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_msg_req
+./build/test_timer
+./build/test_timer_event
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前真实网络路径仍复用同步 `TcpClient::sendAndRecvTinyPb()`，IOThread 执行同步 socket 调用期间 Reactor Timer 不能抢占正在执行的调用。
+- 真实网络读写超时仍由 `TcpClient` timeout 保底，并映射为异步 RPC 超时错误。
+- 当前取消只清理 Channel pending 并防止二次回调，不主动打断已经在 IOThread 内执行的同步 socket 调用。

@@ -2,6 +2,7 @@
 
 #include "net/fdevent.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -25,6 +26,8 @@ class TimerEvent {
     using Callback = std::function<void()>;
 
     TimerEvent(int64_t intervalMs, bool repeated, Callback callback);
+    TimerEvent(const TimerEvent&) = delete;
+    TimerEvent& operator=(const TimerEvent&) = delete;
 
     int64_t getIntervalMs() const;
     int64_t getExpireTimeMs() const;
@@ -43,7 +46,7 @@ class TimerEvent {
     int64_t m_intervalMs {0};
     int64_t m_expireTimeMs {0};
     bool m_repeated {false};
-    bool m_canceled {false};
+    std::atomic<bool> m_canceled {false};
     Callback m_callback;
 };
 

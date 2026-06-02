@@ -15,6 +15,8 @@ constexpr int ERROR_PARSE_SERVICE_NAME = 100010;     // 解析服务全名失败
 constexpr int ERROR_RPC_CHANNEL_INVALID_ARGUMENT = 100011; // RPC Channel 参数非法
 constexpr int ERROR_RPC_CHANNEL_NETWORK = 100012;          // RPC Channel 网络收发失败
 constexpr int ERROR_RPC_MSGREQ_MISMATCH = 100013;          // RPC 响应请求号不匹配
+constexpr int ERROR_RPC_ASYNC_TIMEOUT = 100018;            // 异步 RPC 请求超时
+constexpr int ERROR_RPC_ASYNC_CANCELED = 100019;           // 异步 RPC 请求取消
 
 // 同步 TCP 客户端错误。
 constexpr int ERROR_TCP_CONNECT_FAILED = 100014;           // TCP 连接失败

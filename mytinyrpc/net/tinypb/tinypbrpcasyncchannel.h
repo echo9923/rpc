@@ -15,6 +15,8 @@
 
 namespace tinyrpc {
 
+class TimerEvent;
+
 // AsyncCallContext — 异步 RPC 调用上下文。
 //
 // 当前任务只建立生命周期外壳，因此上下文保存非拥有指针：
@@ -28,6 +30,7 @@ struct AsyncCallContext {
     const google::protobuf::Message *request {nullptr};
     google::protobuf::Message *response {nullptr};
     google::protobuf::Closure *done {nullptr};
+    std::shared_ptr<TimerEvent> timeoutEvent;
 };
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
@@ -55,6 +58,7 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     size_t getPendingCount() const;
     bool hasPending(const std::string& msgReq) const;
     bool handleTinyPbResponse(const TinyPbStruct& response);
+    bool cancel(const std::string& msgReq);
     void stop();
     bool isIOThreadStarted() const;
     std::thread::id getIOThreadId() const;
@@ -62,8 +66,16 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  private:
     std::string genMsgReq() const;
     void registerPending(const std::shared_ptr<AsyncCallContext>& context);
-    void removePending(const std::string& msgReq);
+    void registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
+    std::shared_ptr<AsyncCallContext> takePending(const std::string& msgReq);
+    void cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
+    void handleTimeout(const std::string& msgReq);
     void finishContext(const std::shared_ptr<AsyncCallContext>& context);
+    bool finishPendingWithError(
+        const std::string& msgReq,
+        int errorCode,
+        const std::string& errorInfo);
+    static int getControllerTimeout(google::protobuf::RpcController *controller);
     static void setControllerError(
         google::protobuf::RpcController *controller,
         int errorCode,
