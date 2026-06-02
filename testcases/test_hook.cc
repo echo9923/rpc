@@ -430,6 +430,12 @@ TEST(HookTest, ConnectHookTimeoutResumesCoroutine)
 
     co.resume();
     ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+    ASSERT_TRUE(event.isRegistered());
+
+    // 这个用例只验证 connect_hook 的 Timer 超时恢复分支。
+    // 不同宿主/WSL 网络可能会让测试地址很快产生 EPOLLOUT，因此这里主动移除
+    // 连接 fd 的 epoll 监听，只保留 Reactor 内部 timerfd 来驱动超时恢复。
+    ASSERT_TRUE(event.unregisterFromReactor());
 
     int64_t deadline = tinyrpc::getNowMs() + 1000;
     while (!coroDone && tinyrpc::getNowMs() < deadline) {
@@ -440,7 +446,6 @@ TEST(HookTest, ConnectHookTimeoutResumesCoroutine)
     EXPECT_EQ(connectResult, -1);
     EXPECT_EQ(connectErrno, ETIMEDOUT);
 
-    event.unregisterFromReactor();
     close(fd);
 }
 

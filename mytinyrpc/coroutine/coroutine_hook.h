@@ -4,8 +4,11 @@
 
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 namespace tinyrpc {
+
+class Reactor;
 
 // read_hook — 协程感知的 read 封装。
 //
@@ -34,5 +37,18 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count);
 // 将当前协程挂到 fdEvent 并等待 EPOLLOUT；timeoutMs > 0 时还会注册定时器。
 // 恢复后通过 getsockopt(SO_ERROR) 判断连接成功、拒绝或超时。
 int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs);
+
+// sleep_hook — 协程感知的 sleep 封装。
+//
+// 主协程中直接透传 ::sleep()。
+// 非主协程中，使用传入 Reactor 的 TimerEvent 定时恢复当前协程。
+// 当前实现不处理信号中断，Timer 到期恢复后固定返回 0。
+unsigned int sleep_hook(Reactor *reactor, unsigned int seconds);
+
+// usleep_hook — 协程感知的 usleep 封装。
+//
+// 主协程中直接透传 ::usleep()。
+// 非主协程中，将微秒向上折算为毫秒 TimerEvent，到期后恢复当前协程。
+int usleep_hook(Reactor *reactor, useconds_t usec);
 
 }  // namespace tinyrpc

@@ -5,6 +5,7 @@
 #include "net/timer.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -21,6 +22,42 @@ struct ConnectHookState {
     bool timedOut {false};
     bool finished {false};
 };
+
+struct SleepHookState {
+    Coroutine *coroutine {nullptr};
+    bool finished {false};
+};
+
+int64_t microsecondsToMilliseconds(useconds_t usec)
+{
+    return (static_cast<int64_t>(usec) + 999) / 1000;
+}
+
+bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
+{
+    if (reactor == nullptr || reactor->getTimer() == nullptr) {
+        return false;
+    }
+
+    auto state = std::make_shared<SleepHookState>();
+    state->coroutine = Coroutine::GetCurrentCoroutine();
+
+    // TimerEvent 到期回调运行在 Reactor 线程中；这里直接恢复同线程内挂起的协程。
+    auto timerEvent = std::make_shared<TimerEvent>(intervalMs, false, [state]() {
+        if (state->finished) {
+            return;
+        }
+        state->coroutine->resume();
+    });
+    if (!reactor->getTimer()->addTimerEvent(timerEvent)) {
+        return false;
+    }
+
+    Coroutine::Yield();
+    state->finished = true;
+    reactor->getTimer()->delTimerEvent(timerEvent);
+    return true;
+}
 
 }  // namespace
 
@@ -200,6 +237,42 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
     if (socketError != 0) {
         errno = socketError;
         return -1;
+    }
+    return 0;
+}
+
+unsigned int sleep_hook(Reactor *reactor, unsigned int seconds)
+{
+    // sleep(3) 参数为秒数；返回值为被信号中断时剩余的秒数。
+    // 主协程中不挂起，保持与系统调用一致的阻塞语义。
+    if (Coroutine::IsMainCoroutine()) {
+        return ::sleep(seconds);
+    }
+
+    if (seconds == 0) {
+        return 0;
+    }
+
+    if (!yieldByTimer(reactor, static_cast<int64_t>(seconds) * 1000)) {
+        return ::sleep(seconds);
+    }
+    return 0;
+}
+
+int usleep_hook(Reactor *reactor, useconds_t usec)
+{
+    // usleep(3) 参数为微秒数；成功返回 0，失败返回 -1 并设置 errno。
+    // 主协程中直接透传，避免改变非协程调用路径的行为。
+    if (Coroutine::IsMainCoroutine()) {
+        return ::usleep(usec);
+    }
+
+    if (usec == 0) {
+        return 0;
+    }
+
+    if (!yieldByTimer(reactor, microsecondsToMilliseconds(usec))) {
+        return ::usleep(usec);
     }
     return 0;
 }

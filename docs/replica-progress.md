@@ -633,3 +633,21 @@
 ./build/test_hook
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务七十：`sleep/usleep` hook
+
+已完成能力：
+
+- 新增 `sleep_hook(Reactor*, seconds)`，主协程中直通原始 `sleep()`。
+- 新增 `usleep_hook(Reactor*, usec)`，主协程中直通原始 `usleep()`。
+- 非主协程中通过一次性 `TimerEvent` 挂起当前协程，Timer 到期后由 Reactor 恢复。
+- 新增 `test_hook_sleep`，覆盖主协程直通、`sleep_hook`/`usleep_hook` 定时恢复、一个协程 sleep 不阻塞另一个协程，以及多个协程按时间恢复。
+- 更新 `docs/coroutine-model.md`，补充 sleep/usleep hook 的 Reactor Timer 恢复路径和调试要点。
+
+验证命令：
+```bash
+./build.sh
+./build/test_hook_sleep
+./build/test_hook
+./scripts/check_rpc_sync.sh
+```

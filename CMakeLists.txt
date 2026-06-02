@@ -113,6 +113,12 @@ add_executable(test_hook
 )
 target_link_libraries(test_hook ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
+add_executable(test_hook_sleep
+    testcases/test_hook_sleep.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_hook_sleep ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
 add_executable(test_connection_codec
     testcases/test_connection_codec.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
