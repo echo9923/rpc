@@ -32,6 +32,7 @@ set(SRC
     mytinyrpc/coroutine/coroutine.cc
     mytinyrpc/coroutine/coroutine_hook.cc
     mytinyrpc/coroutine/coroutine_pool.cc
+    mytinyrpc/coroutine/memory.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/http/httpcodec.cc
@@ -113,6 +114,12 @@ add_executable(test_coroutine_pool
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_coroutine_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_memory_pool
+    testcases/test_memory_pool.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_memory_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
 add_executable(test_hook
     testcases/test_hook.cc

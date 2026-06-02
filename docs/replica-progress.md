@@ -703,3 +703,29 @@
 - 不做复杂调度器。
 - 不做 work stealing。
 - 不支持跨线程迁移协程。
+
+### 任务七十三：协程栈内存池
+
+已完成能力：
+
+- 新增 `FixedMemoryPool`，构造时预分配固定数量固定大小 block。
+- `allocate()` 支持从空闲列表借出 block，池耗尽时返回 `nullptr`。
+- `deallocate()` 只允许归还本池 block，并拒绝 `nullptr`、外部指针和重复归还。
+- `owns()` 支持判断指针归属。
+- 新增 `test_memory_pool`，覆盖容量耗尽、归还复用、拒绝非法归还、归属判断和 block 写入。
+- 更新 `docs/coroutine-model.md`，明确内存池当前是独立基础能力。
+
+验证命令：
+```bash
+./build.sh
+./build/test_memory_pool
+./build/test_coroutine_pool
+./build/test_coroutine
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- `Coroutine` 仍使用 `malloc/free` 管理独立栈，暂不强制接入内存池。
+- 不做复杂 slab 分配器。
+- 不让内存池阻塞异步 RPC 后续任务。
