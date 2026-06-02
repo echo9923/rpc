@@ -26,6 +26,18 @@ Run these commands in Linux/WSL:
 ./scripts/check_generator_project.sh
 ```
 
+For a full local regression, run:
+
+```bash
+./scripts/check_all.sh
+```
+
+From Windows PowerShell, the WSL wrapper is:
+
+```powershell
+.\scripts\check_all.ps1
+```
+
 Individual stage checks are still available, for example `./scripts/check_stage12_http.sh` and `./scripts/check_generator.sh`.
 
 ## Stage 1: Blocking TCP Echo Server

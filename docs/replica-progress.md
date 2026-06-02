@@ -993,3 +993,22 @@
 
 - 覆盖矩阵基于当前项目目录、阶段文档和脚本验收，不追求与原 TinyRPC 100% 行为一致。
 - 任务八十四会继续把矩阵中的核心验证入口串成一键全量回归脚本。
+
+### 任务八十四：一键全量回归
+
+已完成能力：
+
+- 新增 `scripts/check_all.sh`，作为 Linux/WSL 一键全量回归入口。
+- 新增 `scripts/check_all.ps1`，Windows PowerShell 下通过 WSL 调用同一个 Linux 脚本。
+- 全量脚本覆盖构建、Reactor/Timer/TcpConnection、IOThread/IOThreadPool、配置/日志/启动/runtime、HTTP、协程/hook、同步 RPC、多 Reactor server、异步 RPC 和生成器工程。
+- README 增加 `check_all.sh` 和 `check_all.ps1` 入口。
+
+验证命令：
+```bash
+./scripts/check_all.sh
+```
+
+当前限制：
+
+- `check_all.sh` 会嵌套调用现有阶段脚本，部分构建和同步 RPC 回归会重复执行，因此耗时较长。
+- Windows PowerShell 脚本只作为 WSL 包装入口，不在 Windows 本地编译 Linux 目标。
