@@ -1,0 +1,6 @@
+#pragma once
+
+class {{SERVICE_NAME}}Server {
+ public:
+    void start();
+};

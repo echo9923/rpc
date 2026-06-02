@@ -1,0 +1,15 @@
+/*
+ * Generated TinyRPC server entry for {{SERVICE_NAME}}.
+ */
+
+#include "server.h"
+
+#include <iostream>
+
+int main()
+{
+    {{SERVICE_NAME}}Server server;
+    std::cout << "[{{SERVICE_NAME}}] server skeleton started" << std::endl;
+    server.start();
+    return 0;
+}

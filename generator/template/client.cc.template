@@ -1,0 +1,11 @@
+/*
+ * Generated TinyRPC client placeholder for {{SERVICE_NAME}}.
+ */
+
+#include <iostream>
+
+int main()
+{
+    std::cout << "[{{SERVICE_NAME}}] client skeleton using {{PROTO_FILE}}" << std::endl;
+    return 0;
+}

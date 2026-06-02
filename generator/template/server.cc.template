@@ -1,0 +1,8 @@
+#include "server.h"
+
+#include <iostream>
+
+void {{SERVICE_NAME}}Server::start()
+{
+    std::cout << "[{{SERVICE_NAME}}] start placeholder from generated server" << std::endl;
+}

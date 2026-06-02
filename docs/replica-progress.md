@@ -870,3 +870,31 @@
 - 异步客户端验收程序使用本地 mock TinyPB server，不启动完整 `TcpServer`。
 - `check_rpc_async.sh` 会运行同步 RPC 安全网，因此耗时接近一次完整阶段回归。
 - 当前不写性能报告。
+
+## 阶段 16：代码生成器与示例工程
+
+### 任务七十九：生成器 CLI 和模板复制
+
+已完成能力：
+
+- 新增 `generator/tinyrpc_generator.py`，支持 `--proto`、`--service` 和 `--out` 参数。
+- 参数错误会输出 `[generator] FAIL: ...` 并返回非零退出码。
+- 输出目录不存在时自动创建。
+- 新增 `generator/template/` 固定模板，包含 `conf.xml`、`main.cc`、`server.h`、`server.cc`、`client.cc`、`run.sh` 和 `shutdown.sh`。
+- 生成器会复制 proto 文件到输出目录，并替换模板中的服务名和 proto 文件名占位符。
+- 新增 `scripts/check_generator.sh`，验证生成文件清单、关键占位符替换和非法 proto 参数错误提示。
+- 新增 `docs/stage-16.md`，记录生成器阶段入口、调用链和当前边界。
+- 验收过程中为 WSL 安装了 `python3`，后续可直接运行 Python 生成器。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前只做固定模板复制，不解析 proto service/method。
+- 当前模板是最小骨架，不构建独立业务工程。
+- 当前不做多语言生成。

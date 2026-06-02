@@ -1,0 +1,11 @@
+<root>
+  <server>
+    <name>{{SERVICE_NAME}}</name>
+    <ip>127.0.0.1</ip>
+    <port>39999</port>
+    <protocol>tinypb</protocol>
+  </server>
+  <runtime>
+    <timeout_ms>5000</timeout_ms>
+  </runtime>
+</root>
