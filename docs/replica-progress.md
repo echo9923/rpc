@@ -1012,3 +1012,24 @@
 
 - `check_all.sh` 会嵌套调用现有阶段脚本，部分构建和同步 RPC 回归会重复执行，因此耗时较长。
 - Windows PowerShell 脚本只作为 WSL 包装入口，不在 Windows 本地编译 Linux 目标。
+
+### 任务八十五：最终示例和学习总结
+
+已完成能力：
+
+- 新增 `examples/tinypb_sync/README.md`，说明同步 TinyPB RPC 示例运行方式和源码入口。
+- 新增 `examples/tinypb_async/README.md`，说明异步 TinyPB RPC 示例运行方式、pending/timeout/cancel 覆盖点和边界。
+- 新增 `examples/http_server/README.md`，说明 HTTP server 示例运行方式和源码入口。
+- 新增 `examples/generated_project/README.md`，说明生成工程示例、手动生成命令和边界。
+- 新增 `docs/learning-summary.md`，按阶段总结从阻塞 Echo 到 RPC 框架的演进路径、当前可展示能力、与原 TinyRPC 的关系和后续建议。
+- README 重写为当前项目入口，指向 examples、覆盖矩阵、学习总结和全量回归。
+
+验证命令：
+```bash
+./scripts/check_all.sh
+```
+
+当前限制：
+
+- examples 目录以 README 型运行示例为主，复用已验证的测试程序和脚本，不复制一套新的示例源码。
+- 当前总结是学习型收口文档，不是商业级用户手册。

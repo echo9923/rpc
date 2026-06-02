@@ -1,6 +1,39 @@
 # MyTinyRPC
 
-MyTinyRPC is a TinyRPC learning project. The current implementation has progressed from the early blocking Echo Server to TinyPB sync/async RPC, HTTP server support, runtime startup helpers, coroutine hooks, IOThread/IOThreadPool, and a small generated-project workflow.
+MyTinyRPC is a staged TinyRPC learning project. It now covers the main learning path from a blocking TCP Echo Server to Reactor/Timer, multi-Reactor TCP server, TinyPB synchronous and asynchronous RPC, HTTP server support, runtime startup helpers, coroutine hooks, a generated-project workflow, and final regression scripts.
+
+## Quick Start
+
+Run everything in Linux/WSL:
+
+```bash
+./scripts/check_all.sh
+```
+
+From Windows PowerShell:
+
+```powershell
+.\scripts\check_all.ps1
+```
+
+Expected final output:
+
+```text
+[all] PASS
+```
+
+If you only need a fast build:
+
+```bash
+./build.sh
+```
+
+Install WSL dependencies if needed:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake netcat-openbsd curl libgtest-dev protobuf-compiler libprotobuf-dev
+```
 
 ## Current Structure
 
@@ -14,113 +47,32 @@ Core directories:
 - `generator`: TinyRPC generated-project CLI and templates.
 - `testcases`: unit tests and script-driven acceptance programs.
 - `scripts`: stage checks and regression scripts.
+- `examples`: runnable example notes for sync RPC, async RPC, HTTP server, and generated projects.
 
-## Recommended Checks
+## Core Examples
 
-Run these commands in Linux/WSL:
+| Example | Entry |
+|---|---|
+| TinyPB sync RPC | [examples/tinypb_sync/README.md](examples/tinypb_sync/README.md) |
+| TinyPB async RPC | [examples/tinypb_async/README.md](examples/tinypb_async/README.md) |
+| HTTP server | [examples/http_server/README.md](examples/http_server/README.md) |
+| Generated project | [examples/generated_project/README.md](examples/generated_project/README.md) |
 
-```bash
-./build.sh
-./scripts/check_rpc_sync.sh
-./scripts/check_rpc_async.sh
-./scripts/check_generator_project.sh
-```
+## Regression Scripts
 
-For a full local regression, run:
+| Script | Purpose |
+|---|---|
+| `scripts/check_rpc_sync.sh` | Synchronous TinyPB RPC safety net. |
+| `scripts/check_rpc_async.sh` | Asynchronous TinyPB RPC lifecycle and timeout/cancel regression. |
+| `scripts/check_stage11_server.sh` | Multi-Reactor TinyPB server regression. |
+| `scripts/check_stage12_http.sh` | HTTP server regression. |
+| `scripts/check_generator.sh` | Generator template and service/method skeleton regression. |
+| `scripts/check_generator_project.sh` | Generated project build/start/client/shutdown regression. |
+| `scripts/check_all.sh` | Full local regression across the project. |
 
-```bash
-./scripts/check_all.sh
-```
+## Minimal Runtime Entry
 
-From Windows PowerShell, the WSL wrapper is:
-
-```powershell
-.\scripts\check_all.ps1
-```
-
-Individual stage checks are still available, for example `./scripts/check_stage12_http.sh` and `./scripts/check_generator.sh`.
-
-## Stage 1: Blocking TCP Echo Server
-
-Stage 1 implements a minimal blocking TCP Echo Server.
-
-### Implemented
-
-- CMake build
-- Console logger
-- IPv4 address wrapper
-- TCP server
-- TCP connection
-- Blocking `accept`
-- Blocking `read` / `write`
-- Multiple echo messages on one connection
-- Stage 1 acceptance script
-
-### Not Implemented
-
-- Non-blocking sockets
-- `epoll`
-- Reactor
-- Concurrent multi-client handling
-- HTTP
-- TinyPB
-- Protobuf
-- RPC calls
-- Coroutines
-
-## Stage 2: Non-blocking IO Preparation
-
-Stage 2 is now in progress. The current completed step is task 8:
-
-- added fd utility helpers
-- set the listen fd to non-blocking mode
-- handled `accept()` returning `EAGAIN` / `EWOULDBLOCK`
-- kept client fds blocking for now
-- kept `epoll` and Reactor out of scope for this step
-
-See [阶段 2：非阻塞 IO 与 Reactor 准备](docs/stage-2.md).
-
-## Build
-
-Windows PowerShell:
-
-```powershell
-.\build.ps1
-```
-
-Linux/WSL:
-
-```bash
-./build.sh
-```
-
-## Sync RPC Check
-
-Stage 9 has a stable synchronous TinyPB RPC regression path:
-
-```text
-QueryService_Stub -> TinyPbRpcChannel -> TcpClient -> TinyPB -> TcpServer -> TinyPbDispatcher -> QueryServiceImpl -> response
-```
-
-Run the synchronous RPC regression in Linux/WSL:
-
-```bash
-./scripts/check_rpc_sync.sh
-```
-
-Expected final output:
-
-```text
-[rpc-sync] PASS
-```
-
-The lighter Stage 8 script `./scripts/check_rpc_sync_basic.sh` remains available for the minimal path. After Stage 9, later stages should run `./scripts/check_rpc_sync.sh` before closing the task to catch sync RPC regressions.
-
-Current sync RPC limitations: no async RPC, no connection pool, no response multiplexing, and no out-of-order response cache.
-
-## Minimal RPC Server Entry
-
-Stage 13 adds a shorter startup entry for XML-driven servers:
+TinyPB server:
 
 ```cpp
 #include "comm/start.h"
@@ -134,7 +86,7 @@ int main()
 }
 ```
 
-For HTTP:
+HTTP server:
 
 ```cpp
 #include "comm/start.h"
@@ -150,83 +102,30 @@ int main()
 
 `StartRpcServer()` creates and initializes the server from XML. `GetServer()->start()` enters the blocking event loop after services or servlets have been registered.
 
-Install WSL dependencies if needed:
+## Documentation
+
+- [复刻进度](docs/replica-progress.md)
+- [学习总结](docs/learning-summary.md)
+- [原 TinyRPC 功能覆盖矩阵](docs/original-coverage-matrix.md)
+- [错误码说明](docs/error-code.md)
+- [Reactor 事件生命周期](docs/reactor-event-lifecycle.md)
+- [TcpConnection 生命周期](docs/tcpconnection-lifetime.md)
+- [协程模型](docs/coroutine-model.md)
+- [代码生成器与示例工程](docs/stage-16.md)
+
+## Current Boundaries
+
+- This is a learning implementation, not a production RPC distribution.
+- HTTP is a minimal request/response server path; HTTPS, HTTP/2, chunked, and streaming are out of scope.
+- The generated project depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`.
+- `TcpServer::start()` is blocking; script-driven examples stop servers by process management.
+- Connection pools, load balancing, MySQL plugins, full tracing, and performance reports are intentionally not part of the current scope.
+
+## Editor Note
+
+When using a C++ language server, open the repository in the same Linux/WSL environment used for builds. If `build/compile_commands.json` contains paths from another environment, remove `build/` and rerun:
 
 ```bash
-sudo apt update
-sudo apt install -y build-essential cmake netcat-openbsd libgtest-dev protobuf-compiler libprotobuf-dev
-```
-
-## Run
-
-```bash
-./build/test_tcp_echo_server
-```
-
-The server listens on `127.0.0.1:19999`.
-
-## Manual Test
-
-```bash
-nc 127.0.0.1 19999
-```
-
-Input:
-
-```text
-hello
-```
-
-Expected response:
-
-```text
-hello
-```
-
-## Stage 1 Check
-
-```bash
-./scripts/check_stage1.sh
-```
-
-Expected final output:
-
-```text
-[stage1] PASS
-```
-
-The script builds the project, starts the echo server, sends test messages,
-checks the echoed responses, prints the server log on failure, and shuts the
-server process down before exiting.
-
-The script depends on `nc`. Install `netcat-openbsd` or another compatible
-netcat package if `nc` is missing.
-
-## Windsurf C++ 跳转
-
-如果在 Windsurf 里 `F12`、`Ctrl+Click` 或 `Go to Definition` 失效，优先按下面的顺序排查：
-
-1. 使用 **WSL 窗口** 打开仓库，不要继续在 Windows 本地窗口里复用已有的 `build/`。
-2. 切换到 Linux/WSL 环境后，先清理旧的构建目录，再重新生成编译数据库：
-
-```bash
-cd /mnt/d/codeproject/cpp/rpc
 rm -rf build
 bash build.sh
 ```
-
-3. 仓库已提供下列工作区配置，供 `clangd` 和 `CMake Tools` 复用同一个 `build/` 目录：
-   - `.clangd` 固定从 `build/` 读取 compilation database。
-   - `.vscode/settings.json` 固定 `cmake.buildDirectory` 为 `${workspaceFolder}/build`，并开启 `CMAKE_EXPORT_COMPILE_COMMANDS`。
-   - `.vscode/extensions.json` 推荐安装 `Windsurf C++ Tools`、`clangd` 和 `CMake Tools`。
-4. 重建完成后先验证 `F12`。如果 `F12` 正常但 `Ctrl+Click` 不跳转，继续检查 Windsurf/VS Code 的 `editor.multiCursorModifier` 设置；这类情况下通常会变成 `Alt+Click` 跳转定义。
-
-如果重新生成后的 `build/compile_commands.json` 仍然是 Windows 路径或 Docker 路径，说明当前工作区仍然不是你实际使用的 C++ 语言服务器环境，需要先统一打开方式再继续排查。
-
-## Current Limitations
-
-The current server uses a single-threaded blocking model.
-
-While one client connection is open, the server cannot accept the next client.
-This is an intentional Stage 1 limitation. Stage 2 will introduce non-blocking
-sockets and `epoll` as preparation for Reactor.
