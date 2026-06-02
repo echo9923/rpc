@@ -972,3 +972,24 @@
 
 - 当前只做小范围命名和文档整理，不批量移动 `comm`、`net`、`http`、`tinypb` 等成熟目录。
 - 工作区存在若干未跟踪文件，本任务不清理用户侧未跟踪文件。
+
+### 任务八十三：原 TinyRPC 功能覆盖矩阵
+
+已完成能力：
+
+- 新增 `docs/original-coverage-matrix.md`。
+- 按 `comm/config`、`comm/log`、`comm/start`、`comm/runtime`、`coroutine`、`coroutine_pool`、`net/reactor`、`net/timer`、`net/tcp`、`net/http`、`net/tinypb` 和 `generator` 建立覆盖矩阵。
+- 每个模块标注“已复刻 / 简化复刻 / 暂不复刻”状态。
+- 每个已覆盖模块都写明当前能力、简化边界和验证方式。
+- 单独列出 MySQL 插件、连接池、HTTPS/HTTP2、tracing、压测优化和完整 Protobuf parser 等暂不复刻项。
+
+验证命令：
+```bash
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 覆盖矩阵基于当前项目目录、阶段文档和脚本验收，不追求与原 TinyRPC 100% 行为一致。
+- 任务八十四会继续把矩阵中的核心验证入口串成一键全量回归脚本。
