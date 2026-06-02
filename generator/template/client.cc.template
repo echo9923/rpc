@@ -2,19 +2,107 @@
  * Generated TinyRPC client placeholder for {{SERVICE_NAME}}.
  */
 
+#include "net/netaddress.h"
+#include "net/tcpclient.h"
+#include "net/tinypb/tinypbrpcchannel.h"
+#include "net/tinypb/tinypbrpccontroller.h"
 #include "{{PROTO_HEADER}}"
 
 #include <google/protobuf/service.h>
 
+#include <cstdlib>
+#include <cstdint>
 #include <iostream>
+#include <string>
 
-void call{{SERVICE_NAME}}({{SERVICE_NAME}}_Stub *stub, google::protobuf::RpcController *controller)
+namespace {
+
+constexpr const char *kHost = "127.0.0.1";
+
+bool parsePort(const char *text, uint16_t *port)
 {
-{{CLIENT_CALLS}}
+    if (text == nullptr || port == nullptr) {
+        return false;
+    }
+
+    char *end = nullptr;
+    long value = std::strtol(text, &end, 10);
+    if (*text == '\0' || *end != '\0' || value <= 0 || value > 65535) {
+        return false;
+    }
+
+    *port = static_cast<uint16_t>(value);
+    return true;
 }
 
-int main()
+bool call{{SERVICE_NAME}}({{SERVICE_NAME}}_Stub *stub, google::protobuf::RpcController *controller)
 {
-    std::cout << "[{{SERVICE_NAME}}] client skeleton using {{PROTO_FILE}}" << std::endl;
+    if (stub == nullptr || controller == nullptr) {
+        std::cerr << "[{{SERVICE_NAME}}] invalid stub or controller" << std::endl;
+        return false;
+    }
+
+{{CLIENT_CALLS}}
+    return true;
+}
+
+int runClient(uint16_t port)
+{
+    tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress(kHost, port));
+    {{SERVICE_NAME}}_Stub stub(&channel);
+    tinyrpc::TinyPbRpcController controller;
+
+    if (!call{{SERVICE_NAME}}(&stub, &controller)) {
+        return 1;
+    }
+
+    std::cout << "[{{SERVICE_NAME}}] client PASS" << std::endl;
     return 0;
+}
+
+int runProbe(uint16_t port)
+{
+    tinyrpc::TcpClient client(tinyrpc::IPAddress(kHost, port));
+    client.setTimeout(200);
+    if (!client.connectServer()) {
+        return 1;
+    }
+    client.closeConnection();
+    return 0;
+}
+
+void printUsage(const char *program)
+{
+    std::cerr << "usage: " << program
+              << " --client|--probe <port>" << std::endl;
+}
+
+}  // namespace
+
+int main(int argc, char **argv)
+{
+    if (argc == 1) {
+        return runClient({{SERVER_PORT}});
+    }
+    if (argc != 3) {
+        printUsage(argv[0]);
+        return 1;
+    }
+
+    uint16_t port = 0;
+    if (!parsePort(argv[2], &port)) {
+        std::cerr << "invalid port: " << argv[2] << std::endl;
+        return 1;
+    }
+
+    std::string mode = argv[1];
+    if (mode == "--client") {
+        return runClient(port);
+    }
+    if (mode == "--probe") {
+        return runProbe(port);
+    }
+
+    printUsage(argv[0]);
+    return 1;
 }

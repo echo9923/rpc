@@ -2,14 +2,39 @@
  * Generated TinyRPC server entry for {{SERVICE_NAME}}.
  */
 
+#include "comm/start.h"
 #include "server.h"
 
 #include <iostream>
+#include <string>
 
-int main()
+int main(int argc, char **argv)
 {
-    {{SERVICE_NAME}}Server server;
-    std::cout << "[{{SERVICE_NAME}}] server skeleton started" << std::endl;
-    server.start();
+    std::string configPath = "conf.xml";
+    if (argc >= 2) {
+        configPath = argv[1];
+    }
+
+    if (!tinyrpc::InitConfig(configPath)) {
+        std::cerr << "[{{SERVICE_NAME}}] load config failed: " << configPath << std::endl;
+        return 1;
+    }
+    if (!tinyrpc::StartRpcServer()) {
+        std::cerr << "[{{SERVICE_NAME}}] start rpc server failed" << std::endl;
+        return 1;
+    }
+    if (!REGISTER_SERVICE({{SERVICE_NAME}}Impl)) {
+        std::cerr << "[{{SERVICE_NAME}}] register service failed" << std::endl;
+        return 1;
+    }
+
+    auto server = tinyrpc::GetServer();
+    if (server == nullptr) {
+        std::cerr << "[{{SERVICE_NAME}}] server is null" << std::endl;
+        return 1;
+    }
+
+    std::cout << "[{{SERVICE_NAME}}] server listen on {{SERVER_PORT}}" << std::endl;
+    server->start();
     return 0;
 }

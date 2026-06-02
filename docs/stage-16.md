@@ -1,6 +1,6 @@
 # 阶段 16：代码生成器与示例工程
 
-阶段 16 的目标是让 MyTinyRPC 具备生成最小业务工程骨架的能力。当前已经支持模板复制、简单 proto service/method 识别和业务接口骨架生成；后续再把生成工程串成可启动、可调用、可关闭的端到端示例。
+阶段 16 的目标是让 MyTinyRPC 具备生成最小业务工程骨架的能力。当前已经支持模板复制、简单 proto service/method 识别、业务接口骨架生成，以及生成工程的构建、启动、调用和关闭验收。
 
 ## 任务七十九：生成器 CLI 和模板复制
 
@@ -74,4 +74,41 @@ flowchart LR
 
 - 只支持简单 service block 和一元 rpc method，不实现完整 Protobuf parser。
 - 当前测试 proto 无 package；生成器暂不展开复杂命名空间场景。
-- 生成工程的构建、启动、客户端调用和关闭留到任务八十一。
+
+## 任务八十一：生成工程端到端验收
+
+已完成能力：
+
+- 新增 `CMakeLists.txt` 模板，生成工程可以通过 `MYTINYRPC_ROOT` 复用当前 MyTinyRPC 源码并构建独立 server/client。
+- 新增 `README.md` 模板，记录生成工程的构建、运行和关闭方式。
+- `main.cc` 模板接入 `InitConfig()`、`StartRpcServer()` 和 `REGISTER_SERVICE()`，生成 server 可启动真实 TinyPB 服务。
+- `client.cc` 模板接入 `TinyPbRpcChannel`，生成 client 可通过 Protobuf Stub 调用生成服务。
+- `run.sh` 会启动 server、写入 pid 文件、等待端口可连接；`shutdown.sh` 会按 pid 停止 server。
+- 新增 `scripts/check_generator_project.sh`，自动完成生成、配置、构建、启动、客户端调用和关闭。
+
+端到端验收链路：
+
+```mermaid
+flowchart LR
+    Generate["generator"] --> Project["generated project"]
+    Project --> Configure["cmake configure"]
+    Configure --> Build["cmake build"]
+    Build --> Server["run.sh starts server"]
+    Server --> Client["generated client calls Stub"]
+    Client --> Shutdown["shutdown.sh stops server"]
+```
+
+验证命令：
+
+```bash
+./scripts/check_generator_project.sh
+./scripts/check_generator.sh
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前边界：
+
+- 生成工程依赖本地 MyTinyRPC 源码，通过 `MYTINYRPC_ROOT` 指定，不是发布级独立源码包。
+- 生成业务实现仍是占位逻辑，默认返回空 proto3 response。
+- `shutdown.sh` 使用 pid 文件停止阻塞式 server，框架层暂未提供 `TcpServer::stop()`。

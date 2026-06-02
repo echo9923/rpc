@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 TEMPLATE_SUFFIX = ".template"
+DEFAULT_SERVER_PORT = "39999"
 
 
 @dataclass(frozen=True)
@@ -133,9 +134,14 @@ def render_client_calls(methods: list[RpcMethod]) -> str:
             [
                 f"    {method.request_type} {method.name}Request;",
                 f"    {method.response_type} {method.name}Response;",
-                "    if (stub != nullptr) {",
-                f"        stub->{method.name}(controller, &{method.name}Request, &{method.name}Response, nullptr);",
+                f"    stub->{method.name}(controller, &{method.name}Request, &{method.name}Response, nullptr);",
+                "    if (controller->Failed()) {",
+                f"        std::cerr << \"[{method.name}] rpc failed: \"",
+                "                  << controller->ErrorText() << std::endl;",
+                "        return false;",
                 "    }",
+                f"    std::cout << \"[{method.name}] response: \"",
+                f"              << {method.name}Response.ShortDebugString() << std::endl;",
             ]
         )
     return "\n".join(lines)
@@ -146,6 +152,7 @@ def make_replacements(proto_path: Path, service_name: str, methods: list[RpcMeth
         "{{SERVICE_NAME}}": service_name,
         "{{PROTO_FILE}}": proto_path.name,
         "{{PROTO_HEADER}}": f"{proto_path.stem}.pb.h",
+        "{{SERVER_PORT}}": DEFAULT_SERVER_PORT,
         "{{RPC_METHOD_DECLARATIONS}}": render_method_declarations(methods),
         "{{RPC_METHOD_DEFINITIONS}}": render_method_definitions(service_name, methods),
         "{{CLIENT_CALLS}}": render_client_calls(methods),

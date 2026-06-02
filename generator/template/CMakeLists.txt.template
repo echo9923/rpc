@@ -1,0 +1,88 @@
+cmake_minimum_required(VERSION 3.10)
+
+project({{SERVICE_NAME}}_generated)
+
+enable_language(ASM)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -O0")
+
+if(NOT DEFINED MYTINYRPC_ROOT)
+    message(FATAL_ERROR "MYTINYRPC_ROOT is required, for example: cmake -S . -B build -DMYTINYRPC_ROOT=/path/to/rpc")
+endif()
+
+find_package(Protobuf REQUIRED)
+find_package(Threads REQUIRED)
+
+include_directories(${MYTINYRPC_ROOT})
+include_directories(${MYTINYRPC_ROOT}/mytinyrpc)
+include_directories(${Protobuf_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+protobuf_generate_cpp(GENERATED_PROTO_SRCS GENERATED_PROTO_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/{{PROTO_FILE}})
+
+set(MYTINYRPC_SRC
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/config.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/log.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/msgreq.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/runtime.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/start.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coctx_swap.S
+    ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutine.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutine_hook.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutine_pool.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/memory.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/fdevent.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/fdutil.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/httpcodec.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/http_define.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/http_request.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/http_response.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/httpdispatcher.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/http/httpservlet.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/iothread.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/iothread_pool.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/mutex.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/netaddress.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/reactor.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tcpbuffer.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tcpclient.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tcpconnection.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tcpconnection_timewheel.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tcpserver.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/timer.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbcodec.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbdispatcher.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpcasyncchannel.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpcchannel.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpccontroller.cc
+    ${GENERATED_PROTO_SRCS}
+)
+
+add_library(mytinyrpc_generated_core STATIC ${MYTINYRPC_SRC})
+target_link_libraries(mytinyrpc_generated_core
+    ${Protobuf_LIBRARIES}
+    Threads::Threads
+)
+
+add_executable({{SERVICE_NAME}}_server
+    main.cc
+    server.cc
+    interface.cc
+)
+target_link_libraries({{SERVICE_NAME}}_server
+    mytinyrpc_generated_core
+    ${Protobuf_LIBRARIES}
+    Threads::Threads
+)
+
+add_executable({{SERVICE_NAME}}_client
+    client.cc
+)
+target_link_libraries({{SERVICE_NAME}}_client
+    mytinyrpc_generated_core
+    ${Protobuf_LIBRARIES}
+    Threads::Threads
+)

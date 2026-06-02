@@ -922,3 +922,29 @@
 - 当前只支持简单 service block 和一元 rpc method，不做完整 Protobuf parser。
 - 当前验收只编译生成骨架，不启动独立生成工程。
 - 生成工程端到端运行留到任务八十一。
+
+### 任务八十一：生成工程端到端验收
+
+已完成能力：
+
+- 新增 `CMakeLists.txt.template`，生成工程可通过 `MYTINYRPC_ROOT` 复用当前 MyTinyRPC 源码并构建独立 server/client。
+- 新增 `README.md.template`，说明生成工程的构建、运行和关闭方式。
+- `main.cc.template` 接入 `InitConfig()`、`StartRpcServer()` 和 `REGISTER_SERVICE()`，生成 server 可启动真实 TinyPB 服务。
+- `client.cc.template` 接入 `TinyPbRpcChannel`，生成 client 可通过 Protobuf Stub 发起调用。
+- `run.sh.template` 支持后台启动 server、写入 pid 文件并等待端口就绪。
+- `shutdown.sh.template` 支持根据 pid 文件关闭生成 server。
+- 新增 `scripts/check_generator_project.sh`，自动完成生成、CMake 配置、构建、启动、客户端调用和关闭。
+
+验证命令：
+```bash
+./scripts/check_generator_project.sh
+./scripts/check_generator.sh
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 生成工程依赖本地 MyTinyRPC 源码路径，不是完全独立源码包。
+- 业务方法实现仍是占位逻辑，默认返回空 proto3 response。
+- 生成 server 的关闭由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。

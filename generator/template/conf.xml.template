@@ -1,11 +1,7 @@
 <root>
-  <server>
-    <name>{{SERVICE_NAME}}</name>
-    <ip>127.0.0.1</ip>
-    <port>39999</port>
-    <protocol>tinypb</protocol>
-  </server>
-  <runtime>
-    <timeout_ms>5000</timeout_ms>
-  </runtime>
+  <server_addr>127.0.0.1:{{SERVER_PORT}}</server_addr>
+  <protocol>tinypb</protocol>
+  <iothread_num>1</iothread_num>
+  <timeout>5000</timeout>
+  <log_level>info</log_level>
 </root>

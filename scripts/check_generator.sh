@@ -35,6 +35,8 @@ echo "[generator] run generator"
 run_generator "${PROTO_FILE}" "QueryService" "${OUT_DIR}"
 
 required_files=(
+    "CMakeLists.txt"
+    "README.md"
     "conf.xml"
     "interface.h"
     "interface.cc"
@@ -54,9 +56,11 @@ for file in "${required_files[@]}"; do
     fi
 done
 
-grep -q "QueryService" "${OUT_DIR}/conf.xml"
+grep -q "127.0.0.1:39999" "${OUT_DIR}/conf.xml"
+grep -q "MYTINYRPC_ROOT" "${OUT_DIR}/CMakeLists.txt"
+grep -q "QueryService Generated Project" "${OUT_DIR}/README.md"
 grep -q "QueryService" "${OUT_DIR}/main.cc"
-grep -q "test_tinypb_server.proto" "${OUT_DIR}/client.cc"
+grep -q "TinyPbRpcChannel" "${OUT_DIR}/client.cc"
 grep -q "class QueryServiceImpl : public QueryService" "${OUT_DIR}/interface.h"
 grep -q "void query_name(" "${OUT_DIR}/interface.h"
 grep -q "void QueryServiceImpl::query_name(" "${OUT_DIR}/interface.cc"
@@ -65,11 +69,14 @@ grep -q "stub->query_name" "${OUT_DIR}/client.cc"
 
 protoc --proto_path="${OUT_DIR}" --cpp_out="${OUT_DIR}" "${OUT_DIR}/test_tinypb_server.proto"
 
-g++ -std=c++20 -I"${OUT_DIR}" -c "${OUT_DIR}/test_tinypb_server.pb.cc" \
+g++ -std=c++20 -I"${OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
+    -c "${OUT_DIR}/test_tinypb_server.pb.cc" \
     -o "${OUT_DIR}/test_tinypb_server.pb.o"
-g++ -std=c++20 -I"${OUT_DIR}" -c "${OUT_DIR}/interface.cc" \
+g++ -std=c++20 -I"${OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
+    -c "${OUT_DIR}/interface.cc" \
     -o "${OUT_DIR}/interface.o"
-g++ -std=c++20 -I"${OUT_DIR}" -c "${OUT_DIR}/client.cc" \
+g++ -std=c++20 -I"${OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
+    -c "${OUT_DIR}/client.cc" \
     -o "${OUT_DIR}/client.o"
 
 if run_generator "${BAD_PROTO_FILE}" "QueryService" "${OUT_DIR}/bad" \

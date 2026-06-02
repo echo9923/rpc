@@ -1,4 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[{{SERVICE_NAME}}] shutdown placeholder"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PID_FILE="${ROOT_DIR}/.{{SERVICE_NAME}}.pid"
+
+if [[ ! -f "${PID_FILE}" ]]; then
+    echo "[{{SERVICE_NAME}}] no pid file"
+    exit 0
+fi
+
+PID="$(cat "${PID_FILE}")"
+if [[ -z "${PID}" ]] || ! kill -0 "${PID}" 2>/dev/null; then
+    rm -f "${PID_FILE}"
+    echo "[{{SERVICE_NAME}}] server is not running"
+    exit 0
+fi
+
+kill "${PID}" 2>/dev/null || true
+for _ in $(seq 1 30); do
+    if ! kill -0 "${PID}" 2>/dev/null; then
+        rm -f "${PID_FILE}"
+        echo "[{{SERVICE_NAME}}] server stopped"
+        exit 0
+    fi
+    sleep 0.1
+done
+
+kill -9 "${PID}" 2>/dev/null || true
+rm -f "${PID_FILE}"
+echo "[{{SERVICE_NAME}}] server force stopped"
