@@ -651,3 +651,29 @@
 ./build/test_hook
 ./scripts/check_rpc_sync.sh
 ```
+
+### 任务七十一：`recv/send/accept` hook 补齐
+
+已完成能力：
+
+- 新增 `recv_hook()`，在非主协程中遇到 `EAGAIN` / `EWOULDBLOCK` / `EINTR` 时等待 `EPOLLIN`。
+- 新增 `send_hook()`，在非主协程中遇到发送缓冲区暂不可写时等待 `EPOLLOUT`。
+- 新增 `accept_hook()`，在非主协程中遇到监听 socket 暂无连接时等待 `EPOLLIN`。
+- 三个 socket hook 均支持可选 `timeoutMs`，超时后恢复协程并返回 `errno = ETIMEDOUT`。
+- 新增 `test_hook_socket`，覆盖 recv 数据到达恢复、recv 超时、send peer drain 后恢复、accept 新连接恢复、accept 超时以及主协程直通路径。
+- 更新 `docs/coroutine-model.md`，补充 socket hook 的恢复路径和当前限制。
+
+验证命令：
+```bash
+./build.sh
+./build/test_hook_socket
+./build/test_hook
+./build/test_hook_sleep
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 不覆盖所有 `recv(2)` / `send(2)` flags 组合。
+- 不做极限压测。
+- 仍然使用显式 `FdEvent*` 传入方式，不做 libc 符号级全局 hook。

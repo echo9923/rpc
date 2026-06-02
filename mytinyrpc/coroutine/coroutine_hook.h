@@ -30,6 +30,27 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count);
 // 在主协程中，直接透传 ::write 的返回值。
 ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count);
 
+// recv_hook — 协程感知的 recv 封装。
+//
+// 与 read_hook 类似，但保留 recv(2) 的 flags 参数。
+// timeoutMs > 0 时，等待 EPOLLIN 的同时注册一次性 TimerEvent；
+// 超时恢复后返回 -1 并设置 errno = ETIMEDOUT。
+ssize_t recv_hook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs = -1);
+
+// send_hook — 协程感知的 send 封装。
+//
+// 与 write_hook 类似，但保留 send(2) 的 flags 参数。
+// timeoutMs > 0 时，等待 EPOLLOUT 的同时注册一次性 TimerEvent；
+// 超时恢复后返回 -1 并设置 errno = ETIMEDOUT。
+ssize_t send_hook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs = -1);
+
+// accept_hook — 协程感知的 accept 封装。
+//
+// 主协程中直接透传 ::accept()。非主协程中，如果非阻塞 listen fd
+// 暂无连接并返回 EAGAIN/EWOULDBLOCK，则等待 EPOLLIN 后恢复。
+// timeoutMs > 0 时支持超时恢复。
+int accept_hook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeoutMs = -1);
+
 // connect_hook — 协程感知的 connect 封装。
 //
 // 主协程中直接透传 ::connect()。

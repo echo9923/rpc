@@ -28,9 +28,75 @@ struct SleepHookState {
     bool finished {false};
 };
 
+struct FdHookWaitState {
+    Coroutine *coroutine {nullptr};
+    FdEvent *fdEvent {nullptr};
+    bool timedOut {false};
+    bool finished {false};
+};
+
 int64_t microsecondsToMilliseconds(useconds_t usec)
 {
     return (static_cast<int64_t>(usec) + 999) / 1000;
+}
+
+bool isWaitableSocketError(int error)
+{
+    return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
+}
+
+bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
+{
+    if (fdEvent == nullptr) {
+        return false;
+    }
+
+    auto state = std::make_shared<FdHookWaitState>();
+    state->coroutine = Coroutine::GetCurrentCoroutine();
+    state->fdEvent = fdEvent;
+
+    Reactor *reactor = fdEvent->getReactor();
+    std::shared_ptr<TimerEvent> timerEvent;
+
+    fdEvent->setCoroutine(state->coroutine);
+    fdEvent->setCoroutineListenEvent(event);
+    fdEvent->addListenEvent(event);
+
+    if (reactor != nullptr) {
+        if (fdEvent->isRegistered()) {
+            fdEvent->updateToReactor();
+        } else {
+            fdEvent->registerToReactor();
+        }
+
+        if (timeoutMs > 0 && reactor->getTimer() != nullptr) {
+            // TimerEvent 到期后恢复协程，并清理 FdEvent 上的协程挂载。
+            // timeoutMs 单位为毫秒；仅用于本次等待，不改变 fd 自身属性。
+            timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
+                if (state->finished) {
+                    return;
+                }
+                state->timedOut = true;
+                state->fdEvent->clearCoroutine();
+                state->coroutine->resume();
+            });
+            reactor->getTimer()->addTimerEvent(timerEvent);
+        }
+    }
+
+    Coroutine::Yield();
+    state->finished = true;
+
+    if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->delTimerEvent(timerEvent);
+    }
+
+    fdEvent->delListenEvent(event);
+    if (fdEvent->isRegistered()) {
+        fdEvent->updateToReactor();
+    }
+
+    return state->timedOut;
 }
 
 bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
@@ -158,6 +224,87 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
 
     // 协程恢复后再次尝试写入，返回最终结果。
     return ::write(fd, buf, count);
+}
+
+ssize_t recv_hook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs)
+{
+    int fd = fdEvent->getFd();
+
+    // recv(2) 参数依次为：socket fd、接收缓冲区、最多接收字节数、接收标志。
+    // flags 可传 0 或 MSG_DONTWAIT/MSG_PEEK 等；当前 hook 只关心 EAGAIN 等待语义。
+    ssize_t ret = ::recv(fd, buf, count, flags);
+
+    if (Coroutine::IsMainCoroutine()) {
+        return ret;
+    }
+
+    if (ret >= 0) {
+        return ret;
+    }
+    if (!isWaitableSocketError(errno)) {
+        return ret;
+    }
+
+    if (waitFdEvent(fdEvent, EPOLLIN, timeoutMs)) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+
+    return ::recv(fd, buf, count, flags);
+}
+
+ssize_t send_hook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs)
+{
+    int fd = fdEvent->getFd();
+
+    // send(2) 参数依次为：socket fd、待发送缓冲区、最多发送字节数、发送标志。
+    // 非阻塞 socket 发送缓冲区满时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
+    ssize_t ret = ::send(fd, buf, count, flags);
+
+    if (Coroutine::IsMainCoroutine()) {
+        return ret;
+    }
+
+    if (ret >= 0) {
+        return ret;
+    }
+    if (!isWaitableSocketError(errno)) {
+        return ret;
+    }
+
+    if (waitFdEvent(fdEvent, EPOLLOUT, timeoutMs)) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+
+    return ::send(fd, buf, count, flags);
+}
+
+int accept_hook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeoutMs)
+{
+    int fd = fdEvent->getFd();
+
+    // accept(2) 参数依次为：监听 socket fd、输出对端地址、地址长度指针。
+    // 非阻塞监听 fd 暂无连接时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
+    int ret = ::accept(fd, addr, addrLen);
+
+    if (Coroutine::IsMainCoroutine()) {
+        return ret;
+    }
+
+    if (ret >= 0) {
+        return ret;
+    }
+    if (!isWaitableSocketError(errno)) {
+        return ret;
+    }
+
+    if (waitFdEvent(fdEvent, EPOLLIN, timeoutMs)) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+
+    return ::accept(fd, addr, addrLen);
 }
 
 int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
