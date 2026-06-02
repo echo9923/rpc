@@ -54,6 +54,7 @@ set(SRC
     mytinyrpc/net/timer.cc
     mytinyrpc/net/tinypb/tinypbcodec.cc
     mytinyrpc/net/tinypb/tinypbdispatcher.cc
+    mytinyrpc/net/tinypb/tinypbrpcasyncchannel.cc
     mytinyrpc/net/tinypb/tinypbrpcchannel.cc
     mytinyrpc/net/tinypb/tinypbrpccontroller.cc
     ${PROTO_SRCS}
@@ -168,6 +169,12 @@ add_executable(test_tinypb_rpc_channel
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_tinypb_rpc_channel ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_tinypb_rpc_async_channel
+    testcases/test_tinypb_rpc_async_channel.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tinypb_rpc_async_channel ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
 add_executable(test_tinypb_server_client
     testcases/test_tinypb_server_client.cc

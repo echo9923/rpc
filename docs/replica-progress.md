@@ -729,3 +729,32 @@
 - `Coroutine` 仍使用 `malloc/free` 管理独立栈，暂不强制接入内存池。
 - 不做复杂 slab 分配器。
 - 不让内存池阻塞异步 RPC 后续任务。
+
+## 阶段 15：异步 RPC Channel
+
+### 任务七十四：异步 Channel 生命周期外壳
+
+已完成能力：
+
+- 新增 `TinyPbRpcAsyncChannel`，继承 `google::protobuf::RpcChannel`。
+- 新增 `AsyncCallContext`，保存 `msgReq`、method 全名、controller、request、response 和 closure。
+- 异步 Channel 在参数合法时生成或复用 controller 中的 `msgReq`。
+- 当前外壳内部临时复用 `TinyPbRpcChannel` 完成同步 TinyPB 网络请求。
+- 成功路径和失败路径都会执行 `done` closure。
+- 新增 `test_tinypb_rpc_async_channel`，覆盖成功调用、网络失败仍执行 done、非法参数仍执行 done。
+- 新增 `docs/stage-15.md`，记录异步阶段起点、调用链和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_tinypb_rpc_channel
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前还不是真正并发异步网络 IO。
+- 当前不维护 pending map。
+- 当前不支持乱序响应匹配。
+- 当前不做异步超时和取消。
