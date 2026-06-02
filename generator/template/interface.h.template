@@ -1,0 +1,10 @@
+#pragma once
+
+#include "{{PROTO_HEADER}}"
+
+#include <google/protobuf/service.h>
+
+class {{SERVICE_NAME}}Impl : public {{SERVICE_NAME}} {
+ public:
+{{RPC_METHOD_DECLARATIONS}}
+};

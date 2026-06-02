@@ -1,6 +1,6 @@
 # 阶段 16：代码生成器与示例工程
 
-阶段 16 的目标是让 MyTinyRPC 具备生成最小业务工程骨架的能力。当前先做模板复制和脚本验收，后续再逐步接入 proto service/method 识别和生成工程端到端运行。
+阶段 16 的目标是让 MyTinyRPC 具备生成最小业务工程骨架的能力。当前已经支持模板复制、简单 proto service/method 识别和业务接口骨架生成；后续再把生成工程串成可启动、可调用、可关闭的端到端示例。
 
 ## 任务七十九：生成器 CLI 和模板复制
 
@@ -36,6 +36,42 @@ flowchart LR
 
 当前边界：
 
-- 当前只复制固定模板，不解析 proto service/method。
 - 当前模板是最小工程骨架，不编译成独立业务工程。
 - 当前不做多语言生成。
+
+## 任务八十：proto service/method 骨架生成
+
+已完成能力：
+
+- 生成器会读取简单 proto 中的 `service` 块，并校验 `--service` 指定的服务存在。
+- 生成器会识别一元 `rpc method(Request) returns (Response);` 声明。
+- 新增 `interface.h` 和 `interface.cc` 模板，生成继承 Protobuf service 的业务实现占位类。
+- `client.cc` 模板会生成对应 `<Service>_Stub` 调用函数，并为每个方法创建 request/response 占位对象。
+- `scripts/check_generator.sh` 扩展为任务八十验收：校验生成文件、关键方法签名、非法 service 提示，并用 `protoc` + `g++` 编译生成的 proto、接口骨架和客户端骨架。
+
+当前生成链路：
+
+```mermaid
+flowchart LR
+    Proto["proto file"] --> Parse["parse service<br/>and unary rpc"]
+    Parse --> Replacements["render method<br/>placeholders"]
+    Replacements --> Interface["interface.h<br/>interface.cc"]
+    Replacements --> Client["client.cc"]
+    Templates["fixed templates"] --> Interface
+    Templates --> Client
+    Templates --> Server["server skeleton"]
+```
+
+验证命令：
+
+```bash
+./scripts/check_generator.sh
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前边界：
+
+- 只支持简单 service block 和一元 rpc method，不实现完整 Protobuf parser。
+- 当前测试 proto 无 package；生成器暂不展开复杂命名空间场景。
+- 生成工程的构建、启动、客户端调用和关闭留到任务八十一。

@@ -1,6 +1,11 @@
 #pragma once
 
+#include "interface.h"
+
 class {{SERVICE_NAME}}Server {
  public:
     void start();
+
+ private:
+    {{SERVICE_NAME}}Impl m_service;
 };

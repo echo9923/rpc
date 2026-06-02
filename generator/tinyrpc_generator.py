@@ -2,19 +2,28 @@
 """
 TinyRPC project generator.
 
-Task 79 only copies a fixed project template and substitutes a few basic
-variables. Proto service/method parsing is intentionally left for the next task.
+The generator intentionally supports only a small, learning-friendly proto
+subset: service blocks with unary rpc methods in the same file.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
 TEMPLATE_SUFFIX = ".template"
+
+
+@dataclass(frozen=True)
+class RpcMethod:
+    name: str
+    request_type: str
+    response_type: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,10 +63,92 @@ def validate_args(args: argparse.Namespace) -> tuple[Path, str, Path]:
     return proto_path, service_name, out_dir
 
 
-def make_replacements(proto_path: Path, service_name: str) -> dict[str, str]:
+def parse_proto_methods(proto_path: Path, service_name: str) -> list[RpcMethod]:
+    content = proto_path.read_text(encoding="utf-8")
+    service_pattern = re.compile(r"\bservice\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{(?P<body>.*?)\}", re.DOTALL)
+    rpc_pattern = re.compile(
+        r"\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*"
+        r"\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*"
+        r"returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*;"
+    )
+
+    for match in service_pattern.finditer(content):
+        if match.group(1) != service_name:
+            continue
+
+        methods = [
+            RpcMethod(name=item.group(1), request_type=item.group(2), response_type=item.group(3))
+            for item in rpc_pattern.finditer(match.group("body"))
+        ]
+        if not methods:
+            raise ValueError(f"service has no rpc methods: {service_name}")
+        return methods
+
+    raise ValueError(f"service not found in proto: {service_name}")
+
+
+def render_method_declarations(methods: list[RpcMethod]) -> str:
+    lines: list[str] = []
+    for method in methods:
+        lines.extend(
+            [
+                f"    void {method.name}(",
+                "        google::protobuf::RpcController *controller,",
+                f"        const {method.request_type} *request,",
+                f"        {method.response_type} *response,",
+                "        google::protobuf::Closure *done) override;",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
+
+
+def render_method_definitions(service_name: str, methods: list[RpcMethod]) -> str:
+    blocks: list[str] = []
+    for method in methods:
+        blocks.append(
+            "\n".join(
+                [
+                    f"void {service_name}Impl::{method.name}(",
+                    "    google::protobuf::RpcController * /*controller*/,",
+                    f"    const {method.request_type} * /*request*/,",
+                    f"    {method.response_type} * /*response*/,",
+                    "    google::protobuf::Closure *done)",
+                    "{",
+                    f"    std::cout << \"[{service_name}] handle {method.name}\" << std::endl;",
+                    "    if (done != nullptr) {",
+                    "        done->Run();",
+                    "    }",
+                    "}",
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def render_client_calls(methods: list[RpcMethod]) -> str:
+    lines: list[str] = []
+    for method in methods:
+        lines.extend(
+            [
+                f"    {method.request_type} {method.name}Request;",
+                f"    {method.response_type} {method.name}Response;",
+                "    if (stub != nullptr) {",
+                f"        stub->{method.name}(controller, &{method.name}Request, &{method.name}Response, nullptr);",
+                "    }",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def make_replacements(proto_path: Path, service_name: str, methods: list[RpcMethod]) -> dict[str, str]:
     return {
         "{{SERVICE_NAME}}": service_name,
         "{{PROTO_FILE}}": proto_path.name,
+        "{{PROTO_HEADER}}": f"{proto_path.stem}.pb.h",
+        "{{RPC_METHOD_DECLARATIONS}}": render_method_declarations(methods),
+        "{{RPC_METHOD_DEFINITIONS}}": render_method_definitions(service_name, methods),
+        "{{CLIENT_CALLS}}": render_client_calls(methods),
     }
 
 
@@ -105,7 +196,8 @@ def main() -> int:
         proto_path, service_name, out_dir = validate_args(args)
         generator_dir = Path(__file__).resolve().parent
         template_dir = generator_dir / "template"
-        replacements = make_replacements(proto_path, service_name)
+        methods = parse_proto_methods(proto_path, service_name)
+        replacements = make_replacements(proto_path, service_name, methods)
 
         copy_template_tree(template_dir, out_dir, replacements)
         copy_proto(proto_path, out_dir)

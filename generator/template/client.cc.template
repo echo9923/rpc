@@ -2,7 +2,16 @@
  * Generated TinyRPC client placeholder for {{SERVICE_NAME}}.
  */
 
+#include "{{PROTO_HEADER}}"
+
+#include <google/protobuf/service.h>
+
 #include <iostream>
+
+void call{{SERVICE_NAME}}({{SERVICE_NAME}}_Stub *stub, google::protobuf::RpcController *controller)
+{
+{{CLIENT_CALLS}}
+}
 
 int main()
 {

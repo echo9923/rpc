@@ -898,3 +898,27 @@
 - 当前只做固定模板复制，不解析 proto service/method。
 - 当前模板是最小骨架，不构建独立业务工程。
 - 当前不做多语言生成。
+
+### 任务八十：proto service/method 骨架生成
+
+已完成能力：
+
+- `tinyrpc_generator.py` 会解析简单 proto 中指定 service 的一元 rpc method。
+- 新增 `RpcMethod` 描述结构，并生成方法声明、方法实现和客户端 Stub 调用占位代码。
+- 新增 `interface.h.template` 和 `interface.cc.template`，生成继承 Protobuf service 的业务实现占位类。
+- `server.h.template` 持有生成的 service 实现对象，为后续注册到运行时做准备。
+- `client.cc.template` 生成 `call<Service>()`，为每个 rpc method 创建 request/response 并调用 `<Service>_Stub`。
+- `scripts/check_generator.sh` 验证生成文件清单、service/method 签名、非法 service 错误提示，并通过 `protoc` + `g++` 编译生成 proto、接口骨架和客户端骨架。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+./build.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前只支持简单 service block 和一元 rpc method，不做完整 Protobuf parser。
+- 当前验收只编译生成骨架，不启动独立生成工程。
+- 生成工程端到端运行留到任务八十一。
