@@ -1,12 +1,14 @@
 #pragma once
 
 #include "net/netaddress.h"
+#include "net/tinypb/tinypbdata.h"
 
 #include <google/protobuf/service.h>
 
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 namespace tinyrpc {
 
@@ -18,6 +20,7 @@ namespace tinyrpc {
 struct AsyncCallContext {
     std::string msgReq;
     std::string methodFullName;
+    TinyPbStruct tinyRequest;
     google::protobuf::RpcController *controller {nullptr};
     const google::protobuf::Message *request {nullptr};
     google::protobuf::Message *response {nullptr};
@@ -26,9 +29,10 @@ struct AsyncCallContext {
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
 //
-// 任务七十四仅解决接口和生命周期观察点：保存一次调用上下文，
-// 内部临时复用同步 TinyPbRpcChannel 完成网络请求，并保证成功或失败都会执行 done。
-// 不包含 pending map、并发异步 IO、响应乱序匹配和超时取消。
+// 当前已支持 msgReq -> AsyncCallContext pending 表和 response 匹配。
+// 默认仍临时复用同步 TinyPbRpcChannel 完成网络请求；禁用同步 fallback 后，
+// CallMethod() 只注册 pending，等待 handleTinyPbResponse() 完成上下文。
+// 不包含并发异步 IO、连接池、异步超时和取消。
 class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  public:
     explicit TinyPbRpcAsyncChannel(const IPAddress& peerAddr);
@@ -41,11 +45,18 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
         google::protobuf::Closure *done) override;
 
     void setMsgReqGenerator(std::function<std::string()> generator);
+    void setSyncFallbackEnabled(bool enabled);
 
     std::shared_ptr<AsyncCallContext> getLastContext() const;
+    size_t getPendingCount() const;
+    bool hasPending(const std::string& msgReq) const;
+    bool handleTinyPbResponse(const TinyPbStruct& response);
 
  private:
     std::string genMsgReq() const;
+    void registerPending(const std::shared_ptr<AsyncCallContext>& context);
+    void removePending(const std::string& msgReq);
+    void finishContext(const std::shared_ptr<AsyncCallContext>& context);
     static void setControllerError(
         google::protobuf::RpcController *controller,
         int errorCode,
@@ -54,6 +65,8 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     IPAddress m_peerAddr;
     std::function<std::string()> m_msgReqGenerator;
     std::shared_ptr<AsyncCallContext> m_lastContext;
+    std::unordered_map<std::string, std::shared_ptr<AsyncCallContext>> m_pendingContexts;
+    bool m_syncFallbackEnabled {true};
 };
 
 }  // namespace tinyrpc

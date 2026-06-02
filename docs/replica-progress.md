@@ -758,3 +758,30 @@
 - 当前不维护 pending map。
 - 当前不支持乱序响应匹配。
 - 当前不做异步超时和取消。
+
+### 任务七十五：异步请求表和 msgReq 匹配
+
+已完成能力：
+
+- `TinyPbRpcAsyncChannel` 新增 `msgReq -> AsyncCallContext` pending 表。
+- `CallMethod()` 在参数合法且 request 序列化成功后先注册 pending。
+- 新增 `setSyncFallbackEnabled(false)` 测试入口，用于只注册 pending、不走同步网络 fallback。
+- 新增 `handleTinyPbResponse()`，按 response `msgReq` 命中上下文、移除 pending、反序列化业务 response 并执行 closure。
+- 支持乱序响应匹配，未知 `msgReq` response 会返回 false 并保留已有 pending。
+- TinyPB 错误响应会设置 controller error 并执行 closure。
+- 扩展 `test_tinypb_rpc_async_channel`，覆盖乱序响应、未知 msgReq 和错误响应。
+- 更新 `docs/stage-15.md`，补充 pending map 调用链和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_tinypb_rpc_channel
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- pending map 只在异步 Channel 内部维护，不放回同步 `TcpClient`。
+- 当前 response 到达通过测试钩子模拟，真实 IOThread/Reactor 读取留到任务七十六。
+- 当前不做异步超时和取消。
