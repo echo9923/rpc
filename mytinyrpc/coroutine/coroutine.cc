@@ -75,37 +75,7 @@ Coroutine::Coroutine(std::function<void()> cb, size_t stackSize)
     m_stackSp = static_cast<char*>(std::malloc(m_stackSize));
     assert(m_stackSp != nullptr && "Coroutine: malloc stack failed");
 
-    // 计算栈顶指针（栈从高地址向低地址增长）。
-    char* top = m_stackSp + m_stackSize;
-
-    // 16 字节对齐：System V AMD64 ABI 要求在 call 指令之前
-    // 栈必须 16 字节对齐。coctx_swap 返回时用 ret 跳转，
-    // ret 会弹出 8 字节，因此栈顶在 ret 前应满足 (rsp % 16) == 8。
-    // 这里统一把 top 向下对齐到 16 字节边界即可。
-    top = reinterpret_cast<char*>(
-        (reinterpret_cast<uintptr_t>(top)) & ~static_cast<uintptr_t>(15)
-    );
-
-    // 清空 coctx，设置寄存器上下文。
-    std::memset(&m_coctx, 0, sizeof(m_coctx));
-
-    // kRSP = 栈顶：coctx_swap 恢复时直接 movq 到 rsp。
-    m_coctx.regs[kRSP] = top;
-
-    // kRBP = 栈基址：与 kRSP 相同，简化栈帧布局。
-    m_coctx.regs[kRBP] = top;
-
-    // kRETAddr = CoFunc 入口地址：coctx_swap 通过 ret 跳转到此。
-    // 注意：在 coctx_swap.S 的实现中，ret 从栈顶弹出地址后跳转，
-    // 最终会执行 CoFunc(this)。
-    m_coctx.regs[kRETAddr] = reinterpret_cast<void*>(CoFunc);
-
-    // kRDI = this 指针：System V AMD64 ABI 中 rdi 传递第一个参数。
-    // CoFunc 的参数为 Coroutine*，所以 this 作为第一个参数传入。
-    m_coctx.regs[kRDI] = reinterpret_cast<void*>(this);
-
-    // 状态初始为 Ready，等待首次 resume()。
-    m_state = CoroutineState::Ready;
+    initContext();
 }
 
 Coroutine::~Coroutine()
@@ -167,6 +137,53 @@ void Coroutine::Yield()
     // 切换上下文：保存当前协程寄存器，恢复主协程寄存器。
     // 当下次 resume() 被调用时，会从 coctx_swap 处继续执行。
     coctx_swap(&(co->m_coctx), &(t_mainCoroutine->m_coctx));
+}
+
+bool Coroutine::reset(std::function<void()> cb)
+{
+    // Running/Suspended 状态仍保存着有效执行现场，不能覆盖上下文。
+    if (m_state == CoroutineState::Running || m_state == CoroutineState::Suspended) {
+        return false;
+    }
+
+    m_callback = std::move(cb);
+    initContext();
+    return true;
+}
+
+void Coroutine::initContext()
+{
+    // 计算栈顶指针（栈从高地址向低地址增长）。
+    char* top = m_stackSp + m_stackSize;
+
+    // 16 字节对齐：System V AMD64 ABI 要求在 call 指令之前
+    // 栈必须 16 字节对齐。coctx_swap 返回时用 ret 跳转，
+    // ret 会弹出 8 字节，因此栈顶在 ret 前应满足 (rsp % 16) == 8。
+    // 这里统一把 top 向下对齐到 16 字节边界即可。
+    top = reinterpret_cast<char*>(
+        (reinterpret_cast<uintptr_t>(top)) & ~static_cast<uintptr_t>(15)
+    );
+
+    // 清空 coctx，设置寄存器上下文。
+    std::memset(&m_coctx, 0, sizeof(m_coctx));
+
+    // kRSP = 栈顶：coctx_swap 恢复时直接 movq 到 rsp。
+    m_coctx.regs[kRSP] = top;
+
+    // kRBP = 栈基址：与 kRSP 相同，简化栈帧布局。
+    m_coctx.regs[kRBP] = top;
+
+    // kRETAddr = CoFunc 入口地址：coctx_swap 通过 ret 跳转到此。
+    // 注意：在 coctx_swap.S 的实现中，ret 从栈顶弹出地址后跳转，
+    // 最终会执行 CoFunc(this)。
+    m_coctx.regs[kRETAddr] = reinterpret_cast<void*>(CoFunc);
+
+    // kRDI = this 指针：System V AMD64 ABI 中 rdi 传递第一个参数。
+    // CoFunc 的参数为 Coroutine*，所以 this 作为第一个参数传入。
+    m_coctx.regs[kRDI] = reinterpret_cast<void*>(this);
+
+    // 状态初始为 Ready，等待首次 resume()。
+    m_state = CoroutineState::Ready;
 }
 
 // ─────────────────────────────────────────────

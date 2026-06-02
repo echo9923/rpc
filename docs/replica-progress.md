@@ -677,3 +677,29 @@
 - 不覆盖所有 `recv(2)` / `send(2)` flags 组合。
 - 不做极限压测。
 - 仍然使用显式 `FdEvent*` 传入方式，不做 libc 符号级全局 hook。
+
+### 任务七十二：CoroutinePool
+
+已完成能力：
+
+- 新增 `Coroutine::reset()`，支持 Finished / Ready 协程重新设置入口回调并重新初始化上下文。
+- 新增 `CoroutinePool`，固定容量复用协程对象和栈空间。
+- `getCoroutine(cb)` 优先复用空闲协程；容量耗尽时返回 `nullptr`，不隐式扩容。
+- `returnCoroutine(co)` 只接受 Ready / Finished 协程，拒绝归还 Suspended / Running 协程。
+- 归还成功时会把协程 reset 成空任务，避免旧回调捕获污染下一次使用。
+- 新增 `test_coroutine_pool`，覆盖任务运行、复用、耗尽、挂起状态拒绝归还和 `Coroutine::reset()` 边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_coroutine_pool
+./build/test_coroutine
+./build/test_hook_socket
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 不做复杂调度器。
+- 不做 work stealing。
+- 不支持跨线程迁移协程。

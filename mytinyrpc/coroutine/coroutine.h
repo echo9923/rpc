@@ -73,6 +73,10 @@ class Coroutine {
     // 判断协程是否已执行完毕。
     bool isFinished() const { return m_state == CoroutineState::Finished; }
 
+    // 重置协程入口回调并重新初始化上下文。
+    // 仅允许在 Ready 或 Finished 状态调用，Running/Suspended 状态返回 false。
+    bool reset(std::function<void()> cb);
+
     // 获取协程唯一 ID。
     // 主协程 ID 为 0，子协程 ID 从 1 开始递增。
     int getId() const { return m_corId; }
@@ -85,6 +89,9 @@ class Coroutine {
     // 通过 coctx_swap 跳转到此函数后，执行 m_callback，
     // 完成后设置 Finished 状态并切回主协程。
     static void CoFunc(Coroutine* co);
+
+    // 初始化子协程上下文，使下一次 resume() 从 CoFunc(this) 开始执行。
+    void initContext();
 
     int m_corId {0};                    // 协程 ID，主协程为 0
     coctx m_coctx {};                   // 寄存器上下文
