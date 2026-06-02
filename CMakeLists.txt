@@ -176,6 +176,12 @@ add_executable(test_tinypb_rpc_async_channel
 )
 target_link_libraries(test_tinypb_rpc_async_channel ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
+add_executable(test_tinypb_async_client
+    testcases/test_tinypb_async_client.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tinypb_async_client pthread ${Protobuf_LIBRARIES})
+
 add_executable(test_tinypb_server_client
     testcases/test_tinypb_server_client.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>

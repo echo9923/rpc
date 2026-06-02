@@ -50,20 +50,45 @@
 - 请求完成后会取消对应 `TimerEvent` 并清理 controller 上的内部取消回调。
 - `test_tinypb_rpc_async_channel` 覆盖超时清理、迟到响应不二次回调、controller 取消清理。
 
+## 任务七十八：异步 RPC 调用链文档和回归脚本
+
+已完成能力：
+
+- 新增 `scripts/check_rpc_async.sh`，作为阶段 15 的一键回归入口。
+- 新增 `test_tinypb_async_client`，用脚本式客户端覆盖多请求异步 Stub 调用、服务端 TinyPB 错误和超时请求。
+- `check_rpc_async.sh` 会串联异步 Channel 单测、脚本客户端、controller/timer 基础测试、同步 Channel 测试和同步 RPC 安全网。
+- 文档补齐 request 发出、pending 注册、IOThread 网络请求、响应匹配、timeout、取消和 closure 执行线程。
+
 当前调用链：
 
 ```mermaid
 flowchart LR
     Stub["Protobuf Stub"] --> AsyncChannel["TinyPbRpcAsyncChannel"]
-    AsyncChannel --> Timer["TimerEvent<br/>timeout"]
-    AsyncChannel --> Pending["pending map<br/>msgReq -> AsyncCallContext"]
+    AsyncChannel --> Validate["validate request<br/>serialize pbData"]
+    Validate --> Pending["pending map<br/>msgReq -> AsyncCallContext"]
+    Validate --> Timer["TimerEvent<br/>timeout"]
+    Timer --> Timeout["timeout callback<br/>take pending"]
     Pending --> Context["AsyncCallContext"]
-    AsyncChannel --> IOThread["IOThread"]
+    Context --> IOThread["IOThread"]
     IOThread --> TcpClient["TcpClient"]
     TcpClient --> TinyPB["TinyPB request/response"]
     TinyPB --> Handle["handleTinyPbResponse"]
-    Handle --> Done["done closure"]
+    Handle --> Match["take pending by msgReq"]
+    Match --> Done["done closure<br/>runs on completing thread"]
+    Timeout --> Done
+    AsyncChannel --> Cancel["StartCancel<br/>take pending"]
+    Cancel --> Done
 ```
+
+生命周期说明：
+
+- request 发出：Protobuf Stub 调用 `TinyPbRpcAsyncChannel::CallMethod()`，Channel 生成或复用 controller 中的 `msgReq`，并把业务 request 序列化进 TinyPB `pbData`。
+- pending 注册：序列化成功后，Channel 将 `msgReq -> AsyncCallContext` 放入 pending map；后续成功响应、网络失败、超时和取消都必须先从 pending map 取出上下文。
+- 网络投递：默认模式下，Channel 把网络请求投递到内部 `IOThread`，当前最小网络路径由 `TcpClient::sendAndRecvTinyPb()` 完成。
+- 响应匹配：response 到达后调用 `handleTinyPbResponse()`，按 `msgReq` 取出 pending、取消 timeout event、反序列化业务 response 并执行 closure。
+- timeout：controller 设置 `Timeout()` 后，Channel 会向 IOThread 的 Reactor Timer 注册一次性 `TimerEvent`；超时先取出 pending，设置 `ERROR_RPC_ASYNC_TIMEOUT`，再执行 closure。
+- 取消：controller 调用 `StartCancel()` 后，Channel 注册的内部取消回调会取出 pending，设置 `ERROR_RPC_ASYNC_CANCELED` 并执行 closure。
+- closure 执行线程：正常网络响应和网络失败由 IOThread 执行 closure；手动 `handleTinyPbResponse()` 测试钩子由调用线程执行；timeout 由 IOThread Reactor Timer 执行；取消由发起 `StartCancel()` 的线程执行。
 
 ## 当前边界
 
@@ -82,5 +107,7 @@ flowchart LR
 ./build/test_tinypb_rpc_channel
 ./build/test_msg_req
 ./build/test_timer
+./build/test_tinypb_async_client
+./scripts/check_rpc_async.sh
 ./scripts/check_rpc_sync.sh
 ```

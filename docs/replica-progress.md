@@ -844,3 +844,29 @@
 - 当前真实网络路径仍复用同步 `TcpClient::sendAndRecvTinyPb()`，IOThread 执行同步 socket 调用期间 Reactor Timer 不能抢占正在执行的调用。
 - 真实网络读写超时仍由 `TcpClient` timeout 保底，并映射为异步 RPC 超时错误。
 - 当前取消只清理 Channel pending 并防止二次回调，不主动打断已经在 IOThread 内执行的同步 socket 调用。
+
+### 任务七十八：异步 RPC 调用链文档和回归脚本
+
+已完成能力：
+
+- 新增 `test_tinypb_async_client`，作为脚本式异步客户端验收程序。
+- `test_tinypb_async_client` 内部启动本地 TinyPB mock server，发起 6 个异步 Stub 请求，覆盖成功响应和服务端 TinyPB 错误响应。
+- `test_tinypb_async_client` 单独覆盖超时请求，验证 callback 执行、controller 错误码和 pending 清理。
+- 新增 `scripts/check_rpc_async.sh`，作为阶段 15 一键异步回归入口。
+- `check_rpc_async.sh` 串联构建、`test_tinypb_rpc_async_channel`、`test_tinypb_async_client`、`test_msg_req`、`test_timer`、`test_timer_event`、`test_tinypb_rpc_channel` 和同步 RPC 安全网。
+- 更新 `docs/stage-15.md`，补充完整异步生命周期图，以及 request 发出、pending 注册、响应匹配、timeout、取消和 closure 执行线程说明。
+- `CMakeLists.txt` 新增 `test_tinypb_async_client` 目标。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_async_client
+./scripts/check_rpc_async.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 异步客户端验收程序使用本地 mock TinyPB server，不启动完整 `TcpServer`。
+- `check_rpc_async.sh` 会运行同步 RPC 安全网，因此耗时接近一次完整阶段回归。
+- 当前不写性能报告。
