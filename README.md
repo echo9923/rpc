@@ -1,6 +1,32 @@
 # MyTinyRPC
 
-MyTinyRPC is a TinyRPC learning project.
+MyTinyRPC is a TinyRPC learning project. The current implementation has progressed from the early blocking Echo Server to TinyPB sync/async RPC, HTTP server support, runtime startup helpers, coroutine hooks, IOThread/IOThreadPool, and a small generated-project workflow.
+
+## Current Structure
+
+See [项目目录与命名整理](docs/project-structure.md) for the current module layout, script entries, and naming boundaries.
+
+Core directories:
+
+- `mytinyrpc/comm`: config, log, runtime, startup, error code, and request id.
+- `mytinyrpc/net`: Reactor, Timer, TCP client/server, IOThread, HTTP, and TinyPB.
+- `mytinyrpc/coroutine`: coroutine, hook, pool, and fixed memory pool.
+- `generator`: TinyRPC generated-project CLI and templates.
+- `testcases`: unit tests and script-driven acceptance programs.
+- `scripts`: stage checks and regression scripts.
+
+## Recommended Checks
+
+Run these commands in Linux/WSL:
+
+```bash
+./build.sh
+./scripts/check_rpc_sync.sh
+./scripts/check_rpc_async.sh
+./scripts/check_generator_project.sh
+```
+
+Individual stage checks are still available, for example `./scripts/check_stage12_http.sh` and `./scripts/check_generator.sh`.
 
 ## Stage 1: Blocking TCP Echo Server
 

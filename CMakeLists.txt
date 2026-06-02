@@ -63,7 +63,7 @@ set(SRC
 add_library(mytinyrpc_obj OBJECT ${SRC})
 
 add_executable(test_tcp_echo_server
-    testcases/testtcpchoserver.cc
+    testcases/test_tcp_echo_server.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_tcp_echo_server ${Protobuf_LIBRARIES})

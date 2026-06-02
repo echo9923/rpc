@@ -948,3 +948,27 @@
 - 生成工程依赖本地 MyTinyRPC 源码路径，不是完全独立源码包。
 - 业务方法实现仍是占位逻辑，默认返回空 proto3 response。
 - 生成 server 的关闭由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。
+
+## 阶段 17：工程收口、覆盖矩阵和最终文档
+
+### 任务八十二：目录和命名兼容整理
+
+已完成能力：
+
+- 新增 `docs/project-structure.md`，说明当前顶层目录、核心模块、脚本入口和命名边界。
+- README 增加当前结构和推荐回归入口，避免只停留在早期 Stage 1/2 状态。
+- 将早期遗留测试文件 `testcases/testtcpchoserver.cc` 整理为 `testcases/test_tcp_echo_server.cc`。
+- 更新 `CMakeLists.txt`、`docs/stage-1.md` 和编码规范示例，保持 `test_*.cc` 测试命名一致。
+- 明确保留 `mytinyrpc` 目录名和既有 include 风格，不做大规模 API 迁移。
+
+验证命令：
+```bash
+./build.sh
+./scripts/check_stage1.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前只做小范围命名和文档整理，不批量移动 `comm`、`net`、`http`、`tinypb` 等成熟目录。
+- 工作区存在若干未跟踪文件，本任务不清理用户侧未跟踪文件。
