@@ -1,13 +1,16 @@
 #pragma once
 
 #include "net/netaddress.h"
+#include "net/iothread.h"
 #include "net/tinypb/tinypbdata.h"
 
 #include <google/protobuf/service.h>
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 namespace tinyrpc {
@@ -36,6 +39,7 @@ struct AsyncCallContext {
 class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  public:
     explicit TinyPbRpcAsyncChannel(const IPAddress& peerAddr);
+    ~TinyPbRpcAsyncChannel();
 
     void CallMethod(
         const google::protobuf::MethodDescriptor *method,
@@ -51,6 +55,9 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     size_t getPendingCount() const;
     bool hasPending(const std::string& msgReq) const;
     bool handleTinyPbResponse(const TinyPbStruct& response);
+    void stop();
+    bool isIOThreadStarted() const;
+    std::thread::id getIOThreadId() const;
 
  private:
     std::string genMsgReq() const;
@@ -66,6 +73,8 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     std::function<std::string()> m_msgReqGenerator;
     std::shared_ptr<AsyncCallContext> m_lastContext;
     std::unordered_map<std::string, std::shared_ptr<AsyncCallContext>> m_pendingContexts;
+    mutable std::mutex m_pendingMutex;
+    std::unique_ptr<IOThread> m_ioThread;
     bool m_syncFallbackEnabled {true};
 };
 

@@ -13,13 +13,17 @@
 #include <gtest/gtest.h>
 
 #include <arpa/inet.h>
+#include <atomic>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,18 +31,37 @@ namespace {
 
 class FlagClosure : public google::protobuf::Closure {
  public:
-    explicit FlagClosure(bool *called)
+    explicit FlagClosure(std::atomic<bool> *called)
         : m_called(called)
     {
     }
 
     void Run() override
     {
-        *m_called = true;
+        m_called->store(true);
     }
 
  private:
-    bool *m_called {nullptr};
+    std::atomic<bool> *m_called {nullptr};
+};
+
+class ThreadRecordingClosure : public google::protobuf::Closure {
+ public:
+    explicit ThreadRecordingClosure(std::atomic<bool> *called, std::thread::id *threadId)
+        : m_called(called),
+          m_threadId(threadId)
+    {
+    }
+
+    void Run() override
+    {
+        *m_threadId = std::this_thread::get_id();
+        m_called->store(true);
+    }
+
+ private:
+    std::atomic<bool> *m_called {nullptr};
+    std::thread::id *m_threadId {nullptr};
 };
 
 void closeIfValid(int *fd)
@@ -116,6 +139,18 @@ bool encodeTinyPbToString(tinyrpc::TinyPbStruct *pb, std::string *frame)
     return true;
 }
 
+bool waitUntil(const std::function<bool()>& pred, int timeoutMs)
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pred()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return pred();
+}
+
 }
 
 class TinyPbRpcAsyncChannelTest : public ::testing::Test {
@@ -134,7 +169,7 @@ class TinyPbRpcAsyncChannelTest : public ::testing::Test {
 
         ASSERT_EQ(bind(m_listenFd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0)
             << std::strerror(errno);
-        ASSERT_EQ(listen(m_listenFd, 1), 0) << std::strerror(errno);
+        ASSERT_EQ(listen(m_listenFd, 16), 0) << std::strerror(errno);
 
         socklen_t len = sizeof(m_listenAddr);
         ASSERT_EQ(getsockname(m_listenFd, reinterpret_cast<sockaddr *>(&m_listenAddr), &len), 0)
@@ -214,18 +249,20 @@ TEST_F(TinyPbRpcAsyncChannelTest, StubCallTriggersDoneAndKeepsContextObservable)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    bool doneCalled = false;
-    FlagClosure done(&doneCalled);
+    std::atomic<bool> doneCalled {false};
+    std::thread::id doneThreadId;
+    ThreadRecordingClosure done(&doneCalled, &doneThreadId);
 
     stub.query_name(&controller, &request, &response, &done);
     serverThread.join();
 
     ASSERT_TRUE(serverOk) << serverError;
-    EXPECT_TRUE(doneCalled);
+    ASSERT_TRUE(waitUntil([&]() { return doneCalled.load(); }, 1000));
     EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
     EXPECT_EQ(decodedRequest.m_msgReq, "async-req-001");
     EXPECT_EQ(decodedRequest.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.name(), "async Alice");
+    EXPECT_EQ(doneThreadId, channel.getIOThreadId());
 
     auto context = channel.getLastContext();
     ASSERT_NE(context, nullptr);
@@ -266,13 +303,13 @@ TEST_F(TinyPbRpcAsyncChannelTest, NetworkFailureStillRunsDone)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    bool doneCalled = false;
+    std::atomic<bool> doneCalled {false};
     FlagClosure done(&doneCalled);
 
     stub.query_name(&controller, &request, &response, &done);
     closeIfValid(&nonListenFd);
 
-    EXPECT_TRUE(doneCalled);
+    ASSERT_TRUE(waitUntil([&]() { return doneCalled.load(); }, 1000));
     EXPECT_TRUE(controller.Failed());
     EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
 
@@ -286,12 +323,12 @@ TEST_F(TinyPbRpcAsyncChannelTest, InvalidArgumentRunsDoneAndSetsError)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     tinyrpc::TinyPbRpcController controller;
-    bool doneCalled = false;
+    std::atomic<bool> doneCalled {false};
     FlagClosure done(&doneCalled);
 
     channel.CallMethod(nullptr, &controller, nullptr, nullptr, &done);
 
-    EXPECT_TRUE(doneCalled);
+    EXPECT_TRUE(doneCalled.load());
     EXPECT_TRUE(controller.Failed());
     EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_INVALID_ARGUMENT);
 
@@ -301,6 +338,108 @@ TEST_F(TinyPbRpcAsyncChannelTest, InvalidArgumentRunsDoneAndSetsError)
     EXPECT_EQ(context->request, nullptr);
     EXPECT_EQ(context->response, nullptr);
     EXPECT_EQ(context->done, &done);
+}
+
+TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
+{
+    constexpr int kRequestCount = 10;
+    std::atomic<int> serverHandled {0};
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        for (int i = 0; i < kRequestCount; ++i) {
+            int clientFd = accept(m_listenFd, nullptr, nullptr);
+            if (clientFd < 0) {
+                serverError = std::strerror(errno);
+                return;
+            }
+
+            tinyrpc::TinyPbStruct decodedRequest;
+            if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            queryNameReq pbReq;
+            if (!pbReq.ParseFromString(decodedRequest.m_pbData)) {
+                serverError = "request parse failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            queryNameRes pbRes;
+            pbRes.set_ret_code(0);
+            pbRes.set_res_info("ok");
+            pbRes.set_req_no(pbReq.req_no());
+            pbRes.set_id(pbReq.id());
+            pbRes.set_name("async-" + std::to_string(pbReq.id()));
+
+            tinyrpc::TinyPbStruct response;
+            response.m_msgReq = decodedRequest.m_msgReq;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            if (!pbRes.SerializeToString(&response.m_pbData)) {
+                serverError = "response serialize failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "response encode failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+            closeIfValid(&clientFd);
+            serverHandled.fetch_add(1);
+        }
+    });
+
+    tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    int nextMsgReq = 0;
+    channel.setMsgReqGenerator([&]() {
+        return "async-iothread-" + std::to_string(nextMsgReq++);
+    });
+    QueryService_Stub stub(&channel);
+
+    std::vector<queryNameReq> requests(kRequestCount);
+    std::vector<queryNameRes> responses(kRequestCount);
+    std::vector<tinyrpc::TinyPbRpcController> controllers(kRequestCount);
+    std::vector<std::atomic<bool>> doneFlags(kRequestCount);
+    std::vector<std::thread::id> doneThreadIds(kRequestCount);
+    std::vector<std::unique_ptr<ThreadRecordingClosure>> closures;
+    closures.reserve(kRequestCount);
+
+    for (int i = 0; i < kRequestCount; ++i) {
+        requests[i].set_req_no(400 + i);
+        requests[i].set_id(1100 + i);
+        requests[i].set_type(1);
+        closures.push_back(std::make_unique<ThreadRecordingClosure>(&doneFlags[i], &doneThreadIds[i]));
+        stub.query_name(&controllers[i], &requests[i], &responses[i], closures.back().get());
+    }
+
+    ASSERT_TRUE(waitUntil([&]() {
+        for (int i = 0; i < kRequestCount; ++i) {
+            if (!doneFlags[i].load()) {
+                return false;
+            }
+        }
+        return true;
+    }, 3000));
+
+    serverThread.join();
+    ASSERT_EQ(serverHandled.load(), kRequestCount) << serverError;
+    EXPECT_EQ(channel.getPendingCount(), 0u);
+
+    for (int i = 0; i < kRequestCount; ++i) {
+        EXPECT_FALSE(controllers[i].Failed()) << controllers[i].ErrorText();
+        EXPECT_EQ(responses[i].name(), "async-" + std::to_string(1100 + i));
+        EXPECT_EQ(doneThreadIds[i], channel.getIOThreadId());
+    }
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
@@ -328,8 +467,8 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     queryNameRes response2;
     tinyrpc::TinyPbRpcController controller1;
     tinyrpc::TinyPbRpcController controller2;
-    bool done1Called = false;
-    bool done2Called = false;
+    std::atomic<bool> done1Called {false};
+    std::atomic<bool> done2Called {false};
     FlagClosure done1(&done1Called);
     FlagClosure done2(&done2Called);
 
@@ -339,8 +478,8 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     EXPECT_EQ(channel.getPendingCount(), 2u);
     EXPECT_TRUE(channel.hasPending("async-pending-1"));
     EXPECT_TRUE(channel.hasPending("async-pending-2"));
-    EXPECT_FALSE(done1Called);
-    EXPECT_FALSE(done2Called);
+    EXPECT_FALSE(done1Called.load());
+    EXPECT_FALSE(done2Called.load());
 
     queryNameRes pbResponse2;
     pbResponse2.set_ret_code(0);
@@ -355,8 +494,8 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     ASSERT_TRUE(pbResponse2.SerializeToString(&tinyResponse2.m_pbData));
 
     EXPECT_TRUE(channel.handleTinyPbResponse(tinyResponse2));
-    EXPECT_TRUE(done2Called);
-    EXPECT_FALSE(done1Called);
+    EXPECT_TRUE(done2Called.load());
+    EXPECT_FALSE(done1Called.load());
     EXPECT_EQ(response2.name(), "second");
     EXPECT_EQ(channel.getPendingCount(), 1u);
     EXPECT_FALSE(channel.hasPending("async-pending-2"));
@@ -375,7 +514,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     ASSERT_TRUE(pbResponse1.SerializeToString(&tinyResponse1.m_pbData));
 
     EXPECT_TRUE(channel.handleTinyPbResponse(tinyResponse1));
-    EXPECT_TRUE(done1Called);
+    EXPECT_TRUE(done1Called.load());
     EXPECT_EQ(response1.name(), "first");
     EXPECT_EQ(channel.getPendingCount(), 0u);
     EXPECT_FALSE(controller1.Failed()) << controller1.ErrorText();
@@ -396,7 +535,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, UnknownMsgReqResponseIsIgnored)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    bool doneCalled = false;
+    std::atomic<bool> doneCalled {false};
     FlagClosure done(&doneCalled);
 
     stub.query_name(&controller, &request, &response, &done);
@@ -408,7 +547,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, UnknownMsgReqResponseIsIgnored)
 
     EXPECT_FALSE(channel.handleTinyPbResponse(unknownResponse));
     EXPECT_EQ(channel.getPendingCount(), 1u);
-    EXPECT_FALSE(doneCalled);
+    EXPECT_FALSE(doneCalled.load());
     EXPECT_TRUE(channel.hasPending("known-pending"));
 }
 
@@ -426,7 +565,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingResponseErrorRunsClosure)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    bool doneCalled = false;
+    std::atomic<bool> doneCalled {false};
     FlagClosure done(&doneCalled);
 
     stub.query_name(&controller, &request, &response, &done);
@@ -439,7 +578,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingResponseErrorRunsClosure)
     tinyResponse.m_errInfo = "service missing";
 
     EXPECT_TRUE(channel.handleTinyPbResponse(tinyResponse));
-    EXPECT_TRUE(doneCalled);
+    EXPECT_TRUE(doneCalled.load());
     EXPECT_TRUE(controller.Failed());
     EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_SERVICE_NOT_FOUND);
     EXPECT_EQ(controller.ErrorText(), "service missing");

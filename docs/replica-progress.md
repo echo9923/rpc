@@ -785,3 +785,31 @@
 - pending map 只在异步 Channel 内部维护，不放回同步 `TcpClient`。
 - 当前 response 到达通过测试钩子模拟，真实 IOThread/Reactor 读取留到任务七十六。
 - 当前不做异步超时和取消。
+
+### 任务七十六：异步 Channel 接入 IOThread/Reactor
+
+已完成能力：
+
+- `TinyPbRpcAsyncChannel` 构造时持有一个 `IOThread`。
+- 默认 `CallMethod()` 在注册 pending 后把网络请求投递到 IOThread，调用线程不再阻塞等待网络返回。
+- IOThread 内部执行当前最小网络路径：使用 `TcpClient::sendAndRecvTinyPb()` 连接、发送请求并读取响应。
+- response 返回后由 IOThread 调用 `handleTinyPbResponse()`，按 `msgReq` 完成上下文并执行 closure。
+- 网络失败时会删除 pending、设置 controller error 并执行 closure，单个失败不会影响其他请求。
+- 新增 `stop()`、`isIOThreadStarted()` 和 `getIOThreadId()`，用于观察和停止内部 IOThread。
+- 扩展 `test_tinypb_rpc_async_channel`，覆盖 closure 执行线程归属和 10 个异步请求全部完成。
+- 更新 `docs/stage-15.md`，补充 IOThread 调用链和当前边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_iothread
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- 当前异步网络最小路径仍复用同步 `TcpClient::sendAndRecvTinyPb()`，只是执行线程已切到 IOThread。
+- 不做复杂连接池策略。
+- 不做自动负载均衡。
+- 不做异步超时和取消。
