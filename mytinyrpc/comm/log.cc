@@ -6,6 +6,7 @@
 #include <chrono>
 #include <ctime>
 #include <deque>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -41,6 +42,8 @@ class LoggerState {
         m_consoleMode = false;
         m_async = async;
         m_stopping = false;
+        m_syncIntervalMs = 1000;
+        m_maxSizeBytes = 0;
         if (m_async) {
             m_worker = std::thread([this]() {
                 runWorker();
@@ -55,6 +58,18 @@ class LoggerState {
         LogLevel rpcLevel,
         LogLevel appLevel,
         bool async)
+    {
+        return init(logPath, prefix, rpcLevel, appLevel, async, 1000, 0);
+    }
+
+    bool init(
+        const std::string& logPath,
+        const std::string& prefix,
+        LogLevel rpcLevel,
+        LogLevel appLevel,
+        bool async,
+        int syncIntervalMs,
+        int64_t maxSizeBytes)
     {
         shutdown();
 
@@ -76,6 +91,8 @@ class LoggerState {
         m_consoleMode = false;
         m_async = async;
         m_stopping = false;
+        m_syncIntervalMs = syncIntervalMs <= 0 ? 1000 : syncIntervalMs;
+        m_maxSizeBytes = maxSizeBytes <= 0 ? 0 : maxSizeBytes;
         if (m_async) {
             m_worker = std::thread([this]() {
                 runWorker();
@@ -109,6 +126,8 @@ class LoggerState {
         m_enabled = true;
         m_rpcSink.reset(LogLevel::Debug);
         m_appSink.reset(LogLevel::Debug);
+        m_syncIntervalMs = 1000;
+        m_maxSizeBytes = 0;
         m_consoleMode = true;
     }
 
@@ -165,7 +184,7 @@ class LoggerState {
         }
 
         // std::ofstream::operator<< 写入文件缓冲；flush() 或 shutdown() 负责强制刷盘。
-        sink.m_file << line << std::endl;
+        sink.writeLine(line, m_maxSizeBytes);
     }
 
  private:
@@ -176,14 +195,18 @@ class LoggerState {
             m_path = path;
             m_level = level;
             m_file.open(path, std::ios::out | std::ios::app);
+            if (m_file.is_open() && std::filesystem::exists(path)) {
+                m_currentSize = static_cast<int64_t>(std::filesystem::file_size(path));
+            } else {
+                m_currentSize = 0;
+            }
         }
 
         void close()
         {
-            if (m_file.is_open()) {
-                m_file.close();
-            }
+            closeFile();
             m_path.clear();
+            m_currentSize = 0;
         }
 
         void reset(LogLevel level)
@@ -192,8 +215,61 @@ class LoggerState {
             m_level = level;
         }
 
+        void flush()
+        {
+            if (m_file.is_open()) {
+                m_file.flush();
+            }
+        }
+
+        void writeLine(const std::string& line, int64_t maxSizeBytes)
+        {
+            if (!m_file.is_open()) {
+                return;
+            }
+            rotateIfNeeded(static_cast<int64_t>(line.size() + 1), maxSizeBytes);
+            if (!m_file.is_open()) {
+                return;
+            }
+            m_file << line << std::endl;
+            m_currentSize += static_cast<int64_t>(line.size() + 1);
+        }
+
+        void rotateIfNeeded(int64_t nextLineSize, int64_t maxSizeBytes)
+        {
+            if (maxSizeBytes <= 0 || m_path.empty()) {
+                return;
+            }
+            if (m_currentSize + nextLineSize <= maxSizeBytes) {
+                return;
+            }
+
+            std::filesystem::path basePath(m_path);
+            flush();
+            closeFile();
+            int suffix = 1;
+            while (std::filesystem::exists(basePath.string() + "." + std::to_string(suffix))) {
+                ++suffix;
+            }
+            if (std::filesystem::exists(basePath)) {
+                // std::filesystem::rename 将当前日志文件移动为滚动文件；目标名用递增后缀避免覆盖。
+                std::filesystem::rename(basePath, basePath.string() + "." + std::to_string(suffix));
+            }
+            m_path = basePath.string();
+            m_file.open(m_path, std::ios::out | std::ios::app);
+            m_currentSize = 0;
+        }
+
+        void closeFile()
+        {
+            if (m_file.is_open()) {
+                m_file.close();
+            }
+        }
+
         std::string m_path;
         std::ofstream m_file;
+        int64_t m_currentSize {0};
         LogLevel m_level {LogLevel::Debug};
     };
 
@@ -204,16 +280,28 @@ class LoggerState {
 
     void runWorker()
     {
+        auto nextFlushTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_syncIntervalMs);
         while (true) {
             QueuedLine queuedLine;
+            bool shouldFlush = false;
             {
                 std::unique_lock<std::mutex> lock(m_mutex);
-                m_condition.wait(lock, [this]() {
+                bool hasWork = m_condition.wait_until(lock, nextFlushTime, [this]() {
                     return m_stopping || !m_messages.empty();
                 });
+                if (!hasWork && m_messages.empty() && !m_stopping) {
+                    shouldFlush = true;
+                    nextFlushTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_syncIntervalMs);
+                }
                 if (m_stopping && m_messages.empty()) {
+                    flushFilesLocked();
                     m_condition.notify_all();
                     return;
+                }
+
+                if (shouldFlush) {
+                    flushFilesLocked();
+                    continue;
                 }
 
                 queuedLine = std::move(m_messages.front());
@@ -226,7 +314,7 @@ class LoggerState {
                 Sink& sink = getSinkLocked(queuedLine.m_type);
                 if (sink.m_file.is_open()) {
                     // 后台线程串行写文件，避免业务线程直接阻塞在磁盘 I/O 上。
-                    sink.m_file << queuedLine.m_line << std::endl;
+                    sink.writeLine(queuedLine.m_line, m_maxSizeBytes);
                 }
                 --m_pendingCount;
                 if (m_messages.empty() && m_pendingCount == 0) {
@@ -246,12 +334,8 @@ class LoggerState {
 
     void flushFilesLocked()
     {
-        if (m_rpcSink.m_file.is_open()) {
-            m_rpcSink.m_file.flush();
-        }
-        if (m_appSink.m_file.is_open()) {
-            m_appSink.m_file.flush();
-        }
+        m_rpcSink.flush();
+        m_appSink.flush();
     }
 
     std::mutex m_mutex;
@@ -265,6 +349,8 @@ class LoggerState {
     bool m_stopping {false};
     bool m_enabled {true};
     bool m_consoleMode {true};
+    int m_syncIntervalMs {1000};
+    int64_t m_maxSizeBytes {0};
 };
 
 LoggerState& getLoggerState()
@@ -392,6 +478,18 @@ bool Logger::init(
     bool async)
 {
     return getLoggerState().init(logPath, prefix, rpcLevel, appLevel, async);
+}
+
+bool Logger::init(
+    const std::string& logPath,
+    const std::string& prefix,
+    LogLevel rpcLevel,
+    LogLevel appLevel,
+    bool async,
+    int syncIntervalMs,
+    int64_t maxSizeBytes)
+{
+    return getLoggerState().init(logPath, prefix, rpcLevel, appLevel, async, syncIntervalMs, maxSizeBytes);
 }
 
 void Logger::shutdown()

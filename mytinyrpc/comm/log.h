@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace tinyrpc {
@@ -40,6 +41,15 @@ class Logger {
         LogLevel rpcLevel,
         LogLevel appLevel,
         bool async = false
+    );
+    static bool init(
+        const std::string& logPath,
+        const std::string& prefix,
+        LogLevel rpcLevel,
+        LogLevel appLevel,
+        bool async,
+        int syncIntervalMs,
+        int64_t maxSizeBytes
     );
 
     // 关闭文件日志并恢复默认控制台输出，供测试和进程退出时清理资源。
