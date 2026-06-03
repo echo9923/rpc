@@ -29,6 +29,20 @@ std::string makeLogPath(const std::string& name)
     return path;
 }
 
+void removePrefixedLogs(const std::string& prefix)
+{
+    std::filesystem::create_directories("build/log-tests");
+    for (const auto& entry : std::filesystem::directory_iterator("build/log-tests")) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) {
+            std::filesystem::remove(entry.path());
+        }
+    }
+}
+
 void resetLogger(const std::string& path)
 {
     tinyrpc::Logger::shutdown();
@@ -61,18 +75,24 @@ TEST(LoggerTest, FileOutputContainsThreadFileLineAndReqId)
     ASSERT_TRUE(tinyrpc::Logger::init(path, tinyrpc::LogLevel::Debug));
 
     tinyrpc::Logger::log(
+        tinyrpc::LogType::RpcLog,
         tinyrpc::LogLevel::Error,
         "unit_file.cc",
         77,
+        "unit_func",
         "method=QueryService.query_name err=100",
         "req-001"
     );
     tinyrpc::Logger::flush();
 
     std::string content = readFile(path);
+    EXPECT_NE(content.find("[RPC]"), std::string::npos);
     EXPECT_NE(content.find("[ERROR]"), std::string::npos);
+    EXPECT_NE(content.find("[pid="), std::string::npos);
     EXPECT_NE(content.find("[tid="), std::string::npos);
+    EXPECT_NE(content.find("[co="), std::string::npos);
     EXPECT_NE(content.find("[unit_file.cc:77]"), std::string::npos);
+    EXPECT_NE(content.find("[func=unit_func]"), std::string::npos);
     EXPECT_NE(content.find("[reqId=req-001]"), std::string::npos);
     EXPECT_NE(content.find("method=QueryService.query_name"), std::string::npos);
     EXPECT_NE(content.find("err=100"), std::string::npos);
@@ -121,6 +141,92 @@ TEST(LoggerTest, AsyncModeEventuallyFlushes)
     EXPECT_NE(content.find("async two"), std::string::npos);
 
     resetLogger(path);
+}
+
+TEST(LoggerTest, RpcAndAppLogsUseSeparateFiles)
+{
+    removePrefixedLogs("task88_separate");
+    ASSERT_TRUE(tinyrpc::Logger::init(
+        "build/log-tests",
+        "task88_separate",
+        tinyrpc::LogLevel::Debug,
+        tinyrpc::LogLevel::Debug
+    ));
+
+    InfoLog("rpc only message");
+    AppInfoLog("app only message");
+    tinyrpc::Logger::flush();
+
+    std::string rpcContent = readFile("build/log-tests/task88_separate_rpc.log");
+    std::string appContent = readFile("build/log-tests/task88_separate_app.log");
+    EXPECT_NE(rpcContent.find("rpc only message"), std::string::npos);
+    EXPECT_EQ(rpcContent.find("app only message"), std::string::npos);
+    EXPECT_NE(appContent.find("app only message"), std::string::npos);
+    EXPECT_EQ(appContent.find("rpc only message"), std::string::npos);
+
+    tinyrpc::Logger::shutdown();
+    removePrefixedLogs("task88_separate");
+}
+
+TEST(LoggerTest, RpcAndAppLevelsFilterIndependently)
+{
+    removePrefixedLogs("task88_levels");
+    ASSERT_TRUE(tinyrpc::Logger::init(
+        "build/log-tests",
+        "task88_levels",
+        tinyrpc::LogLevel::Warn,
+        tinyrpc::LogLevel::Debug
+    ));
+
+    InfoLog("rpc info skipped");
+    WarnLog("rpc warn kept");
+    AppInfoLog("app info kept");
+    tinyrpc::Logger::flush();
+
+    std::string rpcContent = readFile("build/log-tests/task88_levels_rpc.log");
+    std::string appContent = readFile("build/log-tests/task88_levels_app.log");
+    EXPECT_EQ(rpcContent.find("rpc info skipped"), std::string::npos);
+    EXPECT_NE(rpcContent.find("rpc warn kept"), std::string::npos);
+    EXPECT_NE(appContent.find("app info kept"), std::string::npos);
+
+    tinyrpc::Logger::shutdown();
+    removePrefixedLogs("task88_levels");
+}
+
+TEST(LoggerTest, LogLineContainsEventFields)
+{
+    removePrefixedLogs("task88_fields");
+    ASSERT_TRUE(tinyrpc::Logger::init(
+        "build/log-tests",
+        "task88_fields",
+        tinyrpc::LogLevel::Debug,
+        tinyrpc::LogLevel::Debug
+    ));
+
+    tinyrpc::Logger::log(
+        tinyrpc::LogType::RpcLog,
+        tinyrpc::LogLevel::Info,
+        "event_file.cc",
+        123,
+        "event_func",
+        "event fields message",
+        "event-req"
+    );
+    tinyrpc::Logger::flush();
+
+    std::string content = readFile("build/log-tests/task88_fields_rpc.log");
+    EXPECT_NE(content.find("[RPC]"), std::string::npos);
+    EXPECT_NE(content.find("[INFO]"), std::string::npos);
+    EXPECT_NE(content.find("[pid="), std::string::npos);
+    EXPECT_NE(content.find("[tid="), std::string::npos);
+    EXPECT_NE(content.find("[co="), std::string::npos);
+    EXPECT_NE(content.find("[reqId=event-req]"), std::string::npos);
+    EXPECT_NE(content.find("[event_file.cc:123]"), std::string::npos);
+    EXPECT_NE(content.find("[func=event_func]"), std::string::npos);
+    EXPECT_NE(content.find("event fields message"), std::string::npos);
+
+    tinyrpc::Logger::shutdown();
+    removePrefixedLogs("task88_fields");
 }
 
 int main(int argc, char **argv)

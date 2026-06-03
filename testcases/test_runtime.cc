@@ -147,7 +147,9 @@ TEST(RuntimeTest, LoggerUsesCurrentContextReqId)
     tinyrpc::Logger::shutdown();
 
     std::string content = readFile(path);
+    EXPECT_NE(content.find("[RPC]"), std::string::npos);
     EXPECT_NE(content.find("[reqId=log-context-req]"), std::string::npos);
+    EXPECT_NE(content.find("[func="), std::string::npos);
     EXPECT_NE(content.find("log from runtime context"), std::string::npos);
     std::filesystem::remove(path);
 }
