@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -54,6 +55,33 @@ bool parseIntValue(const std::string& value, int minValue, int maxValue, int& re
     try {
         size_t used = 0;
         int parsed = std::stoi(value, &used);
+        if (used != value.size()) {
+            error = "invalid integer value: " + value;
+            return false;
+        }
+        if (parsed < minValue || parsed > maxValue) {
+            error = "integer value out of range: " + value;
+            return false;
+        }
+        result = parsed;
+        return true;
+    } catch (const std::exception&) {
+        error = "invalid integer value: " + value;
+        return false;
+    }
+}
+
+bool parseInt64Value(
+    const std::string& value,
+    int64_t minValue,
+    int64_t maxValue,
+    int64_t& result,
+    std::string& error
+)
+{
+    try {
+        size_t used = 0;
+        int64_t parsed = std::stoll(value, &used);
         if (used != value.size()) {
             error = "invalid integer value: " + value;
             return false;
@@ -159,7 +187,18 @@ bool Config::loadFromXml(const std::string& path)
     std::string protocol = m_protocol;
     int ioThreadNum = m_ioThreadNum;
     int timeoutMs = m_timeoutMs;
-    LogLevel logLevel = m_logLevel;
+    std::string logPath = m_logPath;
+    std::string logPrefix = m_logPrefix;
+    int64_t logMaxSizeBytes = m_logMaxSizeBytes;
+    LogLevel rpcLogLevel = m_rpcLogLevel;
+    LogLevel appLogLevel = m_appLogLevel;
+    int logSyncIntervalMs = m_logSyncIntervalMs;
+    int coroutineStackSizeBytes = m_coroutineStackSizeBytes;
+    int coroutinePoolSize = m_coroutinePoolSize;
+    int reqIdLen = m_reqIdLen;
+    int maxConnectTimeoutMs = m_maxConnectTimeoutMs;
+    int timeWheelBucketNum = m_timeWheelBucketNum;
+    int timeWheelIntervalSec = m_timeWheelIntervalSec;
     std::string error;
 
     if (auto value = findTagValue(xml, "server_addr"); value.has_value()) {
@@ -187,13 +226,74 @@ bool Config::loadFromXml(const std::string& path)
         }
     }
 
+    if (auto value = findTagValue(xml, "log_path"); value.has_value()) {
+        logPath = *value;
+    }
+    if (auto value = findTagValue(xml, "log_prefix"); value.has_value()) {
+        logPrefix = *value;
+    }
+    if (auto value = findTagValue(xml, "log_max_size"); value.has_value()) {
+        if (!parseInt64Value(*value, 0, 1024LL * 1024 * 1024 * 1024, logMaxSizeBytes, error)) {
+            m_lastError = "invalid log_max_size: " + *value;
+            return false;
+        }
+    }
+
     std::optional<std::string> logText = findTagValue(xml, "log_level");
     if (!logText.has_value()) {
         logText = findTagValue(xml, "log");
     }
-    if (logText.has_value() && !parseLogLevel(*logText, logLevel, error)) {
+    if (logText.has_value() && !parseLogLevel(*logText, rpcLogLevel, error)) {
         m_lastError = error;
         return false;
+    }
+    if (auto value = findTagValue(xml, "app_log_level"); value.has_value()) {
+        if (!parseLogLevel(*value, appLogLevel, error)) {
+            m_lastError = error;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "log_sync_interval"); value.has_value()) {
+        if (!parseIntValue(*value, 1, 24 * 60 * 60 * 1000, logSyncIntervalMs, error)) {
+            m_lastError = "invalid log_sync_interval: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "cor_stack_size"); value.has_value()) {
+        if (!parseIntValue(*value, 1024, 1024 * 1024 * 1024, coroutineStackSizeBytes, error)) {
+            m_lastError = "invalid cor_stack_size: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "cor_pool_size"); value.has_value()) {
+        if (!parseIntValue(*value, 0, 1024 * 1024, coroutinePoolSize, error)) {
+            m_lastError = "invalid cor_pool_size: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "req_id_len"); value.has_value()) {
+        if (!parseIntValue(*value, 1, 1024, reqIdLen, error)) {
+            m_lastError = "invalid req_id_len: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "max_connect_timeout"); value.has_value()) {
+        if (!parseIntValue(*value, 1, 24 * 60 * 60 * 1000, maxConnectTimeoutMs, error)) {
+            m_lastError = "invalid max_connect_timeout: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "timewheel_bucket_num"); value.has_value()) {
+        if (!parseIntValue(*value, 1, 1024 * 1024, timeWheelBucketNum, error)) {
+            m_lastError = "invalid timewheel_bucket_num: " + *value;
+            return false;
+        }
+    }
+    if (auto value = findTagValue(xml, "timewheel_interval"); value.has_value()) {
+        if (!parseIntValue(*value, 1, 24 * 60 * 60, timeWheelIntervalSec, error)) {
+            m_lastError = "invalid timewheel_interval: " + *value;
+            return false;
+        }
     }
 
     m_serverHost = serverHost;
@@ -201,7 +301,18 @@ bool Config::loadFromXml(const std::string& path)
     m_protocol = protocol;
     m_ioThreadNum = ioThreadNum;
     m_timeoutMs = timeoutMs;
-    m_logLevel = logLevel;
+    m_logPath = logPath;
+    m_logPrefix = logPrefix;
+    m_logMaxSizeBytes = logMaxSizeBytes;
+    m_rpcLogLevel = rpcLogLevel;
+    m_appLogLevel = appLogLevel;
+    m_logSyncIntervalMs = logSyncIntervalMs;
+    m_coroutineStackSizeBytes = coroutineStackSizeBytes;
+    m_coroutinePoolSize = coroutinePoolSize;
+    m_reqIdLen = reqIdLen;
+    m_maxConnectTimeoutMs = maxConnectTimeoutMs;
+    m_timeWheelBucketNum = timeWheelBucketNum;
+    m_timeWheelIntervalSec = timeWheelIntervalSec;
     m_lastError.clear();
     return true;
 }
@@ -233,7 +344,67 @@ int Config::getTimeoutMs() const
 
 LogLevel Config::getLogLevel() const
 {
-    return m_logLevel;
+    return m_rpcLogLevel;
+}
+
+const std::string& Config::getLogPath() const
+{
+    return m_logPath;
+}
+
+const std::string& Config::getLogPrefix() const
+{
+    return m_logPrefix;
+}
+
+int64_t Config::getLogMaxSizeBytes() const
+{
+    return m_logMaxSizeBytes;
+}
+
+LogLevel Config::getRpcLogLevel() const
+{
+    return m_rpcLogLevel;
+}
+
+LogLevel Config::getAppLogLevel() const
+{
+    return m_appLogLevel;
+}
+
+int Config::getLogSyncIntervalMs() const
+{
+    return m_logSyncIntervalMs;
+}
+
+int Config::getCoroutineStackSizeBytes() const
+{
+    return m_coroutineStackSizeBytes;
+}
+
+int Config::getCoroutinePoolSize() const
+{
+    return m_coroutinePoolSize;
+}
+
+int Config::getReqIdLen() const
+{
+    return m_reqIdLen;
+}
+
+int Config::getMaxConnectTimeoutMs() const
+{
+    return m_maxConnectTimeoutMs;
+}
+
+int Config::getTimeWheelBucketNum() const
+{
+    return m_timeWheelBucketNum;
+}
+
+int Config::getTimeWheelIntervalSec() const
+{
+    return m_timeWheelIntervalSec;
 }
 
 const std::string& Config::getLastError() const
