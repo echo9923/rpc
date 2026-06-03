@@ -119,6 +119,19 @@ void TcpServer::start()
     }
 }
 
+int TcpServer::waitOnce(int timeoutMs)
+{
+    return m_reactor.waitOnce(timeoutMs);
+}
+
+bool TcpServer::addTimerTask(const std::shared_ptr<TimerTask>& task)
+{
+    if (task == nullptr || m_reactor.getTimer() == nullptr) {
+        return false;
+    }
+    return m_reactor.getTimer()->addTimerTask(task);
+}
+
 void TcpServer::acceptLoop()
 {
     // acceptLoop 由 Reactor 在监听 fd 可读时触发。

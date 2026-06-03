@@ -1,9 +1,40 @@
 #include "net/http/httpdispatcher.h"
+#include "comm/runtime.h"
 #include "net/http/httprequest.h"
 #include "net/http/httpresponse.h"
 #include "net/tcpconnection.h"
 
 namespace tinyrpc {
+
+namespace {
+
+class RequestContextGuard {
+ public:
+    explicit RequestContextGuard(HttpRequest *request)
+    {
+        std::string reqId;
+        std::string path;
+        if (request != nullptr) {
+            reqId = request->getHeader("X-Req-Id");
+            path = request->getPath();
+        }
+        getRuntime().setCurrentRequestContext(
+            reqId,
+            "http",
+            path,
+            "local",
+            "peer",
+            ProtocolType::Http
+        );
+    }
+
+    ~RequestContextGuard()
+    {
+        getRuntime().clearCurrentRequestContext();
+    }
+};
+
+}  // namespace
 
 HttpDispatcher::HttpDispatcher()
     : m_notFoundServlet(std::make_shared<NotFoundHttpServlet>())
@@ -40,6 +71,7 @@ void HttpDispatcher::dispatch(HttpRequest *request, HttpResponse *response)
         return;
     }
 
+    RequestContextGuard contextGuard(request);
     HttpServlet *servlet = findServlet(request->getPath());
     if (servlet == nullptr) {
         return;

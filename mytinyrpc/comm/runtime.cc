@@ -17,6 +17,11 @@ const std::string& RequestContext::getReqId() const
     return m_reqId;
 }
 
+const std::string& RequestContext::getInterfaceName() const
+{
+    return m_interfaceName;
+}
+
 const std::string& RequestContext::getMethodName() const
 {
     return m_methodName;
@@ -32,25 +37,36 @@ const std::string& RequestContext::getPeerAddr() const
     return m_peerAddr;
 }
 
+ProtocolType RequestContext::getProtocolType() const
+{
+    return m_protocolType;
+}
+
 void RequestContext::set(
     const std::string& reqId,
+    const std::string& interfaceName,
     const std::string& methodName,
     const std::string& localAddr,
-    const std::string& peerAddr
+    const std::string& peerAddr,
+    ProtocolType protocolType
 )
 {
     m_reqId = reqId;
+    m_interfaceName = interfaceName;
     m_methodName = methodName;
     m_localAddr = localAddr;
     m_peerAddr = peerAddr;
+    m_protocolType = protocolType;
 }
 
 void RequestContext::clear()
 {
     m_reqId.clear();
+    m_interfaceName.clear();
     m_methodName.clear();
     m_localAddr.clear();
     m_peerAddr.clear();
+    m_protocolType = ProtocolType::TinyPb;
 }
 
 Config& Runtime::getConfig()
@@ -131,6 +147,14 @@ bool Runtime::registerHttpServlet(const std::string& path, HttpServlet::Ptr serv
     return m_httpDispatcher->registerServlet(path, std::move(servlet));
 }
 
+bool Runtime::addTimerTask(const std::shared_ptr<TimerTask>& task)
+{
+    if (m_server == nullptr || task == nullptr) {
+        return false;
+    }
+    return m_server->addTimerTask(task);
+}
+
 RequestContext& Runtime::getCurrentRequestContext()
 {
     return t_requestContext;
@@ -143,12 +167,14 @@ const RequestContext& Runtime::getCurrentRequestContext() const
 
 void Runtime::setCurrentRequestContext(
     const std::string& reqId,
+    const std::string& interfaceName,
     const std::string& methodName,
     const std::string& localAddr,
-    const std::string& peerAddr
+    const std::string& peerAddr,
+    ProtocolType protocolType
 )
 {
-    t_requestContext.set(reqId, methodName, localAddr, peerAddr);
+    t_requestContext.set(reqId, interfaceName, methodName, localAddr, peerAddr, protocolType);
 }
 
 void Runtime::clearCurrentRequestContext()

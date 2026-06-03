@@ -20,12 +20,14 @@ class RequestContextGuard {
  public:
     RequestContextGuard(
         const std::string& reqId,
+        const std::string& interfaceName,
         const std::string& methodName,
         const std::string& localAddr,
-        const std::string& peerAddr
+        const std::string& peerAddr,
+        ProtocolType protocolType
     )
     {
-        getRuntime().setCurrentRequestContext(reqId, methodName, localAddr, peerAddr);
+        getRuntime().setCurrentRequestContext(reqId, interfaceName, methodName, localAddr, peerAddr, protocolType);
     }
 
     ~RequestContextGuard()
@@ -33,6 +35,16 @@ class RequestContextGuard {
         getRuntime().clearCurrentRequestContext();
     }
 };
+
+std::string getConnectionLocalAddress(TcpConnection * /*conn*/)
+{
+    return "local";
+}
+
+std::string getConnectionPeerAddress(TcpConnection * /*conn*/)
+{
+    return "peer";
+}
 
 }  // namespace
 
@@ -117,6 +129,15 @@ void TinyPbDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
         return;
     }
 
+    RequestContextGuard contextGuard(
+        request->m_reqId,
+        serviceName,
+        methodName,
+        getConnectionLocalAddress(conn),
+        getConnectionPeerAddress(conn),
+        ProtocolType::TinyPb
+    );
+
     // 第二步：查找已注册的 Service
     google::protobuf::Service *service = findService(serviceName);
     if (service == nullptr) {
@@ -134,13 +155,6 @@ void TinyPbDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
         conn->sendProtocolData(&reply);
         return;
     }
-
-    RequestContextGuard contextGuard(
-        request->m_reqId,
-        request->m_serviceFullName,
-        "local",
-        "peer"
-    );
 
     // 第四步：找到 service + method，执行真正的 RPC 调用链路：
     //   pbData → ParseFromString → CallMethod → SerializeToString → pbData

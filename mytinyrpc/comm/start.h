@@ -9,7 +9,11 @@ namespace tinyrpc {
 
 bool InitConfig(const std::string& path);
 bool StartRpcServer();
+Config& GetConfig();
+const Config& GetConstConfig();
 TcpServer::Ptr GetServer();
+int GetIOThreadPoolSize();
+bool AddTimerTask(const std::shared_ptr<TimerTask>& task);
 TinyPbDispatcher::Ptr GetTinyPbDispatcher();
 HttpDispatcher::Ptr GetHttpDispatcher();
 

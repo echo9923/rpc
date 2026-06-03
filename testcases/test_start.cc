@@ -2,13 +2,17 @@
 #include "net/http/httprequest.h"
 #include "net/http/httpresponse.h"
 #include "net/http/httpdispatcher.h"
+#include "net/timer.h"
 #include "net/tinypb/tinypbdispatcher.h"
 #include "test_tinypb_server.pb.h"
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 namespace {
 
@@ -45,6 +49,14 @@ class StartHelloServlet : public tinyrpc::HttpServlet {
 
 }  // namespace
 
+TEST(StartTest, AddTimerTaskReturnsFalseBeforeServer)
+{
+    auto task = std::make_shared<tinyrpc::TimerTask>(1, false, []() {});
+
+    EXPECT_FALSE(tinyrpc::AddTimerTask(task));
+    EXPECT_FALSE(tinyrpc::AddTimerTask(nullptr));
+}
+
 TEST(StartTest, InitConfigLoadsXmlAndStartTinyPbServer)
 {
     ASSERT_TRUE(tinyrpc::InitConfig("conf/test_start_tinypb.xml"));
@@ -60,6 +72,42 @@ TEST(StartTest, InitConfigLoadsXmlAndStartTinyPbServer)
     auto dispatcher = tinyrpc::GetTinyPbDispatcher();
     ASSERT_NE(dispatcher, nullptr);
     EXPECT_NE(dispatcher->findService("QueryService"), nullptr);
+}
+
+TEST(StartTest, GetConfigReturnsLoadedConfig)
+{
+    ASSERT_TRUE(tinyrpc::InitConfig("conf/test_tinypb_server.xml"));
+
+    EXPECT_EQ(tinyrpc::GetConfig().getServerPort(), 24139);
+    EXPECT_EQ(tinyrpc::GetConstConfig().getLogPrefix(), "tinypb_server");
+    EXPECT_EQ(tinyrpc::GetConstConfig().getRpcLogLevel(), tinyrpc::LogLevel::Info);
+}
+
+TEST(StartTest, GetIOThreadPoolSizeUsesConfig)
+{
+    ASSERT_TRUE(tinyrpc::InitConfig("conf/test_tinypb_server.xml"));
+
+    EXPECT_EQ(tinyrpc::GetIOThreadPoolSize(), 2);
+}
+
+TEST(StartTest, AddTimerTaskRunsOnServerReactor)
+{
+    ASSERT_TRUE(tinyrpc::InitConfig("conf/test_start_tinypb.xml"));
+    ASSERT_TRUE(tinyrpc::StartRpcServer());
+
+    std::atomic<int> runCount {0};
+    auto task = std::make_shared<tinyrpc::TimerTask>(1, false, [&runCount]() {
+        ++runCount;
+    });
+    ASSERT_TRUE(tinyrpc::AddTimerTask(task));
+
+    auto server = tinyrpc::GetServer();
+    ASSERT_NE(server, nullptr);
+    for (int i = 0; i < 20 && runCount.load() == 0; ++i) {
+        server->waitOnce(10);
+    }
+
+    EXPECT_EQ(runCount.load(), 1);
 }
 
 TEST(StartTest, InitConfigLoadsXmlAndStartHttpServer)

@@ -8,6 +8,7 @@
 #include "net/netaddress.h"
 #include "net/reactor.h"
 #include "net/socket.h"
+#include "net/timer.h"
 
 // [第三方 API] google::protobuf::Service：Protobuf 编译器生成的服务基类，
 // registerService() 的参数类型依赖此定义。
@@ -38,6 +39,8 @@ class TcpServer {
     bool init();
 
     void start();
+    int waitOnce(int timeoutMs);
+    bool addTimerTask(const std::shared_ptr<TimerTask>& task);
 
     // 注册一个 Protobuf Service 到分发器。
     // 内部转发给 TinyPbDispatcher::registerService()。
