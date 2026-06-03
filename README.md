@@ -105,6 +105,7 @@ int main()
 ## Documentation
 
 - [复刻进度](docs/replica-progress.md)
+- [简化实现补全任务计划书](docs/simplified-completion-task-plan.md)
 - [学习总结](docs/learning-summary.md)
 - [原 TinyRPC 功能覆盖矩阵](docs/original-coverage-matrix.md)
 - [错误码说明](docs/error-code.md)
