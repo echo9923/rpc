@@ -79,6 +79,18 @@ TEST(ConfigTest, LoadTinyPbXml)
     EXPECT_EQ(config.getIOThreadNum(), 2);
     EXPECT_EQ(config.getTimeoutMs(), 3000);
     EXPECT_EQ(config.getLogLevel(), tinyrpc::LogLevel::Info);
+    EXPECT_EQ(config.getRpcLogLevel(), tinyrpc::LogLevel::Info);
+    EXPECT_EQ(config.getAppLogLevel(), tinyrpc::LogLevel::Debug);
+    EXPECT_EQ(config.getLogPath(), "logs");
+    EXPECT_EQ(config.getLogPrefix(), "tinypb_server");
+    EXPECT_EQ(config.getLogMaxSizeBytes(), 64 * 1024 * 1024);
+    EXPECT_EQ(config.getLogSyncIntervalMs(), 1000);
+    EXPECT_EQ(config.getCoroutineStackSizeBytes(), 128 * 1024);
+    EXPECT_EQ(config.getCoroutinePoolSize(), 128);
+    EXPECT_EQ(config.getReqIdLen(), 20);
+    EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
+    EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
+    EXPECT_EQ(config.getTimeWheelIntervalSec(), 1);
 
     auto codec = std::make_shared<tinyrpc::TinyPbCodec>();
     auto dispatcher = std::make_shared<tinyrpc::TinyPbDispatcher>();
@@ -104,6 +116,8 @@ TEST(ConfigTest, LoadHttpXml)
     EXPECT_EQ(config.getIOThreadNum(), 1);
     EXPECT_EQ(config.getTimeoutMs(), 2000);
     EXPECT_EQ(config.getLogLevel(), tinyrpc::LogLevel::Debug);
+    EXPECT_EQ(config.getRpcLogLevel(), tinyrpc::LogLevel::Debug);
+    EXPECT_EQ(config.getAppLogLevel(), tinyrpc::LogLevel::Error);
 
     auto codec = std::make_shared<tinyrpc::HttpCodec>();
     auto dispatcher = std::make_shared<tinyrpc::HttpDispatcher>();
@@ -137,8 +151,11 @@ TEST(ConfigTest, ExtendedFieldsUseDefaultsWhenMissing)
     std::string path = writeTempConfig(
         "task86_missing_extended.xml",
         "<config>"
-        "    <server_addr>127.0.0.1:25001</server_addr>"
-        "    <protocol>tinypb</protocol>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25001</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
         "</config>"
     );
 
@@ -163,9 +180,14 @@ TEST(ConfigTest, InvalidExtendedIntegerReturnsFalse)
     std::string path = writeTempConfig(
         "task86_invalid_extended.xml",
         "<config>"
-        "    <server_addr>127.0.0.1:25002</server_addr>"
-        "    <protocol>tinypb</protocol>"
-        "    <cor_pool_size>abc</cor_pool_size>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25002</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <coroutine>"
+        "        <pool_size>abc</pool_size>"
+        "    </coroutine>"
         "</config>"
     );
 
@@ -179,10 +201,15 @@ TEST(ConfigTest, ParseRpcAndAppLogLevels)
     std::string path = writeTempConfig(
         "task86_log_levels.xml",
         "<config>"
-        "    <server_addr>127.0.0.1:25003</server_addr>"
-        "    <protocol>tinypb</protocol>"
-        "    <log_level>warn</log_level>"
-        "    <app_log_level>ERROR</app_log_level>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25003</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <log>"
+        "        <rpc_level>warn</rpc_level>"
+        "        <app_level>ERROR</app_level>"
+        "    </log>"
         "</config>"
     );
 
@@ -206,6 +233,56 @@ TEST(ConfigTest, InvalidFieldTypeReturnsFalse)
 
     EXPECT_FALSE(config.loadFromXml("conf/test_invalid_server.xml"));
     EXPECT_FALSE(config.getLastError().empty());
+}
+
+TEST(ConfigTest, InvalidProtocolReturnsFalse)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task87_invalid_protocol.xml",
+        "<config>"
+        "    <server>"
+        "        <protocol>grpc</protocol>"
+        "    </server>"
+        "</config>"
+    );
+
+    EXPECT_FALSE(config.loadFromXml(path));
+    EXPECT_NE(config.getLastError().find("server.protocol"), std::string::npos);
+}
+
+TEST(ConfigTest, InvalidLogLevelReturnsFalse)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task87_invalid_log_level.xml",
+        "<config>"
+        "    <server>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <log>"
+        "        <rpc_level>trace</rpc_level>"
+        "    </log>"
+        "</config>"
+    );
+
+    EXPECT_FALSE(config.loadFromXml(path));
+    EXPECT_NE(config.getLastError().find("log.rpc_level"), std::string::npos);
+}
+
+TEST(ConfigTest, OldFlatXmlReturnsFalse)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task87_old_flat.xml",
+        "<config>"
+        "    <server_addr>127.0.0.1:25004</server_addr>"
+        "    <protocol>tinypb</protocol>"
+        "</config>"
+    );
+
+    EXPECT_FALSE(config.loadFromXml(path));
+    EXPECT_NE(config.getLastError().find("server"), std::string::npos);
 }
 
 int main(int argc, char **argv)

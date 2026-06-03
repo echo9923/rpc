@@ -56,7 +56,8 @@ for file in "${required_files[@]}"; do
     fi
 done
 
-grep -q "127.0.0.1:39999" "${OUT_DIR}/conf.xml"
+grep -q "<host>127.0.0.1</host>" "${OUT_DIR}/conf.xml"
+grep -q "<port>39999</port>" "${OUT_DIR}/conf.xml"
 grep -q "MYTINYRPC_ROOT" "${OUT_DIR}/CMakeLists.txt"
 grep -q "QueryService Generated Project" "${OUT_DIR}/README.md"
 grep -q "QueryService" "${OUT_DIR}/main.cc"

@@ -1,7 +1,31 @@
-<root>
-  <server_addr>127.0.0.1:{{SERVER_PORT}}</server_addr>
-  <protocol>tinypb</protocol>
-  <iothread_num>1</iothread_num>
-  <timeout>5000</timeout>
-  <log_level>info</log_level>
-</root>
+<config>
+    <server>
+        <host>127.0.0.1</host>
+        <port>{{SERVER_PORT}}</port>
+        <protocol>tinypb</protocol>
+    </server>
+    <network>
+        <iothread_num>1</iothread_num>
+        <timeout_ms>5000</timeout_ms>
+        <max_connect_timeout_ms>5000</max_connect_timeout_ms>
+    </network>
+    <log>
+        <path>logs</path>
+        <prefix>{{SERVICE_NAME}}</prefix>
+        <max_size_mb>64</max_size_mb>
+        <rpc_level>info</rpc_level>
+        <app_level>debug</app_level>
+        <sync_interval_ms>1000</sync_interval_ms>
+    </log>
+    <coroutine>
+        <stack_size_kb>128</stack_size_kb>
+        <pool_size>128</pool_size>
+    </coroutine>
+    <timewheel>
+        <bucket_num>60</bucket_num>
+        <interval_sec>1</interval_sec>
+    </timewheel>
+    <rpc>
+        <req_id_len>20</req_id_len>
+    </rpc>
+</config>

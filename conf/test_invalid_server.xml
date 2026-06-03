@@ -1,4 +1,7 @@
 <config>
-    <server_addr>127.0.0.1:not-a-port</server_addr>
-    <protocol>http</protocol>
+    <server>
+        <host>127.0.0.1</host>
+        <port>not-a-port</port>
+        <protocol>http</protocol>
+    </server>
 </config>

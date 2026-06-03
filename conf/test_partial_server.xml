@@ -1,3 +1,5 @@
 <config>
-    <server_addr>0.0.0.0</server_addr>
+    <server>
+        <host>0.0.0.0</host>
+    </server>
 </config>

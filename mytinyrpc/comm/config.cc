@@ -50,6 +50,11 @@ std::optional<std::string> findTagValue(const std::string& xml, const std::strin
     return trim(xml.substr(beginPos, endPos - beginPos));
 }
 
+std::optional<std::string> findSection(const std::string& xml, const std::string& sectionName)
+{
+    return findTagValue(xml, sectionName);
+}
+
 bool parseIntValue(const std::string& value, int minValue, int maxValue, int& result, std::string& error)
 {
     try {
@@ -98,40 +103,6 @@ bool parseInt64Value(
     }
 }
 
-bool parseServerAddr(
-    const std::string& value,
-    std::string& serverHost,
-    uint16_t& serverPort,
-    std::string& error
-)
-{
-    size_t colonPos = value.rfind(':');
-    if (colonPos == std::string::npos) {
-        if (value.empty()) {
-            error = "server_addr is empty";
-            return false;
-        }
-        serverHost = value;
-        return true;
-    }
-
-    std::string host = trim(value.substr(0, colonPos));
-    std::string portText = trim(value.substr(colonPos + 1));
-    if (host.empty()) {
-        error = "server_addr host is empty";
-        return false;
-    }
-
-    int port = 0;
-    if (!parseIntValue(portText, 0, 65535, port, error)) {
-        error = "invalid server_addr port: " + portText;
-        return false;
-    }
-    serverHost = host;
-    serverPort = static_cast<uint16_t>(port);
-    return true;
-}
-
 bool parseProtocol(const std::string& value, std::string& protocol, std::string& error)
 {
     std::string parsed = toLower(value);
@@ -165,6 +136,76 @@ bool parseLogLevel(const std::string& value, LogLevel& logLevel, std::string& er
 
     error = "unsupported log level: " + value;
     return false;
+}
+
+bool parseOptionalIntField(
+    const std::optional<std::string>& section,
+    const std::string& sectionName,
+    const std::string& fieldName,
+    int minValue,
+    int maxValue,
+    int& result,
+    std::string& error
+)
+{
+    if (!section.has_value()) {
+        return true;
+    }
+    auto value = findTagValue(*section, fieldName);
+    if (!value.has_value()) {
+        return true;
+    }
+    if (!parseIntValue(*value, minValue, maxValue, result, error)) {
+        error = "invalid " + sectionName + "." + fieldName + ": " + *value;
+        return false;
+    }
+    return true;
+}
+
+bool parseOptionalInt64Field(
+    const std::optional<std::string>& section,
+    const std::string& sectionName,
+    const std::string& fieldName,
+    int64_t minValue,
+    int64_t maxValue,
+    int64_t& result,
+    std::string& error
+)
+{
+    if (!section.has_value()) {
+        return true;
+    }
+    auto value = findTagValue(*section, fieldName);
+    if (!value.has_value()) {
+        return true;
+    }
+    if (!parseInt64Value(*value, minValue, maxValue, result, error)) {
+        error = "invalid " + sectionName + "." + fieldName + ": " + *value;
+        return false;
+    }
+    return true;
+}
+
+bool parseOptionalLogLevelField(
+    const std::optional<std::string>& section,
+    const std::string& sectionName,
+    const std::string& fieldName,
+    LogLevel& result,
+    std::string& error
+)
+{
+    if (!section.has_value()) {
+        return true;
+    }
+    auto value = findTagValue(*section, fieldName);
+    if (!value.has_value()) {
+        return true;
+    }
+    if (!parseLogLevel(*value, result, error)) {
+        error = "invalid " + sectionName + "." + fieldName + ": " + *value;
+        return false;
+    }
+    return true;
 }
 
 }  // namespace
@@ -201,99 +242,95 @@ bool Config::loadFromXml(const std::string& path)
     int timeWheelIntervalSec = m_timeWheelIntervalSec;
     std::string error;
 
-    if (auto value = findTagValue(xml, "server_addr"); value.has_value()) {
-        if (!parseServerAddr(*value, serverHost, serverPort, error)) {
-            m_lastError = error;
+    auto serverSection = findSection(xml, "server");
+    if (!serverSection.has_value()) {
+        m_lastError = "missing server section";
+        return false;
+    }
+
+    if (auto value = findTagValue(*serverSection, "host"); value.has_value()) {
+        if (value->empty()) {
+            m_lastError = "invalid server.host: empty";
             return false;
         }
+        serverHost = *value;
     }
-    if (auto value = findTagValue(xml, "protocol"); value.has_value()) {
+    if (auto value = findTagValue(*serverSection, "port"); value.has_value()) {
+        int port = serverPort;
+        if (!parseIntValue(*value, 0, 65535, port, error)) {
+            m_lastError = "invalid server.port: " + *value;
+            return false;
+        }
+        serverPort = static_cast<uint16_t>(port);
+    }
+    if (auto value = findTagValue(*serverSection, "protocol"); value.has_value()) {
         if (!parseProtocol(*value, protocol, error)) {
-            m_lastError = error;
-            return false;
-        }
-    }
-    if (auto value = findTagValue(xml, "iothread_num"); value.has_value()) {
-        if (!parseIntValue(*value, 0, 1024, ioThreadNum, error)) {
-            m_lastError = "invalid iothread_num: " + *value;
-            return false;
-        }
-    }
-    if (auto value = findTagValue(xml, "timeout"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 24 * 60 * 60 * 1000, timeoutMs, error)) {
-            m_lastError = "invalid timeout: " + *value;
+            m_lastError = "invalid server.protocol: " + *value;
             return false;
         }
     }
 
-    if (auto value = findTagValue(xml, "log_path"); value.has_value()) {
-        logPath = *value;
-    }
-    if (auto value = findTagValue(xml, "log_prefix"); value.has_value()) {
-        logPrefix = *value;
-    }
-    if (auto value = findTagValue(xml, "log_max_size"); value.has_value()) {
-        if (!parseInt64Value(*value, 0, 1024LL * 1024 * 1024 * 1024, logMaxSizeBytes, error)) {
-            m_lastError = "invalid log_max_size: " + *value;
-            return false;
-        }
-    }
-
-    std::optional<std::string> logText = findTagValue(xml, "log_level");
-    if (!logText.has_value()) {
-        logText = findTagValue(xml, "log");
-    }
-    if (logText.has_value() && !parseLogLevel(*logText, rpcLogLevel, error)) {
+    auto networkSection = findSection(xml, "network");
+    if (!parseOptionalIntField(networkSection, "network", "iothread_num", 0, 1024, ioThreadNum, error)
+        || !parseOptionalIntField(networkSection, "network", "timeout_ms", 1, 24 * 60 * 60 * 1000, timeoutMs, error)
+        || !parseOptionalIntField(
+            networkSection,
+            "network",
+            "max_connect_timeout_ms",
+            1,
+            24 * 60 * 60 * 1000,
+            maxConnectTimeoutMs,
+            error)) {
         m_lastError = error;
         return false;
     }
-    if (auto value = findTagValue(xml, "app_log_level"); value.has_value()) {
-        if (!parseLogLevel(*value, appLogLevel, error)) {
-            m_lastError = error;
-            return false;
+
+    auto logSection = findSection(xml, "log");
+    if (logSection.has_value()) {
+        if (auto value = findTagValue(*logSection, "path"); value.has_value()) {
+            logPath = *value;
+        }
+        if (auto value = findTagValue(*logSection, "prefix"); value.has_value()) {
+            logPrefix = *value;
         }
     }
-    if (auto value = findTagValue(xml, "log_sync_interval"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 24 * 60 * 60 * 1000, logSyncIntervalMs, error)) {
-            m_lastError = "invalid log_sync_interval: " + *value;
-            return false;
-        }
+    int64_t logMaxSizeMb = logMaxSizeBytes / (1024 * 1024);
+    if (!parseOptionalInt64Field(logSection, "log", "max_size_mb", 0, 1024 * 1024, logMaxSizeMb, error)
+        || !parseOptionalLogLevelField(logSection, "log", "rpc_level", rpcLogLevel, error)
+        || !parseOptionalLogLevelField(logSection, "log", "app_level", appLogLevel, error)
+        || !parseOptionalIntField(
+            logSection,
+            "log",
+            "sync_interval_ms",
+            1,
+            24 * 60 * 60 * 1000,
+            logSyncIntervalMs,
+            error)) {
+        m_lastError = error;
+        return false;
     }
-    if (auto value = findTagValue(xml, "cor_stack_size"); value.has_value()) {
-        if (!parseIntValue(*value, 1024, 1024 * 1024 * 1024, coroutineStackSizeBytes, error)) {
-            m_lastError = "invalid cor_stack_size: " + *value;
-            return false;
-        }
+    logMaxSizeBytes = logMaxSizeMb * 1024 * 1024;
+
+    auto coroutineSection = findSection(xml, "coroutine");
+    int coroutineStackSizeKb = coroutineStackSizeBytes / 1024;
+    if (!parseOptionalIntField(coroutineSection, "coroutine", "stack_size_kb", 1, 1024 * 1024, coroutineStackSizeKb, error)
+        || !parseOptionalIntField(coroutineSection, "coroutine", "pool_size", 0, 1024 * 1024, coroutinePoolSize, error)) {
+        m_lastError = error;
+        return false;
     }
-    if (auto value = findTagValue(xml, "cor_pool_size"); value.has_value()) {
-        if (!parseIntValue(*value, 0, 1024 * 1024, coroutinePoolSize, error)) {
-            m_lastError = "invalid cor_pool_size: " + *value;
-            return false;
-        }
+    coroutineStackSizeBytes = coroutineStackSizeKb * 1024;
+
+    auto timeWheelSection = findSection(xml, "timewheel");
+    if (!parseOptionalIntField(timeWheelSection, "timewheel", "bucket_num", 1, 1024 * 1024, timeWheelBucketNum, error)
+        || !parseOptionalIntField(timeWheelSection, "timewheel", "interval_sec", 1, 24 * 60 * 60, timeWheelIntervalSec, error)) {
+        m_lastError = error;
+        return false;
     }
-    if (auto value = findTagValue(xml, "req_id_len"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 1024, reqIdLen, error)) {
-            m_lastError = "invalid req_id_len: " + *value;
-            return false;
-        }
-    }
-    if (auto value = findTagValue(xml, "max_connect_timeout"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 24 * 60 * 60 * 1000, maxConnectTimeoutMs, error)) {
-            m_lastError = "invalid max_connect_timeout: " + *value;
-            return false;
-        }
-    }
-    if (auto value = findTagValue(xml, "timewheel_bucket_num"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 1024 * 1024, timeWheelBucketNum, error)) {
-            m_lastError = "invalid timewheel_bucket_num: " + *value;
-            return false;
-        }
-    }
-    if (auto value = findTagValue(xml, "timewheel_interval"); value.has_value()) {
-        if (!parseIntValue(*value, 1, 24 * 60 * 60, timeWheelIntervalSec, error)) {
-            m_lastError = "invalid timewheel_interval: " + *value;
-            return false;
-        }
+
+    auto rpcSection = findSection(xml, "rpc");
+    if (!parseOptionalIntField(rpcSection, "rpc", "req_id_len", 1, 1024, reqIdLen, error)) {
+        m_lastError = error;
+        return false;
     }
 
     m_serverHost = serverHost;

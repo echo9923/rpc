@@ -1,7 +1,20 @@
 <config>
-    <server_addr>127.0.0.1:0</server_addr>
-    <protocol>tinypb</protocol>
-    <iothread_num>0</iothread_num>
-    <timeout>1000</timeout>
-    <log_level>error</log_level>
+    <server>
+        <host>127.0.0.1</host>
+        <port>0</port>
+        <protocol>tinypb</protocol>
+    </server>
+    <network>
+        <iothread_num>0</iothread_num>
+        <timeout_ms>1000</timeout_ms>
+        <max_connect_timeout_ms>5000</max_connect_timeout_ms>
+    </network>
+    <log>
+        <path>logs</path>
+        <prefix>start_tinypb</prefix>
+        <max_size_mb>64</max_size_mb>
+        <rpc_level>error</rpc_level>
+        <app_level>error</app_level>
+        <sync_interval_ms>1000</sync_interval_ms>
+    </log>
 </config>
