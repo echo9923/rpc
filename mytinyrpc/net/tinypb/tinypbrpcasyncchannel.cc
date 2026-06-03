@@ -87,7 +87,7 @@ void TinyPbRpcAsyncChannel::CallMethod(
     }
 
     registerPending(context);
-    registerTimeoutEvent(context);
+    registerTimeoutTask(context);
 
     if (tinyController != nullptr && tinyController->IsCanceled()) {
         cancel(context->m_reqId);
@@ -243,27 +243,27 @@ void TinyPbRpcAsyncChannel::registerPending(const std::shared_ptr<AsyncCallConte
     m_pendingContexts[context->m_reqId] = context;
 }
 
-void TinyPbRpcAsyncChannel::registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
+void TinyPbRpcAsyncChannel::registerTimeoutTask(const std::shared_ptr<AsyncCallContext>& context)
 {
     int timeoutMs = getControllerTimeout(context == nullptr ? nullptr : context->m_controller);
     if (context == nullptr || context->m_reqId.empty() || timeoutMs <= 0 || m_ioThread == nullptr) {
         return;
     }
 
-    context->m_timeoutEvent = std::make_shared<TimerEvent>(timeoutMs, false, [this, reqId = context->m_reqId]() {
+    context->m_timeoutTask = std::make_shared<TimerTask>(timeoutMs, false, [this, reqId = context->m_reqId]() {
         handleTimeout(reqId);
     });
 
-    auto event = context->m_timeoutEvent;
-    m_ioThread->addTask([this, event]() {
-        if (event == nullptr || event->isCanceled() || m_ioThread == nullptr) {
+    auto task = context->m_timeoutTask;
+    m_ioThread->addTask([this, task]() {
+        if (task == nullptr || task->isCanceled() || m_ioThread == nullptr) {
             return;
         }
         auto *reactor = m_ioThread->getReactor();
         if (reactor == nullptr || reactor->getTimer() == nullptr) {
             return;
         }
-        reactor->getTimer()->addTimerEvent(event);
+        reactor->getTimer()->addTimerTask(task);
     });
 }
 
@@ -277,14 +277,14 @@ std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::
 
     auto context = iter->second;
     m_pendingContexts.erase(iter);
-    cancelTimeoutEvent(context);
+    cancelTimeoutTask(context);
     return context;
 }
 
-void TinyPbRpcAsyncChannel::cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
+void TinyPbRpcAsyncChannel::cancelTimeoutTask(const std::shared_ptr<AsyncCallContext>& context)
 {
-    if (context != nullptr && context->m_timeoutEvent != nullptr) {
-        context->m_timeoutEvent->cancel();
+    if (context != nullptr && context->m_timeoutTask != nullptr) {
+        context->m_timeoutTask->cancel();
     }
 }
 

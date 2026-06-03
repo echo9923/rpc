@@ -146,7 +146,7 @@ sequenceDiagram
     participant Reactor as Owner Reactor
     participant Conn as TcpConnection
 
-    Wheel->>Timer: addTimerEvent(repeated)
+    Wheel->>Timer: addTimerTask(repeated)
     Timer-->>Wheel: onTimer(fd)
     Wheel->>Conn: getLastActiveTimeMs()
     alt connection active
@@ -161,7 +161,7 @@ sequenceDiagram
 空闲超时边界：
 
 - `TcpConnectionTimeWheel` 保存 `weak_ptr<TcpConnection>`，不拥有连接。
-- 每条连接一个重复 `TimerEvent`，当前不做复杂 bucket 时间轮。
+- 每条连接一个重复 `TimerTask`，当前不做复杂 bucket 时间轮。
 - 超时检查由对应 Timer 触发，真正关闭通过连接所属 `Reactor::addTask()` 执行，避免跨线程直接关闭 fd。
 - 当前 `TcpServer` 仍未默认接入空闲超时管理；该路径作为阶段 10 能力保留，后续统一接入服务端生命周期。
 

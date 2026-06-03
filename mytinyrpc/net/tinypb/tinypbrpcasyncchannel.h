@@ -15,7 +15,7 @@
 
 namespace tinyrpc {
 
-class TimerEvent;
+class TimerTask;
 
 // AsyncCallContext — 异步 RPC 调用上下文。
 //
@@ -30,7 +30,7 @@ struct AsyncCallContext {
     const google::protobuf::Message *m_request {nullptr};
     google::protobuf::Message *m_response {nullptr};
     google::protobuf::Closure *m_done {nullptr};
-    std::shared_ptr<TimerEvent> m_timeoutEvent;
+    std::shared_ptr<TimerTask> m_timeoutTask;
 };
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
@@ -66,9 +66,9 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  private:
     std::string genReqId() const;
     void registerPending(const std::shared_ptr<AsyncCallContext>& context);
-    void registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
+    void registerTimeoutTask(const std::shared_ptr<AsyncCallContext>& context);
     std::shared_ptr<AsyncCallContext> takePending(const std::string& reqId);
-    void cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
+    void cancelTimeoutTask(const std::shared_ptr<AsyncCallContext>& context);
     void handleTimeout(const std::string& reqId);
     void finishContext(const std::shared_ptr<AsyncCallContext>& context);
     bool finishPendingWithError(

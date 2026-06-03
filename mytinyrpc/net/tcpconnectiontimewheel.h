@@ -13,7 +13,7 @@ class Reactor;
 class TcpConnection;
 
 // TcpConnectionTimeWheel 是阶段 10 的简化空闲超时管理器。
-// 当前不实现复杂分层时间轮，而是为每条连接挂一个 TimerEvent：
+// 当前不实现复杂分层时间轮，而是为每条连接挂一个 TimerTask：
 // 定时器到期时检查连接最后活跃时间，真正超时才把 close 投递回连接所属 Reactor。
 class TcpConnectionTimeWheel {
  public:
@@ -29,7 +29,7 @@ class TcpConnectionTimeWheel {
  private:
     struct Entry {
         std::weak_ptr<TcpConnection> m_connection;
-        std::shared_ptr<TimerEvent> m_timerEvent;
+        std::shared_ptr<TimerTask> m_timerTask;
     };
 
     int64_t normalizeTimeout(int64_t timeoutMs) const;

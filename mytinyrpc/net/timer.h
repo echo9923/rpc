@@ -14,20 +14,20 @@ namespace tinyrpc {
 class Reactor;
 
 // 返回当前系统时间，单位毫秒。
-// 当前用于 TimerEvent 计算到期时间；后续 Timer/timerfd 会复用该时间基准。
+// 当前用于 TimerTask 计算到期时间；后续 Timer/timerfd 会复用该时间基准。
 int64_t getNowMs();
 
-// TimerEvent 表示一个内存级定时任务。
+// TimerTask 表示一个内存级定时任务。
 //
 // 当前任务只描述定时任务本身，不创建 timerfd，也不注册到 Reactor。
-// TimerEvent 的回调由后续 Timer 在到期时显式调用 run() 触发。
-class TimerEvent {
+// TimerTask 的回调由后续 Timer 在到期时显式调用 run() 触发。
+class TimerTask {
  public:
     using Callback = std::function<void()>;
 
-    TimerEvent(int64_t intervalMs, bool repeated, Callback callback);
-    TimerEvent(const TimerEvent&) = delete;
-    TimerEvent& operator=(const TimerEvent&) = delete;
+   TimerTask(int64_t intervalMs, bool repeated, Callback callback);
+   TimerTask(const TimerTask&) = delete;
+   TimerTask& operator=(const TimerTask&) = delete;
 
     int64_t getIntervalMs() const;
     int64_t getExpireTimeMs() const;
@@ -61,18 +61,18 @@ class Timer {
     Timer& operator=(const Timer&) = delete;
 
     int getFd() const;
-    bool addTimerEvent(const std::shared_ptr<TimerEvent>& event);
-    bool delTimerEvent(const std::shared_ptr<TimerEvent>& event);
-    std::size_t getPendingEventCount() const;
+   bool addTimerTask(const std::shared_ptr<TimerTask>& task);
+   bool delTimerTask(const std::shared_ptr<TimerTask>& task);
+   std::size_t getPendingTaskCount() const;
 
  private:
     void handleTimerReadable();
     void resetTimerFd();
-    void removeCanceledEvents();
+   void removeCanceledTasks();
 
     int m_timerFd {-1};
     FdEvent m_fdEvent;
-    std::vector<std::shared_ptr<TimerEvent>> m_events;
+   std::vector<std::shared_ptr<TimerTask>> m_tasks;
 };
 
 }

@@ -53,24 +53,24 @@ sequenceDiagram
     participant Timer as Timer
     participant Kernel as timerfd
     participant Reactor as Reactor
-    participant Event as TimerEvent
+   participant Task as TimerTask
 
-    User->>Timer: addTimerEvent(event)
+   User->>Timer: addTimerTask(task)
     Timer->>Kernel: timerfd_settime(nearest)
     Reactor->>Kernel: epoll_wait()
     Kernel-->>Reactor: EPOLLIN
     Reactor->>Timer: handleTimerReadable()
     Timer->>Kernel: read(timerfd)
-    Timer->>Event: run()
+   Timer->>Task: run()
     Timer->>Kernel: timerfd_settime(next)
 ```
 
 调试要点：
 
-- `TimerEvent` 本身只是内存对象，不直接操作 fd。
-- `Timer` 每次添加、删除、执行事件后都会刷新最近到期时间。
-- 一次性事件执行后会 cancel 并移除。
-- 重复事件执行后会重置下一次到期时间。
+- `TimerTask` 本身只是内存对象，不直接操作 fd。
+- `Timer` 每次添加、删除、执行任务后都会刷新最近到期时间。
+- 一次性任务执行后会 cancel 并移除。
+- 重复任务执行后会重置下一次到期时间。
 
 ## 五、wakeup 与 task queue
 
@@ -107,4 +107,4 @@ sequenceDiagram
    检查 Reactor 是否仍在 `waitOnce()` 或 `loop()` 中，以及 wakeup fd 是否注册成功。
 
 4. timer 不触发：
-   检查 `TimerEvent` 是否已 cancel、最近到期时间是否被 `timerfd_settime()` 刷新。
+   检查 `TimerTask` 是否已 cancel、最近到期时间是否被 `timerfd_settime()` 刷新。

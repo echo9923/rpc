@@ -194,11 +194,11 @@ add_executable(test_req_id
 )
 target_link_libraries(test_req_id ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
-add_executable(test_timer_event
-    testcases/test_timer_event.cc
+add_executable(test_timer_task
+    testcases/test_timer_task.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
-target_link_libraries(test_timer_event ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+target_link_libraries(test_timer_task ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
 add_executable(test_timer
     testcases/test_timer.cc

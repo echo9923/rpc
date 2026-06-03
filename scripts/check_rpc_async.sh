@@ -30,7 +30,7 @@ run_test test_tinypb_rpc_async_channel
 run_test test_tinypb_async_client
 run_test test_req_id
 run_test test_timer
-run_test test_timer_event
+run_test test_timer_task
 run_test test_tinypb_rpc_channel
 
 echo "[rpc-async] run sync rpc safety net"

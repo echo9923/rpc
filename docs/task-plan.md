@@ -590,7 +590,7 @@ int TinyPbRpcController::Timeout() const;
 
 ## 阶段完成标准
 
-- `TimerEvent` 可表达一次性/重复定时任务。
+- `TimerTask` 可表达一次性/重复定时任务。
 - `Timer` 通过 `timerfd` 接入 Reactor。
 - Reactor 支持 `addTask()`、`wakeup()`、`stop()`。
 - TcpConnection 有最小空闲超时管理。
@@ -598,7 +598,7 @@ int TinyPbRpcController::Timeout() const;
 
 ---
 
-## 任务四十七：`TimerEvent` 与基础时间函数
+## 任务四十七：`TimerTask` 与基础时间函数
 
 **类型**：必须复刻
 
@@ -609,14 +609,14 @@ int TinyPbRpcController::Timeout() const;
 ### 实现目标
 
 - 新增 `getNowMs()`。
-- 新增 `TimerEvent`。
+- 新增 `TimerTask`。
 - 支持一次性任务、重复任务、cancel、reset。
 
 ### 关键文件
 
 - `mytinyrpc/net/timer.h`
 - `mytinyrpc/net/timer.cc`
-- `testcases/test_timer_event.cc`
+- `testcases/test_timer_task.cc`
 - `CMakeLists.txt`
 - `docs/stage-10.md`
 
@@ -630,7 +630,7 @@ int TinyPbRpcController::Timeout() const;
 ### 验收标准
 
 - 内存级测试通过。
-- 不依赖 Reactor 也能验证 TimerEvent 行为。
+- 不依赖 Reactor 也能验证 TimerTask 行为。
 
 ### 不包括
 
@@ -1604,13 +1604,13 @@ int TinyPbRpcController::Timeout() const;
 
 ### 学习目标
 
-通过最简单的阻塞函数理解 TimerEvent 如何恢复协程。
+通过最简单的阻塞函数理解 TimerTask 如何恢复协程。
 
 ### 实现目标
 
 - hook `sleep()`。
 - hook `usleep()`。
-- 当前协程让出，TimerEvent 到期后恢复。
+- 当前协程让出，TimerTask 到期后恢复。
 
 ### 关键文件
 
@@ -1897,7 +1897,7 @@ int TinyPbRpcController::Timeout() const;
 
 ### 实现目标
 
-- 每个异步请求注册 TimerEvent。
+- 每个异步请求注册 TimerTask。
 - 超时后从 pending map 删除。
 - 设置 controller 错误。
 - 执行回调。

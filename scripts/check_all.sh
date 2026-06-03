@@ -25,7 +25,7 @@ run_test() {
 echo "[all] run core unit tests not covered by rpc-sync"
 run_test test_fdevent
 run_test test_reactor
-run_test test_timer_event
+run_test test_timer_task
 run_test test_timer
 run_test test_tcp_timewheel
 run_test test_mutex

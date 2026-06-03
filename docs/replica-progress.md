@@ -198,21 +198,21 @@
 
 ## 阶段 10：Timer、Reactor wakeup 和连接生命周期
 
-### 任务四十七：`TimerEvent` 与基础时间函数
+### 任务四十七：`TimerTask` 与基础时间函数
 
 已完成能力：
 
 - 新增 `mytinyrpc/net/timer.h` 和 `mytinyrpc/net/timer.cc`。
 - 新增 `getNowMs()`，提供毫秒级时间基准。
-- 新增 `TimerEvent`，支持一次性任务、重复任务、cancel、reset 和到期判断。
-- 新增 `test_timer_event`，以内存级测试覆盖 TimerEvent 行为，不依赖 Reactor。
+- 新增 `TimerTask`，支持一次性任务、重复任务、cancel、reset 和到期判断。
+- 新增 `test_timer_task`，以内存级测试覆盖 TimerTask 行为，不依赖 Reactor。
 - 新增 `docs/stage-10.md` 记录当前边界：本任务不接入 `timerfd`，不接入 TcpConnection。
 
 验证命令：
 
 ```bash
 ./build.sh
-./build/test_timer_event
+./build/test_timer_task
 ./scripts/check_rpc_sync.sh
 ```
 
@@ -279,7 +279,7 @@
 
 已完成能力：
 
-- 新增 `TcpConnectionTimeWheel`，用每连接一个重复 `TimerEvent` 的方式实现简化空闲超时管理。
+- 新增 `TcpConnectionTimeWheel`，用每连接一个重复 `TimerTask` 的方式实现简化空闲超时管理。
 - `TcpConnection` 新增 `isClosed()`、`getLastActiveTimeMs()` 和 `refreshActiveTime()`，读到真实数据时刷新活跃时间。
 - 活跃连接刷新后不会被误关闭。
 - 空闲连接超时后会被时间轮移除，并通过连接所属 Reactor 的 task 队列执行关闭。
@@ -623,7 +623,7 @@
 - 新增 `connectHook()`，主协程中直通原始 `connect()`。
 - 非主协程中，非阻塞 connect 返回 `EINPROGRESS` 后会挂载当前协程并等待 `EPOLLOUT`。
 - Reactor 监听到可写事件后恢复协程，`connectHook()` 通过 `getsockopt(SO_ERROR)` 判断连接成功或失败。
-- 支持 timeout：到期后 TimerEvent 恢复协程，并返回 `ETIMEDOUT`。
+- 支持 timeout：到期后 TimerTask 恢复协程，并返回 `ETIMEDOUT`。
 - 扩展 `test_hook`，覆盖连接成功、连接拒绝、连接超时和主协程直通路径。
 - 更新 `docs/coroutine-model.md`，补充 connect hook 的恢复和超时路径。
 
@@ -640,7 +640,7 @@
 
 - 新增 `sleepHook(Reactor*, seconds)`，主协程中直通原始 `sleep()`。
 - 新增 `usleepHook(Reactor*, usec)`，主协程中直通原始 `usleep()`。
-- 非主协程中通过一次性 `TimerEvent` 挂起当前协程，Timer 到期后由 Reactor 恢复。
+- 非主协程中通过一次性 `TimerTask` 挂起当前协程，Timer 到期后由 Reactor 恢复。
 - 新增 `test_hook_sleep`，覆盖主协程直通、`sleepHook`/`usleepHook` 定时恢复、一个协程 sleep 不阻塞另一个协程，以及多个协程按时间恢复。
 - 更新 `docs/coroutine-model.md`，补充 sleep/usleep hook 的 Reactor Timer 恢复路径和调试要点。
 
@@ -818,13 +818,13 @@
 
 已完成能力：
 
-- `AsyncCallContext` 新增 `timeoutEvent`，保存本次异步请求对应的一次性 `TimerEvent`。
+- `AsyncCallContext` 新增 `timeoutTask`，保存本次异步请求对应的一次性 `TimerTask`。
 - `TinyPbRpcAsyncChannel` 读取 `TinyPbRpcController::Timeout()`，在 pending 请求注册后把超时事件投递到内部 IOThread 的 Reactor Timer。
 - 超时到期后按 `reqId` 从 pending map 取出上下文，设置 `ERROR_RPC_ASYNC_TIMEOUT` 并执行 closure。
 - `handleTinyPbResponse()`、网络失败、超时和取消统一通过 pending map 做一次性完成仲裁，避免二次回调。
-- 请求成功、失败、超时或取消完成后都会取消对应 `TimerEvent`，并清理 controller 上的内部取消回调。
+- 请求成功、失败、超时或取消完成后都会取消对应 `TimerTask`，并清理 controller 上的内部取消回调。
 - `TinyPbRpcController::StartCancel()` 支持触发 Channel 注册的取消回调；Channel 会删除 pending、设置 `ERROR_RPC_ASYNC_CANCELED` 并执行 closure。
-- `TimerEvent` 的取消标记改为 atomic，并显式禁止拷贝，避免跨线程取消标记的数据竞争和误拷贝。
+- `TimerTask` 的取消标记改为 atomic，并显式禁止拷贝，避免跨线程取消标记的数据竞争和误拷贝。
 - 扩展 `test_tinypb_rpc_async_channel`，覆盖超时清理、迟到响应不二次回调、controller 取消清理。
 - 扩展 `test_req_id`，覆盖 controller 取消回调执行与 Reset 清理。
 - 更新 `docs/stage-15.md`，补充超时/取消调用链和当前边界。
@@ -835,7 +835,7 @@
 ./build/test_tinypb_rpc_async_channel
 ./build/test_req_id
 ./build/test_timer
-./build/test_timer_event
+./build/test_timer_task
 ./scripts/check_rpc_sync.sh
 ```
 
@@ -853,7 +853,7 @@
 - `test_tinypb_async_client` 内部启动本地 TinyPB mock server，发起 6 个异步 Stub 请求，覆盖成功响应和服务端 TinyPB 错误响应。
 - `test_tinypb_async_client` 单独覆盖超时请求，验证 callback 执行、controller 错误码和 pending 清理。
 - 新增 `scripts/check_rpc_async.sh`，作为阶段 15 一键异步回归入口。
-- `check_rpc_async.sh` 串联构建、`test_tinypb_rpc_async_channel`、`test_tinypb_async_client`、`test_req_id`、`test_timer`、`test_timer_event`、`test_tinypb_rpc_channel` 和同步 RPC 安全网。
+- `check_rpc_async.sh` 串联构建、`test_tinypb_rpc_async_channel`、`test_tinypb_async_client`、`test_req_id`、`test_timer`、`test_timer_task`、`test_tinypb_rpc_channel` 和同步 RPC 安全网。
 - 更新 `docs/stage-15.md`，补充完整异步生命周期图，以及 request 发出、pending 注册、响应匹配、timeout、取消和 closure 执行线程说明。
 - `CMakeLists.txt` 新增 `test_tinypb_async_client` 目标。
 

@@ -1,13 +1,13 @@
 # 阶段 10：Timer、Reactor wakeup 和连接生命周期
 
-阶段 10 的目标是让 Reactor 从只处理 fd 事件，逐步升级到可以处理时间事件、跨线程任务投递和安全退出。本阶段会先完成内存级 TimerEvent，再接入 timerfd，最后补齐 wakeup、stop 和连接生命周期文档。
+阶段 10 的目标是让 Reactor 从只处理 fd 事件，逐步升级到可以处理时间事件、跨线程任务投递和安全退出。本阶段会先完成内存级 TimerTask，再接入 timerfd，最后补齐 wakeup、stop 和连接生命周期文档。
 
-## 任务四十七：`TimerEvent` 与基础时间函数
+## 任务四十七：`TimerTask` 与基础时间函数
 
 已完成能力：
 
 - 新增 `getNowMs()`，返回当前毫秒时间，用作定时任务到期时间基准。
-- 新增 `TimerEvent`，描述一个内存级定时任务。
+- 新增 `TimerTask`，描述一个内存级定时任务。
 - 支持一次性任务：`run()` 后执行 callback 并进入 canceled 状态。
 - 支持重复任务：`run()` 后执行 callback，并刷新下一次到期时间。
 - 支持 `cancel()`：取消后 `run()` 不再执行 callback。
@@ -15,8 +15,8 @@
 
 ## 当前边界
 
-- `TimerEvent` 只描述任务本身，不创建 `timerfd`。
-- `TimerEvent` 不注册到 Reactor，也不负责调度顺序。
+- `TimerTask` 只描述任务本身，不创建 `timerfd`。
+- `TimerTask` 不注册到 Reactor，也不负责调度顺序。
 - 到期判断由 `isExpired(nowMs)` 提供，真正的到期扫描和执行留给后续 `Timer`。
 - `run()` 不主动检查当前时间是否已到期；调用方必须只在确认到期后调用。
 
@@ -42,15 +42,15 @@ sequenceDiagram
     participant Timer as Timer
     participant Kernel as timerfd
     participant Reactor as Reactor
-    participant Event as TimerEvent
+    participant Task as TimerTask
 
-    User->>Timer: addTimerEvent(event)
+    User->>Timer: addTimerTask(task)
     Timer->>Kernel: timerfd_settime(nearest expire)
     Reactor->>Kernel: epoll_wait()
     Kernel-->>Reactor: timerfd readable
     Reactor->>Timer: FdEvent read callback
     Timer->>Kernel: read(timerfd expirations)
-    Timer->>Event: run()
+    Timer->>Task: run()
     Timer->>Kernel: timerfd_settime(next nearest)
 ```
 
@@ -141,7 +141,7 @@ sequenceDiagram
 已完成能力：
 
 - 新增 `TcpConnectionTimeWheel`，用简化方式管理连接空闲超时。
-- 每条连接注册一个重复 `TimerEvent`，Timer 到期后检查连接最后活跃时间。
+- 每条连接注册一个重复 `TimerTask`，Timer 到期后检查连接最后活跃时间。
 - `TcpConnection` 新增 `refreshActiveTime()` 和 `getLastActiveTimeMs()`，读到真实数据时刷新活跃时间。
 - 连接活跃刷新后，时间轮会重置检查时间，避免误关活跃连接。
 - 连接真正空闲超过阈值后，时间轮先从内部表移除连接，再通过 `Reactor::addTask()` 把关闭动作投递回所属 Reactor。
@@ -159,7 +159,7 @@ sequenceDiagram
 
     Connection->>Connection: input() reads bytes
     Connection->>Connection: refreshActiveTime()
-    Wheel->>Timer: add repeated TimerEvent
+    Wheel->>Timer: add repeated TimerTask
     Timer-->>Wheel: onTimer(fd)
     Wheel->>Connection: getLastActiveTimeMs()
     alt still active
@@ -173,7 +173,7 @@ sequenceDiagram
 
 ## TcpConnection 空闲超时边界
 
-- 当前实现是每连接一个 TimerEvent 的简化时间轮，不做分层 bucket，不追求高并发性能优化。
+- 当前实现是每连接一个 TimerTask 的简化时间轮，不做分层 bucket，不追求高并发性能优化。
 - 时间轮不拥有连接对象，只保存 `weak_ptr`；连接提前销毁或关闭时，下一次 timer 检查会清理记录。
 - 关闭 fd 的动作通过 Reactor task 执行，避免其他线程直接关闭连接所属 fd。
 - 当前 `TcpServer` 还未默认接入空闲超时，后续多 Reactor 阶段再统一接入服务端连接管理。
@@ -201,7 +201,7 @@ sequenceDiagram
 
 ```bash
 ./build.sh
-./build/test_timer_event
+./build/test_timer_task
 ./build/test_timer
 ./build/test_reactor
 ./build/test_tcp_timewheel

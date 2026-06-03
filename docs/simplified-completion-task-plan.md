@@ -69,7 +69,7 @@
 - RPC 日志和 APP 日志分开记录。
 - 日志事件包含时间、级别、线程、协程、文件、行号、函数名、reqId。
 - 日志后台 flush、关闭、滚动策略可测试。
-- 启动入口能公开 `GetConfig()`、`GetServer()`、`GetIOThreadPoolSize()`、`AddTimerEvent()` 等框架级能力。
+- 启动入口能公开 `GetConfig()`、`GetServer()`、`GetIOThreadPoolSize()`、`AddTimerTask()` 等框架级能力。
 - `docs/original-coverage-matrix.md` 中 `comm/config`、`comm/log`、`comm/start`、`comm/runtime` 的状态可以从“简化复刻”推进到“已复刻核心语义”。
 
 ---
@@ -296,7 +296,7 @@
 - `StartRpcServer()` 按配置创建 TinyPB 或 HTTP server。
 - `GetServer()` 返回全局 server。
 - `GetIOThreadPoolSize()` 从配置读取 IOThread 数量。
-- `AddTimerEvent()` 将 TimerEvent 投递到当前 server / reactor。
+- `AddTimerTask()` 将 TimerTask 投递到当前 server / reactor。
 - `Runtime::RequestContext` 补齐：
   - reqId。
   - interface / method name。
@@ -677,7 +677,7 @@
 - `TcpClient` 获取当前线程 Reactor。
 - connect 过程使用 `connectHook()` 或等价 Reactor 写事件。
 - 发送和接收使用 `writeHook()` / `readHook()` 或等价 Reactor 事件。
-- 超时由一次性 `TimerEvent` 控制。
+- 超时由一次性 `TimerTask` 控制。
 - 超时后设置连接 overtime flag，并恢复当前协程。
 - 失败后关闭 fd，下一次调用重新创建 fd。
 

@@ -22,7 +22,7 @@ int64_t getNowMs()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-TimerEvent::TimerEvent(int64_t intervalMs, bool repeated, Callback callback)
+TimerTask::TimerTask(int64_t intervalMs, bool repeated, Callback callback)
     : m_intervalMs(normalizeInterval(intervalMs)),
       m_repeated(repeated),
       m_callback(std::move(callback))
@@ -30,49 +30,49 @@ TimerEvent::TimerEvent(int64_t intervalMs, bool repeated, Callback callback)
     resetTime(m_intervalMs);
 }
 
-int64_t TimerEvent::getIntervalMs() const
+int64_t TimerTask::getIntervalMs() const
 {
     return m_intervalMs;
 }
 
-int64_t TimerEvent::getExpireTimeMs() const
+int64_t TimerTask::getExpireTimeMs() const
 {
     return m_expireTimeMs;
 }
 
-bool TimerEvent::isRepeated() const
+bool TimerTask::isRepeated() const
 {
     return m_repeated;
 }
 
-bool TimerEvent::isCanceled() const
+bool TimerTask::isCanceled() const
 {
     return m_canceled.load();
 }
 
-bool TimerEvent::isExpired(int64_t nowMs) const
+bool TimerTask::isExpired(int64_t nowMs) const
 {
     return !m_canceled && nowMs >= m_expireTimeMs;
 }
 
-void TimerEvent::cancel()
+void TimerTask::cancel()
 {
     m_canceled.store(true);
 }
 
-void TimerEvent::resetTime()
+void TimerTask::resetTime()
 {
     resetTime(m_intervalMs);
 }
 
-void TimerEvent::resetTime(int64_t intervalMs)
+void TimerTask::resetTime(int64_t intervalMs)
 {
     m_intervalMs = normalizeInterval(intervalMs);
     m_expireTimeMs = getNowMs() + m_intervalMs;
     m_canceled.store(false);
 }
 
-void TimerEvent::run()
+void TimerTask::run()
 {
     if (m_canceled.load()) {
         return;
@@ -92,7 +92,7 @@ void TimerEvent::run()
     cancel();
 }
 
-int64_t TimerEvent::normalizeInterval(int64_t intervalMs) const
+int64_t TimerTask::normalizeInterval(int64_t intervalMs) const
 {
     if (intervalMs < 0) {
         return 0;
@@ -137,36 +137,36 @@ int Timer::getFd() const
     return m_timerFd;
 }
 
-bool Timer::addTimerEvent(const std::shared_ptr<TimerEvent>& event)
+bool Timer::addTimerTask(const std::shared_ptr<TimerTask>& task)
 {
-    if (event == nullptr || event->isCanceled()) {
+    if (task == nullptr || task->isCanceled()) {
         return false;
     }
 
-    auto it = std::find(m_events.begin(), m_events.end(), event);
-    if (it == m_events.end()) {
-        m_events.push_back(event);
+    auto it = std::find(m_tasks.begin(), m_tasks.end(), task);
+    if (it == m_tasks.end()) {
+        m_tasks.push_back(task);
     }
     resetTimerFd();
     return true;
 }
 
-bool Timer::delTimerEvent(const std::shared_ptr<TimerEvent>& event)
+bool Timer::delTimerTask(const std::shared_ptr<TimerTask>& task)
 {
-    if (event == nullptr) {
+    if (task == nullptr) {
         return false;
     }
 
-    event->cancel();
-    auto oldSize = m_events.size();
-    removeCanceledEvents();
+    task->cancel();
+    auto oldSize = m_tasks.size();
+    removeCanceledTasks();
     resetTimerFd();
-    return oldSize != m_events.size();
+    return oldSize != m_tasks.size();
 }
 
-std::size_t Timer::getPendingEventCount() const
+std::size_t Timer::getPendingTaskCount() const
 {
-    return m_events.size();
+    return m_tasks.size();
 }
 
 void Timer::handleTimerReadable()
@@ -192,30 +192,30 @@ void Timer::handleTimerReadable()
     }
 
     int64_t nowMs = getNowMs();
-    std::vector<std::shared_ptr<TimerEvent>> expiredEvents;
-    std::vector<std::shared_ptr<TimerEvent>> pendingEvents;
-    pendingEvents.reserve(m_events.size());
+    std::vector<std::shared_ptr<TimerTask>> expiredTasks;
+    std::vector<std::shared_ptr<TimerTask>> pendingTasks;
+    pendingTasks.reserve(m_tasks.size());
 
-    for (const auto& event : m_events) {
-        if (event == nullptr || event->isCanceled()) {
+    for (const auto& task : m_tasks) {
+        if (task == nullptr || task->isCanceled()) {
             continue;
         }
-        if (event->isExpired(nowMs)) {
-            expiredEvents.push_back(event);
+        if (task->isExpired(nowMs)) {
+            expiredTasks.push_back(task);
             continue;
         }
-        pendingEvents.push_back(event);
+        pendingTasks.push_back(task);
     }
 
-    std::sort(expiredEvents.begin(), expiredEvents.end(), [](const auto& left, const auto& right) {
+    std::sort(expiredTasks.begin(), expiredTasks.end(), [](const auto& left, const auto& right) {
         return left->getExpireTimeMs() < right->getExpireTimeMs();
     });
 
-    m_events.swap(pendingEvents);
-    for (const auto& event : expiredEvents) {
-        event->run();
-        if (!event->isCanceled()) {
-            m_events.push_back(event);
+    m_tasks.swap(pendingTasks);
+    for (const auto& task : expiredTasks) {
+        task->run();
+        if (!task->isCanceled()) {
+            m_tasks.push_back(task);
         }
     }
 
@@ -228,11 +228,11 @@ void Timer::resetTimerFd()
         return;
     }
 
-    removeCanceledEvents();
+    removeCanceledTasks();
 
     struct itimerspec spec {};
-    if (!m_events.empty()) {
-        auto it = std::min_element(m_events.begin(), m_events.end(), [](const auto& left, const auto& right) {
+    if (!m_tasks.empty()) {
+        auto it = std::min_element(m_tasks.begin(), m_tasks.end(), [](const auto& left, const auto& right) {
             return left->getExpireTimeMs() < right->getExpireTimeMs();
         });
 
@@ -253,16 +253,16 @@ void Timer::resetTimerFd()
     }
 }
 
-void Timer::removeCanceledEvents()
+void Timer::removeCanceledTasks()
 {
-    m_events.erase(
+    m_tasks.erase(
         std::remove_if(
-            m_events.begin(),
-            m_events.end(),
-            [](const auto& event) {
-                return event == nullptr || event->isCanceled();
+            m_tasks.begin(),
+            m_tasks.end(),
+            [](const auto& task) {
+                return task == nullptr || task->isCanceled();
             }),
-        m_events.end());
+        m_tasks.end());
 }
 
 }

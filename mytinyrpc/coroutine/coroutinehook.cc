@@ -56,7 +56,7 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
     state->m_fdEvent = fdEvent;
 
     Reactor *reactor = fdEvent->getReactor();
-    std::shared_ptr<TimerEvent> timerEvent;
+    std::shared_ptr<TimerTask> timerTask;
 
     fdEvent->setCoroutine(state->m_coroutine);
     fdEvent->setCoroutineListenEvent(event);
@@ -70,9 +70,9 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
         }
 
         if (timeoutMs > 0 && reactor->getTimer() != nullptr) {
-            // TimerEvent 到期后恢复协程，并清理 FdEvent 上的协程挂载。
+            // TimerTask 到期后恢复协程，并清理 FdEvent 上的协程挂载。
             // timeoutMs 单位为毫秒；仅用于本次等待，不改变 fd 自身属性。
-            timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
+            timerTask = std::make_shared<TimerTask>(timeoutMs, false, [state]() {
                 if (state->m_finished) {
                     return;
                 }
@@ -80,15 +80,15 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
                 state->m_fdEvent->clearCoroutine();
                 state->m_coroutine->resume();
             });
-            reactor->getTimer()->addTimerEvent(timerEvent);
+            reactor->getTimer()->addTimerTask(timerTask);
         }
     }
 
     Coroutine::yield();
     state->m_finished = true;
 
-    if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
-        reactor->getTimer()->delTimerEvent(timerEvent);
+    if (timerTask != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->delTimerTask(timerTask);
     }
 
     fdEvent->delListenEvent(event);
@@ -108,20 +108,20 @@ bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
     auto state = std::make_shared<SleepHookState>();
     state->m_coroutine = Coroutine::getCurrentCoroutine();
 
-    // TimerEvent 到期回调运行在 Reactor 线程中；这里直接恢复同线程内挂起的协程。
-    auto timerEvent = std::make_shared<TimerEvent>(intervalMs, false, [state]() {
+    // TimerTask 到期回调运行在 Reactor 线程中；这里直接恢复同线程内挂起的协程。
+    auto timerTask = std::make_shared<TimerTask>(intervalMs, false, [state]() {
         if (state->m_finished) {
             return;
         }
         state->m_coroutine->resume();
     });
-    if (!reactor->getTimer()->addTimerEvent(timerEvent)) {
+    if (!reactor->getTimer()->addTimerTask(timerTask)) {
         return false;
     }
 
     Coroutine::yield();
     state->m_finished = true;
-    reactor->getTimer()->delTimerEvent(timerEvent);
+    reactor->getTimer()->delTimerTask(timerTask);
     return true;
 }
 
@@ -329,7 +329,7 @@ int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int t
     auto state = std::make_shared<ConnectHookState>();
     state->m_coroutine = Coroutine::getCurrentCoroutine();
     state->m_fdEvent = fdEvent;
-    std::shared_ptr<TimerEvent> timerEvent;
+    std::shared_ptr<TimerTask> timerTask;
 
     fdEvent->setCoroutine(state->m_coroutine);
     fdEvent->setCoroutineListenEvent(EPOLLOUT);
@@ -344,8 +344,8 @@ int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int t
         }
 
         if (timeoutMs > 0 && reactor->getTimer() != nullptr) {
-            // TimerEvent 到期后恢复同一个协程；恢复后通过 timedOut 标记返回 ETIMEDOUT。
-            timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
+            // TimerTask 到期后恢复同一个协程；恢复后通过 timedOut 标记返回 ETIMEDOUT。
+            timerTask = std::make_shared<TimerTask>(timeoutMs, false, [state]() {
                 if (state->m_finished) {
                     return;
                 }
@@ -353,15 +353,15 @@ int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int t
                 state->m_fdEvent->clearCoroutine();
                 state->m_coroutine->resume();
             });
-            reactor->getTimer()->addTimerEvent(timerEvent);
+            reactor->getTimer()->addTimerTask(timerTask);
         }
     }
 
     Coroutine::yield();
     state->m_finished = true;
 
-    if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
-        reactor->getTimer()->delTimerEvent(timerEvent);
+    if (timerTask != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->delTimerTask(timerTask);
     }
 
     fdEvent->delListenEvent(EPOLLOUT);

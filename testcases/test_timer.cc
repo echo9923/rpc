@@ -34,55 +34,55 @@ TEST(TimerTest, ReactorOwnsTimer)
     EXPECT_GE(reactor.getTimer()->getFd(), 0);
 }
 
-TEST(TimerTest, OneShotEventRunsInReactorLoop)
+TEST(TimerTest, OneShotTaskRunsInReactorLoop)
 {
     tinyrpc::Reactor reactor;
     int runCount = 0;
-    auto event = std::make_shared<tinyrpc::TimerEvent>(10, false, [&runCount]() {
+    auto task = std::make_shared<tinyrpc::TimerTask>(10, false, [&runCount]() {
         ++runCount;
     });
 
-    ASSERT_TRUE(reactor.getTimer()->addTimerEvent(event));
+    ASSERT_TRUE(reactor.getTimer()->addTimerTask(task));
     waitLoop(&reactor, [&runCount]() { return runCount == 1; }, 5);
 
     EXPECT_EQ(runCount, 1);
-    EXPECT_TRUE(event->isCanceled());
-    EXPECT_EQ(reactor.getTimer()->getPendingEventCount(), 0);
+    EXPECT_TRUE(task->isCanceled());
+    EXPECT_EQ(reactor.getTimer()->getPendingTaskCount(), 0);
 }
 
-TEST(TimerTest, RepeatedEventRunsUntilCanceled)
+TEST(TimerTest, RepeatedTaskRunsUntilCanceled)
 {
     tinyrpc::Reactor reactor;
     int runCount = 0;
-    std::shared_ptr<tinyrpc::TimerEvent> event;
-    event = std::make_shared<tinyrpc::TimerEvent>(5, true, [&runCount, &event]() {
+    std::shared_ptr<tinyrpc::TimerTask> task;
+    task = std::make_shared<tinyrpc::TimerTask>(5, true, [&runCount, &task]() {
         ++runCount;
         if (runCount >= 3) {
-            event->cancel();
+            task->cancel();
         }
     });
 
-    ASSERT_TRUE(reactor.getTimer()->addTimerEvent(event));
+    ASSERT_TRUE(reactor.getTimer()->addTimerTask(task));
     waitLoop(&reactor, [&runCount]() { return runCount >= 3; }, 10);
 
     EXPECT_EQ(runCount, 3);
-    EXPECT_TRUE(event->isCanceled());
-    EXPECT_EQ(reactor.getTimer()->getPendingEventCount(), 0);
+    EXPECT_TRUE(task->isCanceled());
+    EXPECT_EQ(reactor.getTimer()->getPendingTaskCount(), 0);
 }
 
-TEST(TimerTest, MultipleEventsRunByExpireTime)
+TEST(TimerTest, MultipleTasksRunByExpireTime)
 {
     tinyrpc::Reactor reactor;
     std::vector<std::string> order;
-    auto earlyEvent = std::make_shared<tinyrpc::TimerEvent>(5, false, [&order]() {
+    auto earlyTask = std::make_shared<tinyrpc::TimerTask>(5, false, [&order]() {
         order.push_back("early");
     });
-    auto lateEvent = std::make_shared<tinyrpc::TimerEvent>(25, false, [&order]() {
+    auto lateTask = std::make_shared<tinyrpc::TimerTask>(25, false, [&order]() {
         order.push_back("late");
     });
 
-    ASSERT_TRUE(reactor.getTimer()->addTimerEvent(lateEvent));
-    ASSERT_TRUE(reactor.getTimer()->addTimerEvent(earlyEvent));
+    ASSERT_TRUE(reactor.getTimer()->addTimerTask(lateTask));
+    ASSERT_TRUE(reactor.getTimer()->addTimerTask(earlyTask));
     waitLoop(&reactor, [&order]() { return order.size() == 2; }, 10);
 
     ASSERT_EQ(order.size(), 2);
@@ -90,22 +90,22 @@ TEST(TimerTest, MultipleEventsRunByExpireTime)
     EXPECT_EQ(order[1], "late");
 }
 
-TEST(TimerTest, DeletedEventDoesNotTrigger)
+TEST(TimerTest, DeletedTaskDoesNotTrigger)
 {
     tinyrpc::Reactor reactor;
     int runCount = 0;
-    auto event = std::make_shared<tinyrpc::TimerEvent>(5, false, [&runCount]() {
+    auto task = std::make_shared<tinyrpc::TimerTask>(5, false, [&runCount]() {
         ++runCount;
     });
 
-    ASSERT_TRUE(reactor.getTimer()->addTimerEvent(event));
-    ASSERT_TRUE(reactor.getTimer()->delTimerEvent(event));
+    ASSERT_TRUE(reactor.getTimer()->addTimerTask(task));
+    ASSERT_TRUE(reactor.getTimer()->delTimerTask(task));
 
     int nfds = reactor.waitOnce(30);
 
     EXPECT_EQ(nfds, 0);
     EXPECT_EQ(runCount, 0);
-    EXPECT_TRUE(event->isCanceled());
+    EXPECT_TRUE(task->isCanceled());
 }
 
 int main(int argc, char **argv)

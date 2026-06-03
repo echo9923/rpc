@@ -33,14 +33,14 @@ ssize_t writeHook(FdEvent *fdEvent, const void *buf, size_t count);
 // recvHook — 协程感知的 recv 封装。
 //
 // 与 readHook 类似，但保留 recv(2) 的 flags 参数。
-// timeoutMs > 0 时，等待 EPOLLIN 的同时注册一次性 TimerEvent；
+// timeoutMs > 0 时，等待 EPOLLIN 的同时注册一次性 TimerTask；
 // 超时恢复后返回 -1 并设置 errno = ETIMEDOUT。
 ssize_t recvHook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs = -1);
 
 // sendHook — 协程感知的 send 封装。
 //
 // 与 writeHook 类似，但保留 send(2) 的 flags 参数。
-// timeoutMs > 0 时，等待 EPOLLOUT 的同时注册一次性 TimerEvent；
+// timeoutMs > 0 时，等待 EPOLLOUT 的同时注册一次性 TimerTask；
 // 超时恢复后返回 -1 并设置 errno = ETIMEDOUT。
 ssize_t sendHook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs = -1);
 
@@ -62,14 +62,14 @@ int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int t
 // sleepHook — 协程感知的 sleep 封装。
 //
 // 主协程中直接透传 ::sleep()。
-// 非主协程中，使用传入 Reactor 的 TimerEvent 定时恢复当前协程。
+// 非主协程中，使用传入 Reactor 的 TimerTask 定时恢复当前协程。
 // 当前实现不处理信号中断，Timer 到期恢复后固定返回 0。
 unsigned int sleepHook(Reactor *reactor, unsigned int seconds);
 
 // usleepHook — 协程感知的 usleep 封装。
 //
 // 主协程中直接透传 ::usleep()。
-// 非主协程中，将微秒向上折算为毫秒 TimerEvent，到期后恢复当前协程。
+// 非主协程中，将微秒向上折算为毫秒 TimerTask，到期后恢复当前协程。
 int usleepHook(Reactor *reactor, useconds_t usec);
 
 }  // namespace tinyrpc
