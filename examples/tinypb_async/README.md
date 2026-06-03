@@ -27,7 +27,7 @@ Expected final output:
 ## Covered Behaviors
 
 - Multiple async requests complete.
-- Pending map matches responses by `msgReq`.
+- Pending map matches responses by `reqId`.
 - Unknown or late responses do not trigger duplicate callbacks.
 - Timeout and cancellation remove pending contexts and run closure once.
 

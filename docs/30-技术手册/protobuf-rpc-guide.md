@@ -367,7 +367,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
     │
     ▼
 TcpConnection::input()
-    │  read_hook 协程读取 socket 数据到 m_inputBuffer
+    │  readHook 协程读取 socket 数据到 m_inputBuffer
     ▼
 TcpConnection::execute()
     │
@@ -408,7 +408,7 @@ TcpConnection::execute()
             │
             ▼
 TcpConnection::output()
-    │  write_hook 协程将 m_outputBuffer 数据写入 socket
+    │  writeHook 协程将 m_outputBuffer 数据写入 socket
     ▼
 客户端接收 TCP 字节流
 ```

@@ -28,8 +28,8 @@ class TcpConnectionTimeWheel {
 
  private:
     struct Entry {
-        std::weak_ptr<TcpConnection> connection;
-        std::shared_ptr<TimerEvent> timerEvent;
+        std::weak_ptr<TcpConnection> m_connection;
+        std::shared_ptr<TimerEvent> m_timerEvent;
     };
 
     int64_t normalizeTimeout(int64_t timeoutMs) const;

@@ -3,7 +3,7 @@
  */
 
 #include "coroutine/coroutine.h"
-#include "coroutine/coroutine_pool.h"
+#include "coroutine/coroutinepool.h"
 
 #include <gtest/gtest.h>
 
@@ -77,7 +77,7 @@ TEST(CoroutinePoolTest, SuspendedCoroutineCannotBeReturned)
     tinyrpc::CoroutinePool pool(1);
 
     auto coroutine = pool.getCoroutine([]() {
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
     });
     ASSERT_NE(coroutine, nullptr);
 
@@ -133,7 +133,7 @@ TEST(CoroutineTest, ResetFinishedCoroutineRunsNewTask)
 TEST(CoroutineTest, ResetSuspendedCoroutineFails)
 {
     tinyrpc::Coroutine coroutine([]() {
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
     });
 
     coroutine.resume();
@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     ::testing::InitGoogleTest(&argc, argv);
     int result = RUN_ALL_TESTS();
     if (result == 0) {
-        std::cout << "[coroutine_pool] PASS" << std::endl;
+        std::cout << "[coroutinepool] PASS" << std::endl;
     }
     return result;
 }

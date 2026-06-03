@@ -12,7 +12,7 @@
 
 1. **先主链路，后工程化**：先跑通 TinyPB 同步 RPC，再补超时、错误码、配置、日志、生成器。
 2. **先单线程，后多线程**：先把单 Reactor、Timer、wakeup、连接生命周期吃透，再接入 IOThreadPool。
-3. **先同步，后异步**：异步 RPC 必须建立在 msgReq、Timer、Reactor task queue、IOThread 和连接生命周期稳定之后。
+3. **先同步，后异步**：异步 RPC 必须建立在 reqId、Timer、Reactor task queue、IOThread 和连接生命周期稳定之后。
 4. **先协议本身，后服务集成**：HTTP 先做 request/response/codec，再接入 TcpServer。
 5. **先最小行为，后完整复刻**：复杂模块先做最小可理解版本，再决定是否继续追求原项目复杂度。
 6. **每阶段必须收口**：每个阶段结束时补阶段文档、调用链图、回归脚本和当前限制说明。
@@ -29,7 +29,7 @@
 - 非阻塞 fd、`epoll` demo、`FdEvent`、`Reactor`。
 - `TcpBuffer`。
 - `TcpConnection` 输入、执行、输出三段式流程。
-- 最小协程对象、`read_hook/write_hook` 和服务端读写路径协程化。
+- 最小协程对象、`readHook/writeHook` 和服务端读写路径协程化。
 - `AbstractData`、`AbstractCodec`、`AbstractDispatcher`。
 - TinyPB 数据结构、编码、解码、流式拆包、错误包恢复。
 - Protobuf 服务注册、方法查找、服务端 RPC 分发闭环。
@@ -60,7 +60,7 @@
 | 阶段十二 | HTTP 协议栈 | HTTP request/response/codec/dispatcher/server 闭环 | 必须复刻 / 简化复刻 |
 | 阶段十三 | 配置、日志、启动入口和运行时 | 从测试程序升级为框架化启动方式 | 必须复刻 / 简化复刻 |
 | 阶段十四 | 协程、hook、协程池和内存池整理 | 理解 hook 与 Reactor 的关系，整理协程能力 | 简化复刻 |
-| 阶段十五 | 异步 RPC Channel | 支持并发异步调用、超时、回调和 msgReq 匹配 | 必须复刻 |
+| 阶段十五 | 异步 RPC Channel | 支持并发异步调用、超时、回调和 reqId 匹配 | 必须复刻 |
 | 阶段十六 | 代码生成器与示例工程 | 生成业务工程骨架并可端到端运行 | 简化复刻 |
 | 阶段十七 | 工程收口、覆盖矩阵和最终文档 | 全量回归、示例、学习总结、原项目对照 | 必须复刻 |
 
@@ -75,7 +75,7 @@
 - `TcpClient` 同步 TinyPB 请求/响应。
 - `TinyPbRpcChannel`。
 - `TinyPbRpcController` 的基本错误语义。
-- 请求号 `msgReq`。
+- 请求号 `reqId`。
 - 同步 RPC 端到端示例。
 - Timer / timerfd。
 - Reactor task queue / wakeup / stop。
@@ -168,7 +168,7 @@ public:
       google::protobuf::Message* response,
       google::protobuf::Closure* done) override;
 
-  void setMsgReqGenerator(std::function<std::string()> generator); // 可选，仅测试用
+  void setReqIdGenerator(std::function<std::string()> generator); // 可选，仅测试用
 };
 ```
 
@@ -260,28 +260,28 @@ public:
 ### 实现目标
 
 - 新增统一请求号生成工具。
-- `TinyPbRpcController` 支持 `msgReq`、错误码、错误文本、timeout 占位。
-- Channel 在 controller 未设置 `msgReq` 时自动生成。
-- response `msgReq` 与 request 不匹配时失败。
+- `TinyPbRpcController` 支持 `reqId`、错误码、错误文本、timeout 占位。
+- Channel 在 controller 未设置 `reqId` 时自动生成。
+- response `reqId` 与 request 不匹配时失败。
 
 ### 关键文件
 
-- `mytinyrpc/comm/msgreq.h`
-- `mytinyrpc/comm/msgreq.cc`
+- `mytinyrpc/comm/reqid.h`
+- `mytinyrpc/comm/reqid.cc`
 - `mytinyrpc/comm/errorcode.h`
 - `mytinyrpc/net/tinypb/tinypbrpccontroller.h`
 - `mytinyrpc/net/tinypb/tinypbrpccontroller.cc`
 - `mytinyrpc/net/tinypb/tinypbrpcchannel.cc`
-- `testcases/test_msg_req.cc`
+- `testcases/test_req_id.cc`
 - `testcases/test_tinypb_rpc_channel.cc`
 
 ### 建议最小接口
 
 ```cpp
-std::string MsgReqUtil::genMsgNumber();
+std::string ReqIdUtil::genReqId();
 
-void TinyPbRpcController::SetMsgReq(const std::string& msgReq);
-const std::string& TinyPbRpcController::MsgReq() const;
+void TinyPbRpcController::SetReqId(const std::string& reqId);
+const std::string& TinyPbRpcController::ReqId() const;
 
 void TinyPbRpcController::SetError(int code, const std::string& info);
 int TinyPbRpcController::ErrorCode() const;
@@ -296,12 +296,12 @@ int TinyPbRpcController::Timeout() const;
 - 请求号连续生成，不为空、不重复。
 - controller `Reset()` 清空错误和请求号。
 - Channel 自动生成请求号。
-- mock server 返回不匹配的 `msgReq`。
+- mock server 返回不匹配的 `reqId`。
 
 ### 验收标准
 
-- `test_msg_req` 通过。
-- `test_tinypb_rpc_channel` 新增 msgReq mismatch 测试通过。
+- `test_req_id` 通过。
+- `test_tinypb_rpc_channel` 新增 reqId mismatch 测试通过。
 - controller 能稳定表达错误码和错误文本。
 
 ### 不包括
@@ -487,7 +487,7 @@ int TinyPbRpcController::Timeout() const;
 - send failed
 - recv failed
 - timeout
-- msgReq mismatch
+- reqId mismatch
 - server framework error
 
 ### 验收标准
@@ -543,7 +543,7 @@ int TinyPbRpcController::Timeout() const;
 
 ---
 
-## 任务四十六：推迟响应缓存，仅保留 msgReq mismatch 检查
+## 任务四十六：推迟响应缓存，仅保留 reqId mismatch 检查
 
 **类型**：简化复刻
 
@@ -554,7 +554,7 @@ int TinyPbRpcController::Timeout() const;
 ### 实现目标
 
 - 文档说明：当前同步客户端只支持单 in-flight 请求。
-- 如果响应 `msgReq` 不匹配，直接失败。
+- 如果响应 `reqId` 不匹配，直接失败。
 - 不缓存乱序响应。
 
 ### 关键文件
@@ -566,8 +566,8 @@ int TinyPbRpcController::Timeout() const;
 
 ### 测试方式
 
-- mock server 返回错误 `msgReq`。
-- 客户端失败并设置 `ERROR_RPC_MSGREQ_MISMATCH`。
+- mock server 返回错误 `reqId`。
+- 客户端失败并设置 `ERROR_RPC_REQID_MISMATCH`。
 
 ### 验收标准
 
@@ -780,8 +780,8 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/net/tcpconnection_timewheel.h`
-- `mytinyrpc/net/tcpconnection_timewheel.cc`
+- `mytinyrpc/net/tcpconnectiontimewheel.h`
+- `mytinyrpc/net/tcpconnectiontimewheel.cc`
 - `mytinyrpc/net/tcpconnection.h`
 - `mytinyrpc/net/tcpconnection.cc`
 - `testcases/test_tcp_timewheel.cc`
@@ -951,10 +951,10 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/net/iothread_pool.h`
-- `mytinyrpc/net/iothread_pool.cc`
+- `mytinyrpc/net/iothreadpool.h`
+- `mytinyrpc/net/iothreadpool.cc`
 - `mytinyrpc/net/iothread.h`
-- `testcases/test_iothread_pool.cc`
+- `testcases/test_iothreadpool.cc`
 
 ### 测试方式
 
@@ -995,7 +995,7 @@ int TinyPbRpcController::Timeout() const;
 - `mytinyrpc/net/tcpserver.cc`
 - `mytinyrpc/net/tcpconnection.h`
 - `mytinyrpc/net/tcpconnection.cc`
-- `mytinyrpc/net/iothread_pool.h`
+- `mytinyrpc/net/iothreadpool.h`
 - `scripts/check_stage11_server.sh`
 
 ### 测试方式
@@ -1085,13 +1085,13 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/net/http/http_define.h`
-- `mytinyrpc/net/http/http_define.cc`
-- `mytinyrpc/net/http/http_request.h`
-- `mytinyrpc/net/http/http_request.cc`
-- `mytinyrpc/net/http/http_response.h`
-- `mytinyrpc/net/http/http_response.cc`
-- `testcases/test_http_define.cc`
+- `mytinyrpc/net/http/httpdefine.h`
+- `mytinyrpc/net/http/httpdefine.cc`
+- `mytinyrpc/net/http/httprequest.h`
+- `mytinyrpc/net/http/httprequest.cc`
+- `mytinyrpc/net/http/httpresponse.h`
+- `mytinyrpc/net/http/httpresponse.cc`
+- `testcases/test_httpdefine.cc`
 
 ### 测试方式
 
@@ -1172,7 +1172,7 @@ int TinyPbRpcController::Timeout() const;
 ### 关键文件
 
 - `mytinyrpc/net/http/httpcodec.cc`
-- `mytinyrpc/net/http/http_response.h`
+- `mytinyrpc/net/http/httpresponse.h`
 - `testcases/test_http_codec.cc`
 
 ### 测试方式
@@ -1379,7 +1379,7 @@ int TinyPbRpcController::Timeout() const;
 
 - 先实现同步文件日志。
 - 支持 DEBUG、INFO、WARN、ERROR。
-- 支持日志格式中带时间、线程 id、文件行号、msgReq。
+- 支持日志格式中带时间、线程 id、文件行号、reqId。
 - 再可选实现异步队列 flush。
 
 ### 关键文件
@@ -1466,7 +1466,7 @@ int TinyPbRpcController::Timeout() const;
 - 保存当前 method name。
 - 保存简化 local/peer addr。
 - dispatcher 处理请求时设置上下文。
-- 日志可读取当前 msgReq。
+- 日志可读取当前 reqId。
 
 ### 关键文件
 
@@ -1478,13 +1478,13 @@ int TinyPbRpcController::Timeout() const;
 
 ### 测试方式
 
-- 服务端处理请求时能读取当前 msgReq。
+- 服务端处理请求时能读取当前 reqId。
 - 请求结束后上下文清理。
 - 多线程请求上下文互不污染。
 
 ### 验收标准
 
-- 日志中能稳定打印 msgReq。
+- 日志中能稳定打印 reqId。
 - RunTime 不引入跨请求污染。
 
 ### 不包括
@@ -1517,7 +1517,7 @@ int TinyPbRpcController::Timeout() const;
 
 ### 学习目标
 
-先确认已有 coroutine、read_hook、write_hook 的边界，不急着扩展 API。
+先确认已有 coroutine、readHook、writeHook 的边界，不急着扩展 API。
 
 ### 实现目标
 
@@ -1530,8 +1530,8 @@ int TinyPbRpcController::Timeout() const;
 
 - `mytinyrpc/coroutine/coroutine.h`
 - `mytinyrpc/coroutine/coroutine.cc`
-- `mytinyrpc/coroutine/coroutine_hook.h`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.h`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `docs/coroutine-model.md`
 
 ### 测试方式
@@ -1573,8 +1573,8 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_hook.h`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.h`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `mytinyrpc/net/reactor.h`
 - `mytinyrpc/net/timer.h`
 - `testcases/test_hook.cc`
@@ -1614,8 +1614,8 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_hook.h`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.h`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `mytinyrpc/net/timer.h`
 - `testcases/test_hook_sleep.cc`
 
@@ -1654,8 +1654,8 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_hook.h`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.h`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `testcases/test_hook_socket.cc`
 
 ### 测试方式
@@ -1694,9 +1694,9 @@ int TinyPbRpcController::Timeout() const;
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_pool.h`
-- `mytinyrpc/coroutine/coroutine_pool.cc`
-- `testcases/test_coroutine_pool.cc`
+- `mytinyrpc/coroutine/coroutinepool.h`
+- `mytinyrpc/coroutine/coroutinepool.cc`
+- `testcases/test_coroutinepool.cc`
 
 ### 测试方式
 
@@ -1761,7 +1761,7 @@ int TinyPbRpcController::Timeout() const;
 ## 阶段完成标准
 
 - 异步 Channel 能保存 request/response/controller/closure 生命周期。
-- pending map 能按 msgReq 匹配响应。
+- pending map 能按 reqId 匹配响应。
 - IOThread/Reactor 能驱动异步网络读写。
 - 超时请求能清理并触发回调。
 - 异步端到端示例可运行。
@@ -1807,7 +1807,7 @@ int TinyPbRpcController::Timeout() const;
 
 ---
 
-## 任务七十五：异步请求表和 msgReq 匹配
+## 任务七十五：异步请求表和 reqId 匹配
 
 **类型**：必须复刻
 
@@ -1817,9 +1817,9 @@ int TinyPbRpcController::Timeout() const;
 
 ### 实现目标
 
-- 维护 `msgReq -> callback/context` 映射。
+- 维护 `reqId -> callback/context` 映射。
 - 发送请求前注册 pending。
-- 响应回来后按 msgReq 找到对应上下文。
+- 响应回来后按 reqId 找到对应上下文。
 - 支持乱序响应。
 
 ### 关键文件
@@ -1837,7 +1837,7 @@ int TinyPbRpcController::Timeout() const;
 ### 验收标准
 
 - pending 表新增、命中、删除行为正确。
-- 未知 msgReq 响应被丢弃或记录错误。
+- 未知 reqId 响应被丢弃或记录错误。
 
 ### 不包括
 
@@ -1865,7 +1865,7 @@ int TinyPbRpcController::Timeout() const;
 
 - `mytinyrpc/net/tinypb/tinypbrpcasyncchannel.cc`
 - `mytinyrpc/net/iothread.h`
-- `mytinyrpc/net/iothread_pool.h`
+- `mytinyrpc/net/iothreadpool.h`
 - `mytinyrpc/net/reactor.h`
 - `testcases/test_tinypb_rpc_async_channel.cc`
 
@@ -2174,7 +2174,7 @@ int TinyPbRpcController::Timeout() const;
 - `comm/start`
 - `comm/runtime`
 - `coroutine`
-- `coroutine_pool`
+- `coroutinepool`
 - `net/reactor`
 - `net/timer`
 - `net/tcp`
@@ -2351,7 +2351,7 @@ public:
       google::protobuf::Message* response,
       google::protobuf::Closure* done) override;
 
-  void setMsgReqGenerator(std::function<std::string()> generator);
+  void setReqIdGenerator(std::function<std::string()> generator);
 };
 ```
 
@@ -2366,8 +2366,8 @@ void SetFailed(const std::string& reason) override;
 void SetError(int code, const std::string& info);
 int ErrorCode() const;
 
-void SetMsgReq(const std::string& msgReq);
-const std::string& MsgReq() const;
+void SetReqId(const std::string& reqId);
+const std::string& ReqId() const;
 ```
 
 暂不实现或只留占位：
@@ -2391,7 +2391,7 @@ NotifyOnCancel();
 1. 检查 `method`、`request`、`response` 是否为空。
 2. 构造 TinyPB 请求对象。
 3. 设置 `m_serviceFullName = method->full_name()`。
-4. 生成或读取 `msgReq`。
+4. 生成或读取 `reqId`。
 5. 调用 `request->SerializeToString(&m_pbData)`。
 6. 调用 `TcpClient::sendAndRecvTinyPb(req, res)`。
 7. 网络失败时设置 controller 错误。
@@ -2408,7 +2408,7 @@ NotifyOnCancel();
 
 - mock server 接收 TinyPB 请求。
 - 验证 `serviceFullName` 正确。
-- 验证 `msgReq` 非空。
+- 验证 `reqId` 非空。
 - 验证 `pbData` 可 parse 成 request。
 - mock server 返回合法 response。
 - 客户端 response 字段正确。

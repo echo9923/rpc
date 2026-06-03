@@ -7,22 +7,22 @@
 已完成能力：
 
 - 新增 `TinyPbRpcAsyncChannel`，继承 `google::protobuf::RpcChannel`。
-- 新增 `AsyncCallContext`，保存本次调用的 `msgReq`、method 全名、controller、request、response 和 closure。
-- `CallMethod()` 会在参数合法时生成或复用 controller 中的 `msgReq`。
+- 新增 `AsyncCallContext`，保存本次调用的 `reqId`、method 全名、controller、request、response 和 closure。
+- `CallMethod()` 会在参数合法时生成或复用 controller 中的 `reqId`。
 - 当前外壳内部临时复用 `TinyPbRpcChannel` 完成同步 TinyPB 网络请求。
 - 成功路径和失败路径都会由同步 Channel 执行 `done` closure。
 - 新增 `test_tinypb_rpc_async_channel`，覆盖成功调用、网络失败仍执行 done、非法参数仍执行 done。
 
-## 任务七十五：异步请求表和 msgReq 匹配
+## 任务七十五：异步请求表和 reqId 匹配
 
 已完成能力：
 
-- `TinyPbRpcAsyncChannel` 新增 `msgReq -> AsyncCallContext` pending 表。
+- `TinyPbRpcAsyncChannel` 新增 `reqId -> AsyncCallContext` pending 表。
 - 参数合法且 request 序列化成功后，`CallMethod()` 会先注册 pending。
 - 新增 `setSyncFallbackEnabled(false)` 测试入口，可只注册 pending，不走同步网络 fallback。
-- 新增 `handleTinyPbResponse()`，按 response `msgReq` 命中上下文、移除 pending、反序列化业务 response 并执行 closure。
-- 支持乱序响应：每个 response 只唤醒与其 `msgReq` 对应的 request。
-- 未知 `msgReq` response 返回 `false` 并保留已有 pending。
+- 新增 `handleTinyPbResponse()`，按 response `reqId` 命中上下文、移除 pending、反序列化业务 response 并执行 closure。
+- 支持乱序响应：每个 response 只唤醒与其 `reqId` 对应的 request。
+- 未知 `reqId` response 返回 `false` 并保留已有 pending。
 - TinyPB 错误响应会设置 controller error 并执行 closure。
 
 ## 任务七十六：异步 Channel 接入 IOThread/Reactor
@@ -32,7 +32,7 @@
 - `TinyPbRpcAsyncChannel` 构造时持有一个 `IOThread`。
 - 默认 `CallMethod()` 会在注册 pending 后把网络请求投递到 IOThread。
 - IOThread 负责执行当前最小网络路径：使用 `TcpClient::sendAndRecvTinyPb()` 连接、发送请求并读取响应。
-- response 返回后由 IOThread 调用 `handleTinyPbResponse()`，按 `msgReq` 完成上下文并执行 closure。
+- response 返回后由 IOThread 调用 `handleTinyPbResponse()`，按 `reqId` 完成上下文并执行 closure。
 - 网络失败时，IOThread 会删除 pending、设置 controller error 并执行 closure。
 - `stop()` 可安全停止内部 IOThread，`getIOThreadId()` 可观察 closure 执行线程。
 - `test_tinypb_rpc_async_channel` 覆盖 10 个异步请求全部完成，以及 closure 在线程归属上运行于 IOThread。
@@ -65,7 +65,7 @@
 flowchart LR
     Stub["Protobuf Stub"] --> AsyncChannel["TinyPbRpcAsyncChannel"]
     AsyncChannel --> Validate["validate request<br/>serialize pbData"]
-    Validate --> Pending["pending map<br/>msgReq -> AsyncCallContext"]
+    Validate --> Pending["pending map<br/>reqId -> AsyncCallContext"]
     Validate --> Timer["TimerEvent<br/>timeout"]
     Timer --> Timeout["timeout callback<br/>take pending"]
     Pending --> Context["AsyncCallContext"]
@@ -73,7 +73,7 @@ flowchart LR
     IOThread --> TcpClient["TcpClient"]
     TcpClient --> TinyPB["TinyPB request/response"]
     TinyPB --> Handle["handleTinyPbResponse"]
-    Handle --> Match["take pending by msgReq"]
+    Handle --> Match["take pending by reqId"]
     Match --> Done["done closure<br/>runs on completing thread"]
     Timeout --> Done
     AsyncChannel --> Cancel["StartCancel<br/>take pending"]
@@ -82,10 +82,10 @@ flowchart LR
 
 生命周期说明：
 
-- request 发出：Protobuf Stub 调用 `TinyPbRpcAsyncChannel::CallMethod()`，Channel 生成或复用 controller 中的 `msgReq`，并把业务 request 序列化进 TinyPB `pbData`。
-- pending 注册：序列化成功后，Channel 将 `msgReq -> AsyncCallContext` 放入 pending map；后续成功响应、网络失败、超时和取消都必须先从 pending map 取出上下文。
+- request 发出：Protobuf Stub 调用 `TinyPbRpcAsyncChannel::CallMethod()`，Channel 生成或复用 controller 中的 `reqId`，并把业务 request 序列化进 TinyPB `pbData`。
+- pending 注册：序列化成功后，Channel 将 `reqId -> AsyncCallContext` 放入 pending map；后续成功响应、网络失败、超时和取消都必须先从 pending map 取出上下文。
 - 网络投递：默认模式下，Channel 把网络请求投递到内部 `IOThread`，当前最小网络路径由 `TcpClient::sendAndRecvTinyPb()` 完成。
-- 响应匹配：response 到达后调用 `handleTinyPbResponse()`，按 `msgReq` 取出 pending、取消 timeout event、反序列化业务 response 并执行 closure。
+- 响应匹配：response 到达后调用 `handleTinyPbResponse()`，按 `reqId` 取出 pending、取消 timeout event、反序列化业务 response 并执行 closure。
 - timeout：controller 设置 `Timeout()` 后，Channel 会向 IOThread 的 Reactor Timer 注册一次性 `TimerEvent`；超时先取出 pending，设置 `ERROR_RPC_ASYNC_TIMEOUT`，再执行 closure。
 - 取消：controller 调用 `StartCancel()` 后，Channel 注册的内部取消回调会取出 pending，设置 `ERROR_RPC_ASYNC_CANCELED` 并执行 closure。
 - closure 执行线程：正常网络响应和网络失败由 IOThread 执行 closure；手动 `handleTinyPbResponse()` 测试钩子由调用线程执行；timeout 由 IOThread Reactor Timer 执行；取消由发起 `StartCancel()` 的线程执行。
@@ -105,7 +105,7 @@ flowchart LR
 ./build.sh
 ./build/test_tinypb_rpc_async_channel
 ./build/test_tinypb_rpc_channel
-./build/test_msg_req
+./build/test_req_id
 ./build/test_timer
 ./build/test_tinypb_async_client
 ./scripts/check_rpc_async.sh

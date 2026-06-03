@@ -1,17 +1,17 @@
 /*
- * test_hook.cc — 任务二十一/二十二：read_hook/write_hook 与 Reactor 驱动恢复验收测试。
+ * test_hook.cc — 任务二十一/二十二：readHook/writeHook 与 Reactor 驱动恢复验收测试。
  *
  * 测试覆盖：
- *   1. ReadHookYieldsOnEAGAIN：pipe 无数据时协程调 read_hook 后 Yield，
+ *   1. ReadHookYieldsOnEAGAIN：pipe 无数据时协程调 readHook 后 Yield，
  *      验证协程状态、FdEvent::getCoroutine()、getListenEvents()。
  *   2. ReadHookResumesAndReads：写入数据后手动 resume，协程读到数据并 Finished。
- *   3. WriteHookInMainCoroutine：主协程调 write_hook 直通系统写，不挂载协程。
+ *   3. WriteHookInMainCoroutine：主协程调 writeHook 直通系统写，不挂载协程。
  *   4. ReactorResumesReadHookCoroutine：Reactor 事件驱动自动恢复挂起的协程，
- *      验证"read_hook 挂起 → pipe 写入 → Reactor 恢复 → 协程读到数据"完整闭环。
+ *      验证"readHook 挂起 → pipe 写入 → Reactor 恢复 → 协程读到数据"完整闭环。
  */
 
 #include "coroutine/coroutine.h"
-#include "coroutine/coroutine_hook.h"
+#include "coroutine/coroutinehook.h"
 #include "net/fdevent.h"
 #include "net/reactor.h"
 #include "net/timer.h"
@@ -88,7 +88,7 @@ static sockaddr_in makeLoopbackAddr(uint16_t port)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1：read_hook 在 EAGAIN 时让出执行权
+// Test 1：readHook 在 EAGAIN 时让出执行权
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(HookTest, ReadHookYieldsOnEAGAIN)
 {
@@ -107,13 +107,13 @@ TEST(HookTest, ReadHookYieldsOnEAGAIN)
     char buf[64];
     bool coroDone = false;
 
-    // 创建协程：内部调用 read_hook，预期遇到 EAGAIN 后 Yield。
+    // 创建协程：内部调用 readHook，预期遇到 EAGAIN 后 Yield。
     tinyrpc::Coroutine co([&]() {
-        tinyrpc::read_hook(&readEvent, buf, sizeof(buf));
+        tinyrpc::readHook(&readEvent, buf, sizeof(buf));
         coroDone = true;
     });
 
-    // 第一次 resume：协程执行 read_hook → EAGAIN → Yield，回到主协程。
+    // 第一次 resume：协程执行 readHook → EAGAIN → Yield，回到主协程。
     co.resume();
 
     // 验证协程处于 Suspended 状态。
@@ -133,7 +133,7 @@ TEST(HookTest, ReadHookYieldsOnEAGAIN)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2：resume 后 read_hook 读到数据，协程正常结束
+// Test 2：resume 后 readHook 读到数据，协程正常结束
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(HookTest, ReadHookResumesAndReads)
 {
@@ -155,7 +155,7 @@ TEST(HookTest, ReadHookResumesAndReads)
     bool coroDone = false;
 
     tinyrpc::Coroutine co([&]() {
-        readResult = tinyrpc::read_hook(&readEvent, buf, sizeof(buf));
+        readResult = tinyrpc::readHook(&readEvent, buf, sizeof(buf));
         coroDone = true;
     });
 
@@ -185,12 +185,12 @@ TEST(HookTest, ReadHookResumesAndReads)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 3：主协程中 write_hook 直通系统写，不挂载协程
+// Test 3：主协程中 writeHook 直通系统写，不挂载协程
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(HookTest, WriteHookInMainCoroutine)
 {
     // 确认当前在主协程中。
-    ASSERT_TRUE(tinyrpc::Coroutine::IsMainCoroutine());
+    ASSERT_TRUE(tinyrpc::Coroutine::isMainCoroutine());
 
     // pipe(pipefd)：创建匿名管道，pipefd[0] 为读端，pipefd[1] 为写端。
     int pipefd[2];
@@ -202,8 +202,8 @@ TEST(HookTest, WriteHookInMainCoroutine)
     tinyrpc::FdEvent writeEvent(writeFd);
 
     const char *msg = "world";
-    // 主协程直接调用 write_hook，预期直通 ::write，返回实际写入字节数。
-    ssize_t ret = tinyrpc::write_hook(&writeEvent, msg, strlen(msg));
+    // 主协程直接调用 writeHook，预期直通 ::write，返回实际写入字节数。
+    ssize_t ret = tinyrpc::writeHook(&writeEvent, msg, strlen(msg));
     EXPECT_EQ(ret, static_cast<ssize_t>(strlen(msg)));
 
     // FdEvent 上不应挂载任何协程（主协程不做挂起）。
@@ -214,7 +214,7 @@ TEST(HookTest, WriteHookInMainCoroutine)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 4：Reactor 事件驱动恢复 read_hook 协程
+// Test 4：Reactor 事件驱动恢复 readHook 协程
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(HookTest, ReactorResumesReadHookCoroutine)
 {
@@ -237,13 +237,13 @@ TEST(HookTest, ReactorResumesReadHookCoroutine)
     ssize_t readResult = 0;
     bool coroDone = false;
 
-    // 创建协程：内部调用 read_hook，预期遇到 EAGAIN 后 Yield。
+    // 创建协程：内部调用 readHook，预期遇到 EAGAIN 后 Yield。
     tinyrpc::Coroutine co([&]() {
-        readResult = tinyrpc::read_hook(&readEvent, buf, sizeof(buf));
+        readResult = tinyrpc::readHook(&readEvent, buf, sizeof(buf));
         coroDone = true;
     });
 
-    // 第一次 resume：协程执行 read_hook → EAGAIN → 挂载协程到 FdEvent → Yield。
+    // 第一次 resume：协程执行 readHook → EAGAIN → 挂载协程到 FdEvent → Yield。
     co.resume();
 
     // 验证协程处于 Suspended 状态。
@@ -296,7 +296,7 @@ TEST(HookTest, ConnectHookInMainCoroutineUsesRawConnect)
     event.setReactor(&reactor);
 
     sockaddr_in addr = makeLoopbackAddr(1);
-    int ret = tinyrpc::connect_hook(
+    int ret = tinyrpc::connectHook(
         &event,
         reinterpret_cast<sockaddr *>(&addr),
         sizeof(addr),
@@ -327,7 +327,7 @@ TEST(HookTest, ConnectHookReactorSuccess)
     int connectResult = -1;
     bool coroDone = false;
     tinyrpc::Coroutine co([&]() {
-        connectResult = tinyrpc::connect_hook(
+        connectResult = tinyrpc::connectHook(
             &event,
             reinterpret_cast<sockaddr *>(&addr),
             sizeof(addr),
@@ -375,7 +375,7 @@ TEST(HookTest, ConnectHookReactorConnectionRefused)
     int connectErrno = 0;
     bool coroDone = false;
     tinyrpc::Coroutine co([&]() {
-        connectResult = tinyrpc::connect_hook(
+        connectResult = tinyrpc::connectHook(
             &event,
             reinterpret_cast<sockaddr *>(&addr),
             sizeof(addr),
@@ -418,7 +418,7 @@ TEST(HookTest, ConnectHookTimeoutResumesCoroutine)
     int connectErrno = 0;
     bool coroDone = false;
     tinyrpc::Coroutine co([&]() {
-        connectResult = tinyrpc::connect_hook(
+        connectResult = tinyrpc::connectHook(
             &event,
             reinterpret_cast<sockaddr *>(&addr),
             sizeof(addr),
@@ -432,7 +432,7 @@ TEST(HookTest, ConnectHookTimeoutResumesCoroutine)
     ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
     ASSERT_TRUE(event.isRegistered());
 
-    // 这个用例只验证 connect_hook 的 Timer 超时恢复分支。
+    // 这个用例只验证 connectHook 的 Timer 超时恢复分支。
     // 不同宿主/WSL 网络可能会让测试地址很快产生 EPOLLOUT，因此这里主动移除
     // 连接 fd 的 epoll 监听，只保留 Reactor 内部 timerfd 来驱动超时恢复。
     ASSERT_TRUE(event.unregisterFromReactor());

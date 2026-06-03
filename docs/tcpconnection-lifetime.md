@@ -9,8 +9,8 @@
 | `TcpConnection` 对象 | `TcpServer::m_connections` 中的 `std::shared_ptr<TcpConnection>` | 连接建立后先写入连接表；关闭回调调用 `TcpServer::removeConnection()` 后释放服务端持有的引用。 |
 | 连接 fd | `TcpConnection` | fd 从 `accept(2)` 返回后交给 `TcpConnection` 管理，最终由 `TcpConnection::closeConnection()` 调用 `close(2)` 关闭。 |
 | `FdEvent` | `TcpConnection` | `FdEvent` 只保存 fd、等待事件、回调和协程指针，不拥有 fd；注册到 Reactor 后 Reactor 只保存非拥有的 `FdEvent*`。 |
-| input buffer | `TcpConnection` | `input()` 通过 `read_hook()` 读入字节流并追加，`execute()` 通过 codec 消费。 |
-| output buffer | `TcpConnection` | `execute()`、dispatcher 或 `sendProtocolData()` 写入，`output()` 通过 `write_hook()` 发送并推进读指针。 |
+| input buffer | `TcpConnection` | `input()` 通过 `readHook()` 读入字节流并追加，`execute()` 通过 codec 消费。 |
+| output buffer | `TcpConnection` | `execute()`、dispatcher 或 `sendProtocolData()` 写入，`output()` 通过 `writeHook()` 发送并推进读指针。 |
 | codec | `TcpConnection` 持有 `shared_ptr` | 负责把 input buffer 解码成协议对象，并把响应对象编码到 output buffer。 |
 | dispatcher | `TcpConnection` 持有 `shared_ptr` | 只分发协议对象和生成响应，不拥有连接、fd 或缓冲区。 |
 | IOThread / IOThreadPool | `TcpServer` | 只拥有 Sub Reactor 线程，不拥有连接对象；连接只记录自己所属的 `Reactor*`。 |
@@ -96,11 +96,11 @@ stateDiagram-v2
 
 读写主循环只在连接所属 Reactor 线程中运行：
 
-1. `input()` 调用 `read_hook()`。当内核返回 `EAGAIN` 时，hook 会把当前协程挂到 `FdEvent`，注册 `EPOLLIN` 并 yield；Reactor 之后在同一线程恢复协程。
+1. `input()` 调用 `readHook()`。当内核返回 `EAGAIN` 时，hook 会把当前协程挂到 `FdEvent`，注册 `EPOLLIN` 并 yield；Reactor 之后在同一线程恢复协程。
 2. `input()` 读到真实数据后追加到 input buffer，并刷新 `m_lastActiveTimeMs`。
 3. `execute()` 消费 input buffer。无 codec 时保持 Echo；有 codec 时循环 decode，decode 成功后交给 dispatcher 或直接 encode 回写。
 4. dispatcher 在连接所属 Reactor 线程中执行。dispatcher 可通过 `TcpConnection::sendProtocolData()` 把响应编码进 output buffer，但不拥有连接对象。
-5. `output()` 调用 `write_hook()` 发送 output buffer。遇到 `EAGAIN` 时注册 `EPOLLOUT` 并 yield，后续仍由同一 Reactor 线程恢复。
+5. `output()` 调用 `writeHook()` 发送 output buffer。遇到 `EAGAIN` 时注册 `EPOLLOUT` 并 yield，后续仍由同一 Reactor 线程恢复。
 6. output buffer 写空后删除 `EPOLLOUT`，避免持续可写事件造成空转。
 
 缓冲区关系：

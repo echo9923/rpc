@@ -1,7 +1,7 @@
 #include "net/tinypb/tinypbrpcchannel.h"
 
 #include "comm/errorcode.h"
-#include "comm/msgreq.h"
+#include "comm/reqid.h"
 #include "net/tcpclient.h"
 #include "net/tinypb/tinypbdata.h"
 #include "net/tinypb/tinypbrpccontroller.h"
@@ -19,9 +19,9 @@ TinyPbRpcChannel::TinyPbRpcChannel(const IPAddress& peerAddr)
 {
 }
 
-void TinyPbRpcChannel::setMsgReqGenerator(std::function<std::string()> generator)
+void TinyPbRpcChannel::setReqIdGenerator(std::function<std::string()> generator)
 {
-    m_msgReqGenerator = std::move(generator);
+    m_reqIdGenerator = std::move(generator);
 }
 
 void TinyPbRpcChannel::CallMethod(
@@ -48,15 +48,15 @@ void TinyPbRpcChannel::CallMethod(
 
     TinyPbStruct tinyRequest;
     auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
-    if (tinyController != nullptr && !tinyController->MsgReq().empty()) {
-        tinyRequest.m_msgReq = tinyController->MsgReq();
+    if (tinyController != nullptr && !tinyController->getReqId().empty()) {
+        tinyRequest.m_reqId = tinyController->getReqId();
     } else {
-        tinyRequest.m_msgReq = genMsgReq();
+        tinyRequest.m_reqId = genReqId();
     }
     tinyRequest.m_serviceFullName = method->full_name();
 
     if (tinyController != nullptr) {
-        tinyController->SetMsgReq(tinyRequest.m_msgReq);
+        tinyController->setReqId(tinyRequest.m_reqId);
     }
 
     // [第三方 API] SerializeToString 将业务 request 编码为 Protobuf 二进制串，
@@ -69,8 +69,8 @@ void TinyPbRpcChannel::CallMethod(
 
     TinyPbStruct tinyResponse;
     TcpClient client(m_peerAddr);
-    if (tinyController != nullptr && tinyController->Timeout() > 0) {
-        client.setTimeout(tinyController->Timeout());
+    if (tinyController != nullptr && tinyController->getTimeout() > 0) {
+        client.setTimeout(tinyController->getTimeout());
     }
     if (!client.sendAndRecvTinyPb(&tinyRequest, &tinyResponse)) {
         std::string errorInfo = client.getErrorInfo();
@@ -83,12 +83,12 @@ void TinyPbRpcChannel::CallMethod(
         return;
     }
 
-    if (tinyResponse.m_msgReq != tinyRequest.m_msgReq) {
+    if (tinyResponse.m_reqId != tinyRequest.m_reqId) {
         setControllerError(
             controller,
-            ERROR_RPC_MSGREQ_MISMATCH,
-            "response msgReq mismatch, request = " + tinyRequest.m_msgReq
-                + ", response = " + tinyResponse.m_msgReq);
+            ERROR_RPC_REQID_MISMATCH,
+            "response reqId mismatch, request = " + tinyRequest.m_reqId
+                + ", response = " + tinyResponse.m_reqId);
         finish();
         return;
     }
@@ -110,13 +110,13 @@ void TinyPbRpcChannel::CallMethod(
     finish();
 }
 
-std::string TinyPbRpcChannel::genMsgReq() const
+std::string TinyPbRpcChannel::genReqId() const
 {
-    if (m_msgReqGenerator != nullptr) {
-        return m_msgReqGenerator();
+    if (m_reqIdGenerator != nullptr) {
+        return m_reqIdGenerator();
     }
 
-    return MsgReqUtil::genMsgNumber();
+    return ReqIdUtil::genReqId();
 }
 
 void TinyPbRpcChannel::setControllerError(
@@ -130,7 +130,7 @@ void TinyPbRpcChannel::setControllerError(
 
     auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
     if (tinyController != nullptr) {
-        tinyController->SetError(errorCode, errorInfo);
+        tinyController->setError(errorCode, errorInfo);
         return;
     }
 

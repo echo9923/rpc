@@ -1,6 +1,6 @@
 #include "comm/start.h"
-#include "net/http/http_request.h"
-#include "net/http/http_response.h"
+#include "net/http/httprequest.h"
+#include "net/http/httpresponse.h"
 #include "net/http/httpdispatcher.h"
 #include "net/tinypb/tinypbdispatcher.h"
 #include "test_tinypb_server.pb.h"

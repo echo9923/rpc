@@ -1,4 +1,4 @@
-#include "net/tcpconnection_timewheel.h"
+#include "net/tcpconnectiontimewheel.h"
 
 #include "comm/log.h"
 #include "net/reactor.h"
@@ -27,8 +27,8 @@ TcpConnectionTimeWheel::~TcpConnectionTimeWheel()
 
     for (auto& [fd, entry] : m_entries) {
         (void)fd;
-        if (entry.timerEvent != nullptr) {
-            m_reactor->getTimer()->delTimerEvent(entry.timerEvent);
+        if (entry.m_timerEvent != nullptr) {
+            m_reactor->getTimer()->delTimerEvent(entry.m_timerEvent);
         }
     }
 }
@@ -68,15 +68,15 @@ bool TcpConnectionTimeWheel::refreshConnection(int fd)
         return false;
     }
 
-    auto connection = iter->second.connection.lock();
+    auto connection = iter->second.m_connection.lock();
     if (connection == nullptr || connection->isClosed()) {
         removeConnection(fd);
         return false;
     }
 
     connection->refreshActiveTime();
-    if (iter->second.timerEvent != nullptr) {
-        iter->second.timerEvent->resetTime(m_checkIntervalMs);
+    if (iter->second.m_timerEvent != nullptr) {
+        iter->second.m_timerEvent->resetTime(m_checkIntervalMs);
     }
     return true;
 }
@@ -88,8 +88,8 @@ bool TcpConnectionTimeWheel::removeConnection(int fd)
         return false;
     }
 
-    if (m_reactor != nullptr && m_reactor->getTimer() != nullptr && iter->second.timerEvent != nullptr) {
-        m_reactor->getTimer()->delTimerEvent(iter->second.timerEvent);
+    if (m_reactor != nullptr && m_reactor->getTimer() != nullptr && iter->second.m_timerEvent != nullptr) {
+        m_reactor->getTimer()->delTimerEvent(iter->second.m_timerEvent);
     }
     m_entries.erase(iter);
     return true;
@@ -122,7 +122,7 @@ void TcpConnectionTimeWheel::onTimer(int fd)
         return;
     }
 
-    auto connection = iter->second.connection.lock();
+    auto connection = iter->second.m_connection.lock();
     if (connection == nullptr || connection->isClosed()) {
         removeConnection(fd);
         return;
@@ -130,9 +130,9 @@ void TcpConnectionTimeWheel::onTimer(int fd)
 
     int64_t idleMs = getNowMs() - connection->getLastActiveTimeMs();
     if (idleMs < m_idleTimeoutMs) {
-        if (iter->second.timerEvent != nullptr) {
+        if (iter->second.m_timerEvent != nullptr) {
             int64_t nextDelayMs = std::max<int64_t>(m_checkIntervalMs, m_idleTimeoutMs - idleMs);
-            iter->second.timerEvent->resetTime(nextDelayMs);
+            iter->second.m_timerEvent->resetTime(nextDelayMs);
         }
         return;
     }

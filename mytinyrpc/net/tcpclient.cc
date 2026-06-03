@@ -126,10 +126,15 @@ bool TcpClient::connectOnce()
     }
 
     // connect(2)：向 m_peerAddr 发起 TCP 三次握手。
-    // 参数依次为：socket fd、对端地址（sockaddr*）、地址长度。
+    // 返回值：0 成功；-1 失败，errno 标记原因。
+    // 常见 errno：EINPROGRESS（非阻塞模式，连接进行中）、ECONNREFUSED（拒绝）、
+    // ETIMEDOUT（超时）、ENETUNREACH（网络不可达）、EISCONN（已连接）。
     int rt = connect(m_fd, m_peerAddr.getSockAddr(), m_peerAddr.getSockLen());
     if (rt != 0) {
-        if (m_timeoutMs > 0 && errno == EINPROGRESS) {
+        // EINPROGRESS：非阻塞 connect 不会等待握手完成，而是立即返回。
+    // 后续通过 poll/select 监听 POLLOUT 事件来确认连接建立（或失败）。
+    if (m_timeoutMs > 0 && errno == EINPROGRESS) {
+            // 情况一：非阻塞模式且有超时 —— 等待 POLLOUT 事件确认连接完成
             if (!waitFdEvent(POLLOUT, "connect", ERROR_TCP_TIMEOUT)) {
                 close(m_fd);
                 m_fd = kInvalidSocket;
@@ -152,6 +157,7 @@ bool TcpClient::connectOnce()
                 return false;
             }
         } else {
+            // 情况二：阻塞模式或无超时 —— connect 已直接失败，记录 errno 并清理
             m_errorCode = ERROR_TCP_CONNECT_FAILED;
             m_errorInfo = "connect failed: " + std::string(std::strerror(errno));
             ErrorLog("TcpClient connect() to " + m_peerAddr.toString()

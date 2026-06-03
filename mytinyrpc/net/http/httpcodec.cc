@@ -1,6 +1,6 @@
 #include "net/http/httpcodec.h"
-#include "net/http/http_request.h"
-#include "net/http/http_response.h"
+#include "net/http/httprequest.h"
+#include "net/http/httpresponse.h"
 
 #include <cctype>
 #include <cstdlib>

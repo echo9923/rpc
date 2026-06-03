@@ -36,11 +36,9 @@ if [ ! -f "/usr/include/google/protobuf/service.h" ] && [ ! -f "/usr/local/inclu
     exit 1
 fi
 
-if command -v nproc >/dev/null 2>&1; then
-    JOBS="$(nproc)"
-else
-    JOBS="4"
-fi
+# WSL 挂载 Windows 工作区时，高并发 Make 生成依赖文件偶发丢失
+# compiler_depend.make。默认串行构建保证验收稳定；需要提速时可显式设置。
+JOBS="${MYTINYRPC_BUILD_JOBS:-1}"
 
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build "$BUILD_DIR" --parallel "$JOBS"

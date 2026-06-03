@@ -2,7 +2,7 @@
  * test_iothread_pool.cc -- 任务五十五：IOThreadPool 测试。
  */
 
-#include "net/iothread_pool.h"
+#include "net/iothreadpool.h"
 
 #include <gtest/gtest.h>
 
@@ -98,7 +98,7 @@ int main(int argc, char **argv)
     ::testing::InitGoogleTest(&argc, argv);
     int result = RUN_ALL_TESTS();
     if (result == 0) {
-        std::cout << "[iothread_pool] PASS" << std::endl;
+        std::cout << "[iothreadpool] PASS" << std::endl;
     }
     return result;
 }

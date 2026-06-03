@@ -22,7 +22,7 @@ sequenceDiagram
 
     Caller->>Stub: "query_name(controller, request, response)"
     Stub->>Channel: "CallMethod()"
-    Channel->>Channel: "生成/读取 msgReq"
+    Channel->>Channel: "生成/读取 reqId"
     Channel->>Channel: "序列化 request pbData"
     Channel->>Client: "sendAndRecvTinyPb()"
     Client->>Codec: "encode TinyPB request"
@@ -36,7 +36,7 @@ sequenceDiagram
     Conn->>Client: "TCP 写回响应帧"
     Client->>Codec: "decode TinyPB response"
     Client->>Channel: "TinyPbStruct response"
-    Channel->>Channel: "校验 msgReq 和 errCode"
+    Channel->>Channel: "校验 reqId 和 errCode"
     Channel->>Stub: "反序列化 response pbData"
     Stub->>Caller: "返回业务 response"
 ```
@@ -46,7 +46,7 @@ sequenceDiagram
 - 不支持异步 RPC。
 - 不支持连接池。
 - 不支持多路复用和并发 pending map。
-- 不缓存乱序响应，response `msgReq` 不匹配时直接失败。
+- 不缓存乱序响应，response `reqId` 不匹配时直接失败。
 - timeout 仅覆盖同步客户端的 connect/read/write 等待，不包含服务端业务执行超时。
 
 ### 任务三十八：最小 `TinyPbRpcChannel`
@@ -92,7 +92,7 @@ sequenceDiagram
 
 - 仅支持同步一问一答调用。
 - 不支持超时、重试、连接池和并发 pending map。
-- 不检查响应 `msgReq` 是否与请求一致，该能力在任务四十/四十六补齐。
+- 不检查响应 `reqId` 是否与请求一致，该能力在任务四十/四十六补齐。
 - 本任务只使用 mock socket server 验证 Channel，不启动真实 `TcpServer`。
 
 ### 任务三十九：真实 Stub 到服务端端到端同步 RPC
@@ -138,26 +138,26 @@ sequenceDiagram
 
 ### 任务四十：请求号与 `TinyPbRpcController` 语义补齐
 
-已新增统一请求号工具 `MsgReqUtil::genMsgNumber()`。默认请求号格式为进程内唯一字符串，Channel 测试仍可通过 `setMsgReqGenerator()` 注入固定请求号，便于断言。
+已新增统一请求号工具 `ReqIdUtil::genReqId()`。默认请求号格式为进程内唯一字符串，Channel 测试仍可通过 `setReqIdGenerator()` 注入固定请求号，便于断言。
 
 `TinyPbRpcController` 当前记录以下框架层状态：
 
-- `MsgReq()`：本次 RPC 的请求号。
+- `ReqId()`：本次 RPC 的请求号。
 - `ErrorCode()` / `ErrorText()`：框架层错误码和错误文本。
 - `Timeout()`：同步 RPC 超时时间占位，单位毫秒，真正超时行为留到任务四十一。
 
 `TinyPbRpcChannel` 的请求号规则：
 
-1. 如果传入的是 `TinyPbRpcController`，且 controller 已设置 `MsgReq()`，则直接复用该请求号。
-2. 否则调用 `MsgReqUtil::genMsgNumber()` 自动生成请求号。
-3. 收到 response 后先检查 response `msgReq` 是否等于 request `msgReq`。
-4. 不匹配时设置 `ERROR_RPC_MSGREQ_MISMATCH`，不会反序列化业务 response。
+1. 如果传入的是 `TinyPbRpcController`，且 controller 已设置 `ReqId()`，则直接复用该请求号。
+2. 否则调用 `ReqIdUtil::genReqId()` 自动生成请求号。
+3. 收到 response 后先检查 response `reqId` 是否等于 request `reqId`。
+4. 不匹配时设置 `ERROR_RPC_REQID_MISMATCH`，不会反序列化业务 response。
 
 验证命令：
 
 ```bash
 ./build.sh
-./build/test_msg_req
+./build/test_req_id
 ./build/test_tinypb_rpc_channel
 ./scripts/check_stage8_rpc.sh
 ```

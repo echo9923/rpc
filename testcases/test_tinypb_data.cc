@@ -26,14 +26,14 @@ TEST(TinyPbDataTest, DefaultValues)
 
     // 数值字段默认值
     EXPECT_EQ(s.m_pkLen, 0);
-    EXPECT_EQ(s.m_msgReqLen, 0);
+    EXPECT_EQ(s.m_reqIdLen, 0);
     EXPECT_EQ(s.m_serviceNameLen, 0);
     EXPECT_EQ(s.m_errCode, 0);
     EXPECT_EQ(s.m_errInfoLen, 0);
     EXPECT_EQ(s.m_checkNum, -1);
 
     // 字符串字段默认为空
-    EXPECT_TRUE(s.m_msgReq.empty());
+    EXPECT_TRUE(s.m_reqId.empty());
     EXPECT_TRUE(s.m_serviceFullName.empty());
     EXPECT_TRUE(s.m_errInfo.empty());
     EXPECT_TRUE(s.m_pbData.empty());
@@ -70,8 +70,8 @@ TEST(TinyPbDataTest, FieldAssignment)
     tinyrpc::TinyPbStruct s;
 
     s.m_pkLen = 128;
-    s.m_msgReq = "req-001";
-    s.m_msgReqLen = static_cast<int32_t>(s.m_msgReq.size());
+    s.m_reqId = "req-001";
+    s.m_reqIdLen = static_cast<int32_t>(s.m_reqId.size());
     s.m_serviceFullName = "QueryService.query_name";
     s.m_serviceNameLen = static_cast<int32_t>(s.m_serviceFullName.size());
     s.m_errCode = 42;
@@ -81,8 +81,8 @@ TEST(TinyPbDataTest, FieldAssignment)
     s.m_checkNum = 0xDEAD;
 
     EXPECT_EQ(s.m_pkLen, 128);
-    EXPECT_EQ(s.m_msgReq, "req-001");
-    EXPECT_EQ(s.m_msgReqLen, 7);
+    EXPECT_EQ(s.m_reqId, "req-001");
+    EXPECT_EQ(s.m_reqIdLen, 7);
     EXPECT_EQ(s.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(s.m_serviceNameLen, 23);
     EXPECT_EQ(s.m_errCode, 42);

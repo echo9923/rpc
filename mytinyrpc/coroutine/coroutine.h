@@ -10,7 +10,7 @@ namespace tinyrpc {
 // CoroutineState — 协程运行状态枚举。
 //
 // 状态转换图：
-//   Ready ──resume()──▶ Running ──Yield()──▶ Suspended
+//   Ready ──resume()──▶ Running ──yield()──▶ Suspended
 //                          │                    │
 //                          ▼                    │
 //                       Finished ◀──────────────┘
@@ -27,12 +27,12 @@ enum class CoroutineState {
 // Coroutine — 最小协程对象。
 //
 // 每个 Coroutine 拥有独立栈空间（构造时 malloc，析构时 free）。
-// 使用 coctx_swap 汇编原语在主协程与子协程之间切换执行上下文。
+// 使用 coctxSwap 汇编原语在主协程与子协程之间切换执行上下文。
 //
 // 用法示例：
 //   Coroutine co([]() {
 //       // 协程逻辑
-//       Coroutine::Yield();  // 让出执行权
+//       Coroutine::yield();  // 让出执行权
 //       // 继续执行
 //   });
 //   co.resume();  // 从主协程切到子协程
@@ -51,21 +51,21 @@ class Coroutine {
 
     // 恢复此协程执行。
     // 只能在主协程中调用。如果协程已经 Finished，则立即返回。
-    // 内部通过 coctx_swap 从主协程切换到当前协程。
+    // 内部通过 coctxSwap 从主协程切换到当前协程。
     void resume();
 
     // 让出当前协程的执行权，切回主协程。
     // 只能在非主协程中调用。
-    static void Yield();
+    static void yield();
 
     // 获取当前正在执行的协程指针。
-    static Coroutine* GetCurrentCoroutine();
+    static Coroutine* getCurrentCoroutine();
 
     // 获取主协程指针。
-    static Coroutine* GetMainCoroutine();
+    static Coroutine* getMainCoroutine();
 
     // 判断当前是否在主协程中执行。
-    static bool IsMainCoroutine();
+    static bool isMainCoroutine();
 
     // 获取当前协程状态。
     CoroutineState getState() const { return m_state; }
@@ -86,23 +86,23 @@ class Coroutine {
     Coroutine();
 
     // 协程入口包装函数。
-    // 通过 coctx_swap 跳转到此函数后，执行 m_callback，
+    // 通过 coctxSwap 跳转到此函数后，执行 m_callback，
     // 完成后设置 Finished 状态并切回主协程。
-    static void CoFunc(Coroutine* co);
+    static void coFunc(Coroutine* co);
 
-    // 初始化子协程上下文，使下一次 resume() 从 CoFunc(this) 开始执行。
+    // 初始化子协程上下文，使下一次 resume() 从 coFunc(this) 开始执行。
     void initContext();
 
     int m_corId {0};                    // 协程 ID，主协程为 0
-    coctx m_coctx {};                   // 寄存器上下文
+    Coctx m_coctx {};                   // 寄存器上下文
     size_t m_stackSize {0};             // 独立栈大小
     char* m_stackSp {nullptr};          // 独立栈起始地址（malloc 分配）
     CoroutineState m_state {CoroutineState::Ready};
     std::function<void()> m_callback;   // 协程入口回调
 
     // 线程局部存储：每个线程独立的主协程和当前协程指针。
-    static thread_local Coroutine* t_mainCoroutine;
-    static thread_local Coroutine* t_curCoroutine;
+    static thread_local Coroutine* m_mainCoroutine;
+    static thread_local Coroutine* m_currentCoroutine;
 };
 
 }  // namespace tinyrpc

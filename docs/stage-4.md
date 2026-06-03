@@ -40,7 +40,7 @@
 - 新增 `mytinyrpc/net/tinypb/tinypbdata.h`（纯头文件）：
   - `TinyPbStruct : public AbstractData`，包含 TinyPB 协议全部字段：
     - `m_pkLen`：完整包长度。
-    - `m_msgReq` / `m_msgReqLen`：请求号及其长度。
+    - `m_reqId` / `m_reqIdLen`：请求号及其长度。
     - `m_serviceFullName` / `m_serviceNameLen`：服务完整名及其长度。
     - `m_errCode`：RPC 错误码。
     - `m_errInfo` / `m_errInfoLen`：错误信息及其长度。

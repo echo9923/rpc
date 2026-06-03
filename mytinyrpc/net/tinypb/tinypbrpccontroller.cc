@@ -10,7 +10,7 @@ void TinyPbRpcController::Reset()
     m_canceled = false;
     m_errorCode = 0;
     m_timeoutMs = 0;
-    m_msgReq.clear();
+    m_reqId.clear();
     m_errorText.clear();
     m_cancelCallback = nullptr;
     m_notifyCancelCallbacks.clear();
@@ -33,44 +33,44 @@ void TinyPbRpcController::SetFailed(const std::string& reason)
     m_errorText = reason;
 }
 
-void TinyPbRpcController::SetError(int code, const std::string& info)
+void TinyPbRpcController::setError(int code, const std::string& info)
 {
     m_failed = true;
     m_errorCode = code;
     m_errorText = info;
 }
 
-int TinyPbRpcController::ErrorCode() const
+int TinyPbRpcController::getErrorCode() const
 {
     return m_errorCode;
 }
 
-void TinyPbRpcController::SetMsgReq(const std::string& msgReq)
+void TinyPbRpcController::setReqId(const std::string& reqId)
 {
-    m_msgReq = msgReq;
+    m_reqId = reqId;
 }
 
-const std::string& TinyPbRpcController::MsgReq() const
+const std::string& TinyPbRpcController::getReqId() const
 {
-    return m_msgReq;
+    return m_reqId;
 }
 
-void TinyPbRpcController::SetTimeout(int timeoutMs)
+void TinyPbRpcController::setTimeout(int timeoutMs)
 {
     m_timeoutMs = timeoutMs;
 }
 
-int TinyPbRpcController::Timeout() const
+int TinyPbRpcController::getTimeout() const
 {
     return m_timeoutMs;
 }
 
-void TinyPbRpcController::SetCancelCallback(std::function<void()> callback)
+void TinyPbRpcController::setCancelCallback(std::function<void()> callback)
 {
     m_cancelCallback = std::move(callback);
 }
 
-void TinyPbRpcController::ClearCancelCallback()
+void TinyPbRpcController::clearCancelCallback()
 {
     m_cancelCallback = nullptr;
 }

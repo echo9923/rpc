@@ -23,7 +23,7 @@
   - `coroutineReadLoop()` 简化为三段式驱动循环：`while (!m_isClosed) { if (!input()) break; execute(); output(); }`。
   - `input()`：从 socket 读取数据并追加到 `m_inputBuffer`；在方法内部处理 EINTR 重试；连接关闭时调用 `closeWithCallback()` 并返回 `false`。
   - `execute()`：消费 `m_inputBuffer`，当前保持 Echo 语义（`retrieveAllAsString()` → 追加到 `m_outputBuffer`）。
-  - `output()`：原名 `flushOutputByHook()`，功能不变，通过 `write_hook` 将 `m_outputBuffer` 刷到 socket。
+  - `output()`：原名 `flushOutputByHook()`，功能不变，通过 `writeHook` 将 `m_outputBuffer` 刷到 socket。
 - 当前 Echo Server 外部行为不变。
 
 ## 任务三十二记录
@@ -59,7 +59,7 @@
   - 定义 `AbstractDispatcher` 抽象基类，提供 `dispatch(AbstractData*, TcpConnection*)` 纯虚方法。
 - 新增 `mytinyrpc/net/tinypb/tinypbdispatcher.h` + `tinypbdispatcher.cc`：
   - `TinyPbDispatcher` 继承 `AbstractDispatcher`，实现最小分发逻辑。
-  - `dispatch()`：`dynamic_cast` 请求为 `TinyPbStruct`，解析 `serviceFullName`，构造响应（保留 `msgReq`、`serviceFullName`、`pbData`），调用 `conn->sendProtocolData()` 写回。
+  - `dispatch()`：`dynamic_cast` 请求为 `TinyPbStruct`，解析 `serviceFullName`，构造响应（保留 `reqId`、`serviceFullName`、`pbData`），调用 `conn->sendProtocolData()` 写回。
   - `parseServiceFullName()`：以 `.` 分割服务名和方法名，任一为空则返回 false。
 - 修改 `mytinyrpc/net/tcpconnection.h`：
   - 构造函数新增 `AbstractDispatcher::Ptr dispatcher = nullptr` 参数。

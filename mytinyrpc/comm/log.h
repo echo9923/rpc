@@ -34,7 +34,7 @@ class Logger {
         const char* file,
         int line,
         const std::string& msg,
-        const std::string& msgReq
+        const std::string& reqId
     );
 
  private:
@@ -48,11 +48,11 @@ class Logger {
 #define WarnLog(msg)  tinyrpc::Logger::log(tinyrpc::LogLevel::Warn,  __FILE__, __LINE__, msg)
 #define ErrorLog(msg) tinyrpc::Logger::log(tinyrpc::LogLevel::Error, __FILE__, __LINE__, msg)
 
-#define DebugLogWithMsgReq(msgReq, msg) \
-    tinyrpc::Logger::log(tinyrpc::LogLevel::Debug, __FILE__, __LINE__, msg, msgReq)
-#define InfoLogWithMsgReq(msgReq, msg) \
-    tinyrpc::Logger::log(tinyrpc::LogLevel::Info, __FILE__, __LINE__, msg, msgReq)
-#define WarnLogWithMsgReq(msgReq, msg) \
-    tinyrpc::Logger::log(tinyrpc::LogLevel::Warn, __FILE__, __LINE__, msg, msgReq)
-#define ErrorLogWithMsgReq(msgReq, msg) \
-    tinyrpc::Logger::log(tinyrpc::LogLevel::Error, __FILE__, __LINE__, msg, msgReq)
+#define DebugLogWithReqId(reqId, msg) \
+    tinyrpc::Logger::log(tinyrpc::LogLevel::Debug, __FILE__, __LINE__, msg, reqId)
+#define InfoLogWithReqId(reqId, msg) \
+    tinyrpc::Logger::log(tinyrpc::LogLevel::Info, __FILE__, __LINE__, msg, reqId)
+#define WarnLogWithReqId(reqId, msg) \
+    tinyrpc::Logger::log(tinyrpc::LogLevel::Warn, __FILE__, __LINE__, msg, reqId)
+#define ErrorLogWithReqId(reqId, msg) \
+    tinyrpc::Logger::log(tinyrpc::LogLevel::Error, __FILE__, __LINE__, msg, reqId)

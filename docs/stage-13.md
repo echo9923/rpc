@@ -36,7 +36,7 @@
 - `Logger::init()` 支持初始化同步文件日志。
 - 支持 `DEBUG`、`INFO`、`WARN`、`ERROR` 四级日志，并按最小级别过滤。
 - 日志格式包含时间、级别、线程 id、文件行号和正文。
-- `Logger::log()` 支持附加 `msgReq`，便于 RPC 调试时关联请求号、方法名和错误码。
+- `Logger::log()` 支持附加 `reqId`，便于 RPC 调试时关联请求号、方法名和错误码。
 - `Logger::flush()` 可强制刷新文件缓冲，测试和调试时可以立即读取日志文件。
 - `Logger::setEnabled(false)` 可临时关闭日志输出。
 - 支持简化异步模式，业务线程写入队列，后台线程最终写入文件；`flush()` 和 `shutdown()` 会等待队列落盘。
@@ -62,8 +62,8 @@
 - `Runtime` 新增线程局部 `RequestContext`，保存当前请求号、方法名、local addr 和 peer addr。
 - `TinyPbDispatcher` 在调用业务 Service 前设置上下文，并通过 RAII 在请求结束时清理。
 - 多线程请求上下文互不污染，每个线程读取自己的 request context。
-- `Logger` 在未显式传入 `msgReq` 时，会自动读取当前线程 request context 中的请求号。
-- 新增 `test_runtime`，覆盖业务处理期间读取 msgReq、请求结束清理、多线程隔离和日志自动打印 msgReq。
+- `Logger` 在未显式传入 `reqId` 时，会自动读取当前线程 request context 中的请求号。
+- 新增 `test_runtime`，覆盖业务处理期间读取 reqId、请求结束清理、多线程隔离和日志自动打印 reqId。
 
 ## 当前边界
 

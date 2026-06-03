@@ -41,4 +41,4 @@ Expected final output:
 
 ## Boundary
 
-The synchronous client keeps one in-flight request and checks `msgReq` mismatch directly. Pending maps and out-of-order response handling live in the async RPC example.
+The synchronous client keeps one in-flight request and checks `reqId` mismatch directly. Pending maps and out-of-order response handling live in the async RPC example.

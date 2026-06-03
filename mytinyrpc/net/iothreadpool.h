@@ -17,7 +17,7 @@ class IOThreadPool {
     IOThreadPool(const IOThreadPool&) = delete;
     IOThreadPool& operator=(const IOThreadPool&) = delete;
 
-    std::size_t size() const;
+    std::size_t getSize() const;
     IOThread* getNextIOThread();
     IOThread* getIOThreadByIndex(std::size_t index);
     const IOThread* getIOThreadByIndex(std::size_t index) const;

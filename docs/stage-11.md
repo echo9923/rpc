@@ -66,7 +66,7 @@ sequenceDiagram
 - `broadcastTask()` 会向每个 IOThread 各投递一次任务。
 - `addTaskByIndex()` 支持向指定 index 的线程投递任务，非法 index 返回失败。
 - `stop()` 会停止池内全部线程，析构时兜底调用。
-- 新增 `test_iothread_pool`，覆盖轮转、broadcast、指定 index 投递和线程归属。
+- 新增 `test_iothreadpool`，覆盖轮转、broadcast、指定 index 投递和线程归属。
 
 ## IOThreadPool 任务投递路径
 
@@ -170,7 +170,7 @@ sequenceDiagram
 ./build.sh
 ./build/test_mutex
 ./build/test_iothread
-./build/test_iothread_pool
+./build/test_iothreadpool
 ./scripts/check_stage11_server.sh
 ./scripts/check_rpc_sync.sh
 ```

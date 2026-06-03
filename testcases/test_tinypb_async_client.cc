@@ -204,7 +204,7 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
             }
 
             tinyrpc::TinyPbStruct response;
-            response.m_msgReq = decodedRequest.m_msgReq;
+            response.m_reqId = decodedRequest.m_reqId;
             response.m_serviceFullName = decodedRequest.m_serviceFullName;
             if (i == kRequestCount - 1) {
                 response.m_errCode = tinyrpc::ERROR_SERVICE_NOT_FOUND;
@@ -238,9 +238,9 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
     });
 
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", port));
-    int nextMsgReq = 0;
-    channel.setMsgReqGenerator([&]() {
-        return "script-async-" + std::to_string(nextMsgReq++);
+    int nextReqId = 0;
+    channel.setReqIdGenerator([&]() {
+        return "script-async-" + std::to_string(nextReqId++);
     });
     QueryService_Stub stub(&channel);
 
@@ -256,7 +256,7 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
         requests[i].set_req_no(800 + i);
         requests[i].set_id(2000 + i);
         requests[i].set_type(1);
-        controllers[i].SetTimeout(1000);
+        controllers[i].setTimeout(1000);
         closures.push_back(std::make_unique<CountClosure>(&doneCounts[i]));
         stub.query_name(&controllers[i], &requests[i], &responses[i], closures.back().get());
     }
@@ -294,7 +294,7 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
     }
 
     if (!controllers.back().Failed() ||
-        controllers.back().ErrorCode() != tinyrpc::ERROR_SERVICE_NOT_FOUND) {
+        controllers.back().getErrorCode() != tinyrpc::ERROR_SERVICE_NOT_FOUND) {
         *errorInfo = "server error response was not propagated";
         return false;
     }
@@ -306,7 +306,7 @@ bool runTimeoutScenario(std::string *errorInfo)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", 1));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() {
+    channel.setReqIdGenerator([]() {
         return "script-timeout";
     });
     QueryService_Stub stub(&channel);
@@ -318,7 +318,7 @@ bool runTimeoutScenario(std::string *errorInfo)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    controller.SetTimeout(30);
+    controller.setTimeout(30);
     std::atomic<int> doneCount {0};
     CountClosure done(&doneCount);
 
@@ -327,7 +327,7 @@ bool runTimeoutScenario(std::string *errorInfo)
         *errorInfo = "timeout callback did not run";
         return false;
     }
-    if (!controller.Failed() || controller.ErrorCode() != tinyrpc::ERROR_RPC_ASYNC_TIMEOUT) {
+    if (!controller.Failed() || controller.getErrorCode() != tinyrpc::ERROR_RPC_ASYNC_TIMEOUT) {
         *errorInfo = "timeout error was not propagated";
         return false;
     }

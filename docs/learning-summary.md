@@ -17,7 +17,7 @@
    - 关键收获：buffer 属于连接，codec 只负责字节和协议对象转换，dispatcher 只负责业务路由。
 
 4. TinyPB codec 和 Protobuf 服务分发
-   - TinyPB envelope 承载 `msgReq`、服务方法名、错误码和 Protobuf payload。
+   - TinyPB envelope 承载 `reqId`、服务方法名、错误码和 Protobuf payload。
    - 关键收获：框架错误、协议错误和业务 response 不能混在一起。
 
 5. 同步 RPC Channel
@@ -26,7 +26,7 @@
 
 6. 同步客户端语义
    - 补齐请求号、controller、超时、连接失败、重连和错误码矩阵。
-   - 关键收获：同步单请求模型不需要 pending map，`msgReq` mismatch 直接失败更清晰。
+   - 关键收获：同步单请求模型不需要 pending map，`reqId` mismatch 直接失败更清晰。
 
 7. Timer、wakeup、task queue 和连接生命周期
    - `timerfd`、`eventfd`、task queue 和 `stop()` 让 Reactor 可被跨线程驱动。

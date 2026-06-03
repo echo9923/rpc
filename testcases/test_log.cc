@@ -55,7 +55,7 @@ TEST(LoggerTest, LevelFilteringWritesAtOrAboveLevel)
     resetLogger(path);
 }
 
-TEST(LoggerTest, FileOutputContainsThreadFileLineAndMsgReq)
+TEST(LoggerTest, FileOutputContainsThreadFileLineAndReqId)
 {
     std::string path = makeLogPath("format.log");
     ASSERT_TRUE(tinyrpc::Logger::init(path, tinyrpc::LogLevel::Debug));
@@ -73,7 +73,7 @@ TEST(LoggerTest, FileOutputContainsThreadFileLineAndMsgReq)
     EXPECT_NE(content.find("[ERROR]"), std::string::npos);
     EXPECT_NE(content.find("[tid="), std::string::npos);
     EXPECT_NE(content.find("[unit_file.cc:77]"), std::string::npos);
-    EXPECT_NE(content.find("[msgReq=req-001]"), std::string::npos);
+    EXPECT_NE(content.find("[reqId=req-001]"), std::string::npos);
     EXPECT_NE(content.find("method=QueryService.query_name"), std::string::npos);
     EXPECT_NE(content.find("err=100"), std::string::npos);
 

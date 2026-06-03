@@ -12,7 +12,7 @@
 - 新增 `httpMethodToString()`、`stringToHttpMethod()` 和 `httpCodeToString()`，为后续 parser 与 codec 复用基础转换能力。
 - 新增 `HttpRequest`，记录 method、path、version、headers 和 body，并继承 `AbstractData`。
 - 新增 `HttpResponse`，记录 version、status、headers 和 body，并可通过 `toString()` 生成最小 HTTP 响应文本。
-- 新增 `test_http_define`，覆盖 status code 文本、header 设置读取和 response 状态行、header、body 生成。
+- 新增 `test_httpdefine`，覆盖 status code 文本、header 设置读取和 response 状态行、header、body 生成。
 
 ## 当前边界
 
@@ -93,7 +93,7 @@
 
 ```bash
 ./build.sh
-./build/test_http_define
+./build/test_httpdefine
 ./build/test_http_codec
 ./build/test_http_dispatcher
 ./scripts/check_stage12_http.sh

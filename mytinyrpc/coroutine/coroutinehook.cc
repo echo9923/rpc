@@ -1,4 +1,4 @@
-#include "coroutine/coroutine_hook.h"
+#include "coroutine/coroutinehook.h"
 
 #include "coroutine/coroutine.h"
 #include "net/reactor.h"
@@ -17,22 +17,22 @@ namespace tinyrpc {
 namespace {
 
 struct ConnectHookState {
-    Coroutine *coroutine {nullptr};
-    FdEvent *fdEvent {nullptr};
-    bool timedOut {false};
-    bool finished {false};
+    Coroutine *m_coroutine {nullptr};
+    FdEvent *m_fdEvent {nullptr};
+    bool m_timedOut {false};
+    bool m_finished {false};
 };
 
 struct SleepHookState {
-    Coroutine *coroutine {nullptr};
-    bool finished {false};
+    Coroutine *m_coroutine {nullptr};
+    bool m_finished {false};
 };
 
 struct FdHookWaitState {
-    Coroutine *coroutine {nullptr};
-    FdEvent *fdEvent {nullptr};
-    bool timedOut {false};
-    bool finished {false};
+    Coroutine *m_coroutine {nullptr};
+    FdEvent *m_fdEvent {nullptr};
+    bool m_timedOut {false};
+    bool m_finished {false};
 };
 
 int64_t microsecondsToMilliseconds(useconds_t usec)
@@ -52,13 +52,13 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
     }
 
     auto state = std::make_shared<FdHookWaitState>();
-    state->coroutine = Coroutine::GetCurrentCoroutine();
-    state->fdEvent = fdEvent;
+    state->m_coroutine = Coroutine::getCurrentCoroutine();
+    state->m_fdEvent = fdEvent;
 
     Reactor *reactor = fdEvent->getReactor();
     std::shared_ptr<TimerEvent> timerEvent;
 
-    fdEvent->setCoroutine(state->coroutine);
+    fdEvent->setCoroutine(state->m_coroutine);
     fdEvent->setCoroutineListenEvent(event);
     fdEvent->addListenEvent(event);
 
@@ -73,19 +73,19 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
             // TimerEvent 到期后恢复协程，并清理 FdEvent 上的协程挂载。
             // timeoutMs 单位为毫秒；仅用于本次等待，不改变 fd 自身属性。
             timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
-                if (state->finished) {
+                if (state->m_finished) {
                     return;
                 }
-                state->timedOut = true;
-                state->fdEvent->clearCoroutine();
-                state->coroutine->resume();
+                state->m_timedOut = true;
+                state->m_fdEvent->clearCoroutine();
+                state->m_coroutine->resume();
             });
             reactor->getTimer()->addTimerEvent(timerEvent);
         }
     }
 
-    Coroutine::Yield();
-    state->finished = true;
+    Coroutine::yield();
+    state->m_finished = true;
 
     if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
         reactor->getTimer()->delTimerEvent(timerEvent);
@@ -96,7 +96,7 @@ bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
         fdEvent->updateToReactor();
     }
 
-    return state->timedOut;
+    return state->m_timedOut;
 }
 
 bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
@@ -106,28 +106,28 @@ bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
     }
 
     auto state = std::make_shared<SleepHookState>();
-    state->coroutine = Coroutine::GetCurrentCoroutine();
+    state->m_coroutine = Coroutine::getCurrentCoroutine();
 
     // TimerEvent 到期回调运行在 Reactor 线程中；这里直接恢复同线程内挂起的协程。
     auto timerEvent = std::make_shared<TimerEvent>(intervalMs, false, [state]() {
-        if (state->finished) {
+        if (state->m_finished) {
             return;
         }
-        state->coroutine->resume();
+        state->m_coroutine->resume();
     });
     if (!reactor->getTimer()->addTimerEvent(timerEvent)) {
         return false;
     }
 
-    Coroutine::Yield();
-    state->finished = true;
+    Coroutine::yield();
+    state->m_finished = true;
     reactor->getTimer()->delTimerEvent(timerEvent);
     return true;
 }
 
 }  // namespace
 
-ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
+ssize_t readHook(FdEvent *fdEvent, void *buf, size_t count)
 {
     // fdEvent->getFd()：取出此 FdEvent 管理的文件描述符。
     int fd = fdEvent->getFd();
@@ -137,7 +137,7 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
     ssize_t ret = ::read(fd, buf, count);
 
     // 主协程中不做任何挂起，直接透传系统调用结果。
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -152,7 +152,7 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
     // 非主协程且遇到 EAGAIN/EWOULDBLOCK：挂起当前协程，等待可读事件。
 
     // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
-    fdEvent->setCoroutine(Coroutine::GetCurrentCoroutine());
+    fdEvent->setCoroutine(Coroutine::getCurrentCoroutine());
 
     // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
     fdEvent->setCoroutineListenEvent(EPOLLIN);
@@ -171,13 +171,13 @@ ssize_t read_hook(FdEvent *fdEvent, void *buf, size_t count)
 
     // 让出执行权，切回主协程。
     // 恢复后（由调用方手动 resume 或 Reactor 事件驱动）继续执行。
-    Coroutine::Yield();
+    Coroutine::yield();
 
     // 协程恢复后再次尝试读取，返回最终结果。
     return ::read(fd, buf, count);
 }
 
-ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
+ssize_t writeHook(FdEvent *fdEvent, const void *buf, size_t count)
 {
     // fdEvent->getFd()：取出此 FdEvent 管理的文件描述符。
     int fd = fdEvent->getFd();
@@ -187,7 +187,7 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
     ssize_t ret = ::write(fd, buf, count);
 
     // 主协程中不做任何挂起，直接透传系统调用结果。
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -202,7 +202,7 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
     // 非主协程且遇到 EAGAIN/EWOULDBLOCK：挂起当前协程，等待可写事件。
 
     // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
-    fdEvent->setCoroutine(Coroutine::GetCurrentCoroutine());
+    fdEvent->setCoroutine(Coroutine::getCurrentCoroutine());
 
     // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
     fdEvent->setCoroutineListenEvent(EPOLLOUT);
@@ -220,13 +220,13 @@ ssize_t write_hook(FdEvent *fdEvent, const void *buf, size_t count)
     }
 
     // 让出执行权，切回主协程。
-    Coroutine::Yield();
+    Coroutine::yield();
 
     // 协程恢复后再次尝试写入，返回最终结果。
     return ::write(fd, buf, count);
 }
 
-ssize_t recv_hook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs)
+ssize_t recvHook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs)
 {
     int fd = fdEvent->getFd();
 
@@ -234,7 +234,7 @@ ssize_t recv_hook(FdEvent *fdEvent, void *buf, size_t count, int flags, int time
     // flags 可传 0 或 MSG_DONTWAIT/MSG_PEEK 等；当前 hook 只关心 EAGAIN 等待语义。
     ssize_t ret = ::recv(fd, buf, count, flags);
 
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -253,7 +253,7 @@ ssize_t recv_hook(FdEvent *fdEvent, void *buf, size_t count, int flags, int time
     return ::recv(fd, buf, count, flags);
 }
 
-ssize_t send_hook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs)
+ssize_t sendHook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs)
 {
     int fd = fdEvent->getFd();
 
@@ -261,7 +261,7 @@ ssize_t send_hook(FdEvent *fdEvent, const void *buf, size_t count, int flags, in
     // 非阻塞 socket 发送缓冲区满时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
     ssize_t ret = ::send(fd, buf, count, flags);
 
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -280,7 +280,7 @@ ssize_t send_hook(FdEvent *fdEvent, const void *buf, size_t count, int flags, in
     return ::send(fd, buf, count, flags);
 }
 
-int accept_hook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeoutMs)
+int acceptHook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeoutMs)
 {
     int fd = fdEvent->getFd();
 
@@ -288,7 +288,7 @@ int accept_hook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeou
     // 非阻塞监听 fd 暂无连接时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
     int ret = ::accept(fd, addr, addrLen);
 
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -307,7 +307,7 @@ int accept_hook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeou
     return ::accept(fd, addr, addrLen);
 }
 
-int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
+int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
 {
     int fd = fdEvent->getFd();
 
@@ -315,7 +315,7 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
     // 对非阻塞 fd，连接尚未完成时返回 -1 并置 errno = EINPROGRESS。
     int ret = ::connect(fd, addr, addrLen);
 
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
@@ -327,11 +327,11 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
     }
 
     auto state = std::make_shared<ConnectHookState>();
-    state->coroutine = Coroutine::GetCurrentCoroutine();
-    state->fdEvent = fdEvent;
+    state->m_coroutine = Coroutine::getCurrentCoroutine();
+    state->m_fdEvent = fdEvent;
     std::shared_ptr<TimerEvent> timerEvent;
 
-    fdEvent->setCoroutine(state->coroutine);
+    fdEvent->setCoroutine(state->m_coroutine);
     fdEvent->setCoroutineListenEvent(EPOLLOUT);
     fdEvent->addListenEvent(EPOLLOUT);
 
@@ -346,19 +346,19 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
         if (timeoutMs > 0 && reactor->getTimer() != nullptr) {
             // TimerEvent 到期后恢复同一个协程；恢复后通过 timedOut 标记返回 ETIMEDOUT。
             timerEvent = std::make_shared<TimerEvent>(timeoutMs, false, [state]() {
-                if (state->finished) {
+                if (state->m_finished) {
                     return;
                 }
-                state->timedOut = true;
-                state->fdEvent->clearCoroutine();
-                state->coroutine->resume();
+                state->m_timedOut = true;
+                state->m_fdEvent->clearCoroutine();
+                state->m_coroutine->resume();
             });
             reactor->getTimer()->addTimerEvent(timerEvent);
         }
     }
 
-    Coroutine::Yield();
-    state->finished = true;
+    Coroutine::yield();
+    state->m_finished = true;
 
     if (timerEvent != nullptr && reactor != nullptr && reactor->getTimer() != nullptr) {
         reactor->getTimer()->delTimerEvent(timerEvent);
@@ -369,7 +369,7 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
         fdEvent->updateToReactor();
     }
 
-    if (state->timedOut) {
+    if (state->m_timedOut) {
         errno = ETIMEDOUT;
         return -1;
     }
@@ -388,11 +388,11 @@ int connect_hook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int 
     return 0;
 }
 
-unsigned int sleep_hook(Reactor *reactor, unsigned int seconds)
+unsigned int sleepHook(Reactor *reactor, unsigned int seconds)
 {
     // sleep(3) 参数为秒数；返回值为被信号中断时剩余的秒数。
     // 主协程中不挂起，保持与系统调用一致的阻塞语义。
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ::sleep(seconds);
     }
 
@@ -406,11 +406,11 @@ unsigned int sleep_hook(Reactor *reactor, unsigned int seconds)
     return 0;
 }
 
-int usleep_hook(Reactor *reactor, useconds_t usec)
+int usleepHook(Reactor *reactor, useconds_t usec)
 {
     // usleep(3) 参数为微秒数；成功返回 0，失败返回 -1 并设置 errno。
     // 主协程中直接透传，避免改变非协程调用路径的行为。
-    if (Coroutine::IsMainCoroutine()) {
+    if (Coroutine::isMainCoroutine()) {
         return ::usleep(usec);
     }
 

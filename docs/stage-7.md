@@ -92,7 +92,7 @@
 3. 不支持非阻塞连接、超时、重试、连接池。
 4. 不支持异步回调、协程 hook 或 Reactor 集成。
 5. 不实现 `google::protobuf::RpcChannel`，不接入 Protobuf Stub，不根据 `MethodDescriptor` 自动填充 `serviceFullName`。
-6. 不生成请求号、不做请求号匹配表；调用方仍需自行填写 `TinyPbStruct::m_msgReq` 和 `m_serviceFullName`。
+6. 不生成请求号、不做请求号匹配表；调用方仍需自行填写 `TinyPbStruct::m_reqId` 和 `m_serviceFullName`。
 
 ## 下一阶段
 

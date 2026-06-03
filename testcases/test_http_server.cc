@@ -5,8 +5,8 @@
  *   --server <port> ：启动最小 HTTP TcpServer，注册 /hello servlet。
  */
 
-#include "net/http/http_request.h"
-#include "net/http/http_response.h"
+#include "net/http/httprequest.h"
+#include "net/http/httpresponse.h"
 #include "net/http/httpcodec.h"
 #include "net/http/httpdispatcher.h"
 #include "net/http/httpservlet.h"

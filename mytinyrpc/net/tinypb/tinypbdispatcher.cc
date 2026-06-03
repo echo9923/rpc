@@ -19,13 +19,13 @@ namespace {
 class RequestContextGuard {
  public:
     RequestContextGuard(
-        const std::string& msgReq,
+        const std::string& reqId,
         const std::string& methodName,
         const std::string& localAddr,
         const std::string& peerAddr
     )
     {
-        getRuntime().setCurrentRequestContext(msgReq, methodName, localAddr, peerAddr);
+        getRuntime().setCurrentRequestContext(reqId, methodName, localAddr, peerAddr);
     }
 
     ~RequestContextGuard()
@@ -101,10 +101,10 @@ void TinyPbDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
         return;
     }
 
-    // 构造响应骨架：保留请求的 msgReq 和 serviceFullName，
+    // 构造响应骨架：保留请求的 reqId 和 serviceFullName，
     // 后续根据查找结果填充 errCode 和 errInfo。
     TinyPbStruct reply;
-    reply.m_msgReq = request->m_msgReq;
+    reply.m_reqId = request->m_reqId;
     reply.m_serviceFullName = request->m_serviceFullName;
 
     // 第一步：解析 serviceFullName
@@ -136,7 +136,7 @@ void TinyPbDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
     }
 
     RequestContextGuard contextGuard(
-        request->m_msgReq,
+        request->m_reqId,
         request->m_serviceFullName,
         "local",
         "peer"

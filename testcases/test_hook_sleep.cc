@@ -3,7 +3,7 @@
  */
 
 #include "coroutine/coroutine.h"
-#include "coroutine/coroutine_hook.h"
+#include "coroutine/coroutinehook.h"
 #include "net/reactor.h"
 #include "net/timer.h"
 
@@ -31,7 +31,7 @@ TEST(HookSleepTest, MainCoroutineSleepUsesRawSleep)
     tinyrpc::Reactor reactor;
     int64_t startMs = tinyrpc::getNowMs();
 
-    unsigned int remaining = tinyrpc::sleep_hook(&reactor, 0);
+    unsigned int remaining = tinyrpc::sleepHook(&reactor, 0);
 
     EXPECT_EQ(remaining, 0u);
     EXPECT_LT(tinyrpc::getNowMs() - startMs, 50);
@@ -45,7 +45,7 @@ TEST(HookSleepTest, UsleepHookYieldsAndTimerResumesCoroutine)
     int64_t resumedMs = 0;
 
     tinyrpc::Coroutine co([&]() {
-        int ret = tinyrpc::usleep_hook(&reactor, 20 * 1000);
+        int ret = tinyrpc::usleepHook(&reactor, 20 * 1000);
         EXPECT_EQ(ret, 0);
         resumedMs = tinyrpc::getNowMs();
         afterSleep = true;
@@ -72,7 +72,7 @@ TEST(HookSleepTest, SleepHookYieldsAndTimerResumesCoroutine)
     int64_t resumedMs = 0;
 
     tinyrpc::Coroutine co([&]() {
-        unsigned int remaining = tinyrpc::sleep_hook(&reactor, 1);
+        unsigned int remaining = tinyrpc::sleepHook(&reactor, 1);
         EXPECT_EQ(remaining, 0u);
         resumedMs = tinyrpc::getNowMs();
         afterSleep = true;
@@ -98,7 +98,7 @@ TEST(HookSleepTest, OneSleepingCoroutineDoesNotBlockAnotherCoroutine)
 
     tinyrpc::Coroutine sleeper([&]() {
         order.push_back(1);
-        tinyrpc::usleep_hook(&reactor, 40 * 1000);
+        tinyrpc::usleepHook(&reactor, 40 * 1000);
         order.push_back(3);
     });
     tinyrpc::Coroutine runner([&]() {
@@ -123,11 +123,11 @@ TEST(HookSleepTest, MultipleSleepingCoroutinesResumeByTimerOrder)
     std::vector<int> order;
 
     tinyrpc::Coroutine late([&]() {
-        tinyrpc::usleep_hook(&reactor, 50 * 1000);
+        tinyrpc::usleepHook(&reactor, 50 * 1000);
         order.push_back(2);
     });
     tinyrpc::Coroutine early([&]() {
-        tinyrpc::usleep_hook(&reactor, 10 * 1000);
+        tinyrpc::usleepHook(&reactor, 10 * 1000);
         order.push_back(1);
     });
 

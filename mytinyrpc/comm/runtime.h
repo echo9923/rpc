@@ -14,13 +14,13 @@ namespace tinyrpc {
 
 class RequestContext {
  public:
-    const std::string& getMsgReq() const;
+    const std::string& getReqId() const;
     const std::string& getMethodName() const;
     const std::string& getLocalAddr() const;
     const std::string& getPeerAddr() const;
 
     void set(
-        const std::string& msgReq,
+        const std::string& reqId,
         const std::string& methodName,
         const std::string& localAddr,
         const std::string& peerAddr
@@ -28,7 +28,7 @@ class RequestContext {
     void clear();
 
  private:
-    std::string m_msgReq;
+    std::string m_reqId;
     std::string m_methodName;
     std::string m_localAddr;
     std::string m_peerAddr;
@@ -54,7 +54,7 @@ class Runtime {
     RequestContext& getCurrentRequestContext();
     const RequestContext& getCurrentRequestContext() const;
     void setCurrentRequestContext(
-        const std::string& msgReq,
+        const std::string& reqId,
         const std::string& methodName,
         const std::string& localAddr,
         const std::string& peerAddr

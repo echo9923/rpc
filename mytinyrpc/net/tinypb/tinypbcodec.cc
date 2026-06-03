@@ -36,24 +36,24 @@ void TinyPbCodec::encode(TcpBuffer *buffer, AbstractData *data)
         return;
     }
 
-    if (pb->m_msgReq.empty() || pb->m_serviceFullName.empty()) {
+    if (pb->m_reqId.empty() || pb->m_serviceFullName.empty()) {
         pb->m_encodeSucc = false;
         return;
     }
 
     // ---- 回填长度字段 ----
-    pb->m_msgReqLen = static_cast<int32_t>(pb->m_msgReq.size());
+    pb->m_reqIdLen = static_cast<int32_t>(pb->m_reqId.size());
     pb->m_serviceNameLen = static_cast<int32_t>(pb->m_serviceFullName.size());
     pb->m_errInfoLen = static_cast<int32_t>(pb->m_errInfo.size());
 
     // ---- 计算 pkLen ----
     // pkLen = 完整帧总字节数（从 PB_START 到 PB_END，含起止标记）。
-    // 布局：START(1) + pkLen(4) + msgReqLen(4) + msgReq(N) + serviceNameLen(4)
+    // 布局：START(1) + pkLen(4) + reqIdLen(4) + reqId(N) + serviceNameLen(4)
     //        + serviceFullName(N) + errCode(4) + errInfoLen(4) + errInfo(N)
     //        + pbData(N) + checkNum(4) + END(1)
     int32_t pkLen = 1                          // PB_START
         + 4                                    // pkLen
-        + 4 + static_cast<int32_t>(pb->m_msgReq.size())
+        + 4 + static_cast<int32_t>(pb->m_reqId.size())
         + 4 + static_cast<int32_t>(pb->m_serviceFullName.size())
         + 4                                    // errCode
         + 4 + static_cast<int32_t>(pb->m_errInfo.size())
@@ -70,8 +70,8 @@ void TinyPbCodec::encode(TcpBuffer *buffer, AbstractData *data)
     buffer->append(&start, 1);
 
     appendInt32(buffer, pb->m_pkLen);
-    appendInt32(buffer, pb->m_msgReqLen);
-    buffer->append(pb->m_msgReq);
+    appendInt32(buffer, pb->m_reqIdLen);
+    buffer->append(pb->m_reqId);
     appendInt32(buffer, pb->m_serviceNameLen);
     buffer->append(pb->m_serviceFullName);
     appendInt32(buffer, pb->m_errCode);
@@ -164,26 +164,26 @@ void TinyPbCodec::decode(TcpBuffer *buffer, AbstractData *data)
         // 所有解析变量在此声明，避免 goto 跨越初始化问题。
         bool parseFailed = false;
         size_t offset = 5; // 跳过 START(1) + pkLen(4)
-        int32_t msgReqLen = 0;
+        int32_t reqIdLen = 0;
         int32_t serviceNameLen = 0;
         int32_t errCode = 0;
         int32_t errInfoLen = 0;
 
-        // msgReqLen
-        if (!readInt32(frameRaw, pkLen, offset, &msgReqLen) || msgReqLen < 0) {
+        // reqIdLen
+        if (!readInt32(frameRaw, pkLen, offset, &reqIdLen) || reqIdLen < 0) {
             parseFailed = true;
             goto parse_done;
         }
         offset += 4;
-        pb->m_msgReqLen = msgReqLen;
+        pb->m_reqIdLen = reqIdLen;
 
-        // msgReq
-        if (offset + static_cast<size_t>(msgReqLen) > static_cast<size_t>(pkLen)) {
+        // reqId
+        if (offset + static_cast<size_t>(reqIdLen) > static_cast<size_t>(pkLen)) {
             parseFailed = true;
             goto parse_done;
         }
-        pb->m_msgReq = std::string(frameRaw + offset, static_cast<size_t>(msgReqLen));
-        offset += static_cast<size_t>(msgReqLen);
+        pb->m_reqId = std::string(frameRaw + offset, static_cast<size_t>(reqIdLen));
+        offset += static_cast<size_t>(reqIdLen);
 
         // serviceNameLen
         if (!readInt32(frameRaw, pkLen, offset, &serviceNameLen) || serviceNameLen < 0) {

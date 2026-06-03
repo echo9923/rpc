@@ -1,8 +1,8 @@
 #include "net/tcpconnection.h"
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
-#include "coroutine/coroutine_hook.h"
-#include "net/http/http_request.h"
+#include "coroutine/coroutinehook.h"
+#include "net/http/httprequest.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbdata.h"
 
@@ -51,7 +51,7 @@ TcpBuffer* TcpConnection::getOutputBuffer()
 void TcpConnection::sendProtocolData(AbstractData *data)
 {
     // 将协议数据对象通过当前 codec 编码后写入输出缓冲区。
-    // 由后续的 output() 阶段通过 write_hook 发送到 socket。
+    // 由后续的 output() 阶段通过 writeHook 发送到 socket。
     if (m_codec != nullptr && data != nullptr) {
         m_codec->encode(&m_outputBuffer, data);
     }
@@ -60,7 +60,7 @@ void TcpConnection::sendProtocolData(AbstractData *data)
 void TcpConnection::startConnection()
 {
     // 将 client fd 封装为 FdEvent 并注册到 Reactor。
-    // 读和写都走协程 hook（read_hook / write_hook），不设置任何 callback。
+    // 读和写都走协程 hook（readHook / writeHook），不设置任何 callback。
     if (m_reactor == nullptr) {
         ErrorLog("TcpConnection start failed, reactor is null, fd = " + std::to_string(m_fd));
         return;
@@ -164,11 +164,11 @@ bool TcpConnection::input()
     char buffer[1024];
 
     while (!m_isClosed) {
-        // read_hook 内部调用 ::read()，遇到 EAGAIN 时将当前协程挂到 m_fdEvent 上，
+        // readHook 内部调用 ::read()，遇到 EAGAIN 时将当前协程挂到 m_fdEvent 上，
         // 通过 addListenEvent(EPOLLIN) + setCoroutineListenEvent(EPOLLIN) 注册可读事件，
-        // 然后 Coroutine::Yield() 让出 CPU。
-        // Reactor 检测到 fd 可读且等待事件匹配后恢复协程，read_hook 重试 ::read()。
-        ssize_t n = read_hook(&m_fdEvent, buffer, sizeof(buffer));
+        // 然后 Coroutine::yield() 让出 CPU。
+        // Reactor 检测到 fd 可读且等待事件匹配后恢复协程，readHook 重试 ::read()。
+        ssize_t n = readHook(&m_fdEvent, buffer, sizeof(buffer));
 
         if (n > 0) {
             m_inputBuffer.append(buffer, static_cast<size_t>(n));
@@ -183,7 +183,7 @@ bool TcpConnection::input()
             return false;
         }
 
-        // n < 0：发生错误，errno 由 read_hook 设置
+        // n < 0：发生错误，errno 由 readHook 设置
         if (errno == EINTR) {
             // 被信号中断，在 input() 内部重试，对 execute/output 透明
             continue;
@@ -263,19 +263,19 @@ std::unique_ptr<AbstractData> TcpConnection::createProtocolData() const
 
 void TcpConnection::output()
 {
-    // 循环通过 write_hook 将输出缓冲区数据写入 socket。
-    // write_hook 内部处理 EAGAIN：遇到发送缓冲区满时将协程挂到 FdEvent 上，
+    // 循环通过 writeHook 将输出缓冲区数据写入 socket。
+    // writeHook 内部处理 EAGAIN：遇到发送缓冲区满时将协程挂到 FdEvent 上，
     // 通过 addListenEvent(EPOLLOUT) + setCoroutineListenEvent(EPOLLOUT) 等待可写，
-    // Reactor 检测到 fd 可写且等待事件匹配后恢复协程，write_hook 重试 ::write()。
+    // Reactor 检测到 fd 可写且等待事件匹配后恢复协程，writeHook 重试 ::write()。
     while (!m_isClosed && m_outputBuffer.getReadableBytes() > 0) {
-        ssize_t n = write_hook(
+        ssize_t n = writeHook(
             &m_fdEvent,
             m_outputBuffer.getReadPtr(),
             m_outputBuffer.getReadableBytes()
         );
 
         if (n > 0) {
-            // write_hook 写入 n 字节，推进输出缓冲区读指针
+            // writeHook 写入 n 字节，推进输出缓冲区读指针
             m_outputBuffer.retrieve(static_cast<size_t>(n));
             continue;
         }
@@ -285,9 +285,9 @@ void TcpConnection::output()
             continue;
         }
 
-        // n < 0：发生错误，errno 由 write_hook 设置
+        // n < 0：发生错误，errno 由 writeHook 设置
         if (errno == EINTR) {
-            // 被信号中断，重试 write_hook
+            // 被信号中断，重试 writeHook
             continue;
         }
 

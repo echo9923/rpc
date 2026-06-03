@@ -3,7 +3,7 @@
  */
 
 #include "coroutine/coroutine.h"
-#include "coroutine/coroutine_hook.h"
+#include "coroutine/coroutinehook.h"
 #include "net/fdevent.h"
 #include "net/reactor.h"
 #include "net/timer.h"
@@ -125,7 +125,7 @@ TEST(HookSocketTest, RecvHookYieldsAndReadsAfterPeerSend)
     bool done = false;
 
     tinyrpc::Coroutine co([&]() {
-        recvResult = tinyrpc::recv_hook(&event, buffer, sizeof(buffer), 0, 1000);
+        recvResult = tinyrpc::recvHook(&event, buffer, sizeof(buffer), 0, 1000);
         done = true;
     });
 
@@ -166,7 +166,7 @@ TEST(HookSocketTest, RecvHookTimeoutResumesCoroutine)
     bool done = false;
 
     tinyrpc::Coroutine co([&]() {
-        recvResult = tinyrpc::recv_hook(&event, buffer, sizeof(buffer), 0, 20);
+        recvResult = tinyrpc::recvHook(&event, buffer, sizeof(buffer), 0, 20);
         recvErrno = errno;
         done = true;
     });
@@ -203,7 +203,7 @@ TEST(HookSocketTest, SendHookYieldsAndWritesAfterPeerDrain)
     bool done = false;
 
     tinyrpc::Coroutine co([&]() {
-        sendResult = tinyrpc::send_hook(&event, msg, strlen(msg), MSG_NOSIGNAL, 1000);
+        sendResult = tinyrpc::sendHook(&event, msg, strlen(msg), MSG_NOSIGNAL, 1000);
         done = true;
     });
 
@@ -242,7 +242,7 @@ TEST(HookSocketTest, AcceptHookYieldsAndAcceptsAfterClientConnect)
     bool done = false;
 
     tinyrpc::Coroutine co([&]() {
-        acceptedFd = tinyrpc::accept_hook(
+        acceptedFd = tinyrpc::acceptHook(
             &event,
             reinterpret_cast<sockaddr *>(&peerAddr),
             &peerLen,
@@ -292,7 +292,7 @@ TEST(HookSocketTest, AcceptHookTimeoutResumesCoroutine)
     bool done = false;
 
     tinyrpc::Coroutine co([&]() {
-        acceptedFd = tinyrpc::accept_hook(&event, nullptr, nullptr, 20);
+        acceptedFd = tinyrpc::acceptHook(&event, nullptr, nullptr, 20);
         acceptErrno = errno;
         done = true;
     });
@@ -312,7 +312,7 @@ TEST(HookSocketTest, AcceptHookTimeoutResumesCoroutine)
 
 TEST(HookSocketTest, MainCoroutineUsesRawRecvSendAccept)
 {
-    ASSERT_TRUE(tinyrpc::Coroutine::IsMainCoroutine());
+    ASSERT_TRUE(tinyrpc::Coroutine::isMainCoroutine());
 
     int fds[2];
     ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
@@ -321,10 +321,10 @@ TEST(HookSocketTest, MainCoroutineUsesRawRecvSendAccept)
     tinyrpc::FdEvent sendEvent(fds[1]);
 
     const char *msg = "raw";
-    EXPECT_EQ(tinyrpc::send_hook(&sendEvent, msg, strlen(msg), MSG_NOSIGNAL), static_cast<ssize_t>(strlen(msg)));
+    EXPECT_EQ(tinyrpc::sendHook(&sendEvent, msg, strlen(msg), MSG_NOSIGNAL), static_cast<ssize_t>(strlen(msg)));
 
     char buffer[8] {};
-    EXPECT_EQ(tinyrpc::recv_hook(&recvEvent, buffer, sizeof(buffer), 0), static_cast<ssize_t>(strlen(msg)));
+    EXPECT_EQ(tinyrpc::recvHook(&recvEvent, buffer, sizeof(buffer), 0), static_cast<ssize_t>(strlen(msg)));
     EXPECT_EQ(strncmp(buffer, msg, strlen(msg)), 0);
     EXPECT_EQ(recvEvent.getCoroutine(), nullptr);
     EXPECT_EQ(sendEvent.getCoroutine(), nullptr);
@@ -335,7 +335,7 @@ TEST(HookSocketTest, MainCoroutineUsesRawRecvSendAccept)
     setNonBlockLocal(listenFd);
 
     tinyrpc::FdEvent acceptEvent(listenFd);
-    int acceptedFd = tinyrpc::accept_hook(&acceptEvent, nullptr, nullptr);
+    int acceptedFd = tinyrpc::acceptHook(&acceptEvent, nullptr, nullptr);
     EXPECT_EQ(acceptedFd, -1);
     EXPECT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK);
     EXPECT_EQ(acceptEvent.getCoroutine(), nullptr);

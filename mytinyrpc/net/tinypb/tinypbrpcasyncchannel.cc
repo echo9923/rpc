@@ -1,7 +1,7 @@
 #include "net/tinypb/tinypbrpcasyncchannel.h"
 
 #include "comm/errorcode.h"
-#include "comm/msgreq.h"
+#include "comm/reqid.h"
 #include "net/tcpclient.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbrpccontroller.h"
@@ -39,12 +39,12 @@ void TinyPbRpcAsyncChannel::CallMethod(
     };
 
     auto context = std::make_shared<AsyncCallContext>();
-    context->controller = controller;
-    context->request = request;
-    context->response = response;
-    context->done = done;
+    context->m_controller = controller;
+    context->m_request = request;
+    context->m_response = response;
+    context->m_done = done;
     if (method != nullptr) {
-        context->methodFullName = method->full_name();
+        context->m_methodFullName = method->full_name();
     }
     {
         std::lock_guard<std::mutex> lock(m_pendingMutex);
@@ -61,28 +61,28 @@ void TinyPbRpcAsyncChannel::CallMethod(
     }
 
     auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
-    if (tinyController != nullptr && !tinyController->MsgReq().empty()) {
-        context->msgReq = tinyController->MsgReq();
+    if (tinyController != nullptr && !tinyController->getReqId().empty()) {
+        context->m_reqId = tinyController->getReqId();
     } else {
-        context->msgReq = genMsgReq();
+        context->m_reqId = genReqId();
         if (tinyController != nullptr) {
-            tinyController->SetMsgReq(context->msgReq);
+            tinyController->setReqId(context->m_reqId);
         }
     }
 
-    context->tinyRequest.m_msgReq = context->msgReq;
-    context->tinyRequest.m_serviceFullName = context->methodFullName;
+    context->m_tinyRequest.m_reqId = context->m_reqId;
+    context->m_tinyRequest.m_serviceFullName = context->m_methodFullName;
     // [第三方 API] SerializeToString 把业务 request 编码成 Protobuf 二进制串，
     // 该 payload 会作为 TinyPB request 的 pbData 进入后续 pending 发送路径。
-    if (!request->SerializeToString(&context->tinyRequest.m_pbData)) {
+    if (!request->SerializeToString(&context->m_tinyRequest.m_pbData)) {
         setControllerError(controller, ERROR_FAILED_SERIALIZE, "failed to serialize async request pbData");
         finish();
         return;
     }
 
     if (tinyController != nullptr) {
-        tinyController->SetCancelCallback([this, msgReq = context->msgReq]() {
-            cancel(msgReq);
+        tinyController->setCancelCallback([this, reqId = context->m_reqId]() {
+            cancel(reqId);
         });
     }
 
@@ -90,7 +90,7 @@ void TinyPbRpcAsyncChannel::CallMethod(
     registerTimeoutEvent(context);
 
     if (tinyController != nullptr && tinyController->IsCanceled()) {
-        cancel(context->msgReq);
+        cancel(context->m_reqId);
         return;
     }
 
@@ -101,12 +101,12 @@ void TinyPbRpcAsyncChannel::CallMethod(
     m_ioThread->addTask([this, context]() {
         TinyPbStruct tinyResponse;
         TcpClient client(m_peerAddr);
-        int timeoutMs = getControllerTimeout(context->controller);
+        int timeoutMs = getControllerTimeout(context->m_controller);
         if (timeoutMs > 0) {
             client.setTimeout(timeoutMs);
         }
 
-        if (!client.sendAndRecvTinyPb(&context->tinyRequest, &tinyResponse)) {
+        if (!client.sendAndRecvTinyPb(&context->m_tinyRequest, &tinyResponse)) {
             std::string errorInfo = client.getErrorInfo();
             if (errorInfo.empty()) {
                 errorInfo = "TinyPB async network request failed";
@@ -114,24 +114,24 @@ void TinyPbRpcAsyncChannel::CallMethod(
             int errorCode = client.getErrorCode() == 0 ? ERROR_RPC_CHANNEL_NETWORK : client.getErrorCode();
             if (errorCode == ERROR_TCP_TIMEOUT) {
                 errorCode = ERROR_RPC_ASYNC_TIMEOUT;
-                errorInfo = "async rpc request timeout, msgReq = " + context->msgReq;
+                errorInfo = "async rpc request timeout, reqId = " + context->m_reqId;
             }
-            finishPendingWithError(context->msgReq, errorCode, errorInfo);
+            finishPendingWithError(context->m_reqId, errorCode, errorInfo);
             return;
         }
 
         if (!handleTinyPbResponse(tinyResponse)) {
             finishPendingWithError(
-                context->msgReq,
-                ERROR_RPC_MSGREQ_MISMATCH,
-                "async response msgReq not found, response = " + tinyResponse.m_msgReq);
+                context->m_reqId,
+                ERROR_RPC_REQID_MISMATCH,
+                "async response reqId not found, response = " + tinyResponse.m_reqId);
         }
     });
 }
 
-void TinyPbRpcAsyncChannel::setMsgReqGenerator(std::function<std::string()> generator)
+void TinyPbRpcAsyncChannel::setReqIdGenerator(std::function<std::string()> generator)
 {
-    m_msgReqGenerator = std::move(generator);
+    m_reqIdGenerator = std::move(generator);
 }
 
 void TinyPbRpcAsyncChannel::setSyncFallbackEnabled(bool enabled)
@@ -151,30 +151,30 @@ size_t TinyPbRpcAsyncChannel::getPendingCount() const
     return m_pendingContexts.size();
 }
 
-bool TinyPbRpcAsyncChannel::hasPending(const std::string& msgReq) const
+bool TinyPbRpcAsyncChannel::hasPending(const std::string& reqId) const
 {
     std::lock_guard<std::mutex> lock(m_pendingMutex);
-    return m_pendingContexts.find(msgReq) != m_pendingContexts.end();
+    return m_pendingContexts.find(reqId) != m_pendingContexts.end();
 }
 
 bool TinyPbRpcAsyncChannel::handleTinyPbResponse(const TinyPbStruct& response)
 {
-    auto context = takePending(response.m_msgReq);
+    auto context = takePending(response.m_reqId);
     if (context == nullptr) {
         return false;
     }
 
     if (response.m_errCode != 0) {
-        setControllerError(context->controller, response.m_errCode, response.m_errInfo);
+        setControllerError(context->m_controller, response.m_errCode, response.m_errInfo);
         finishContext(context);
         return true;
     }
 
     // [第三方 API] ParseFromString 把 TinyPB response 的业务 payload
     // 反序列化到 Stub 调用方传入的 response 对象。
-    if (context->response == nullptr || !context->response->ParseFromString(response.m_pbData)) {
+    if (context->m_response == nullptr || !context->m_response->ParseFromString(response.m_pbData)) {
         setControllerError(
-            context->controller,
+            context->m_controller,
             ERROR_FAILED_DESERIALIZE,
             "failed to deserialize async response pbData");
         finishContext(context);
@@ -185,21 +185,21 @@ bool TinyPbRpcAsyncChannel::handleTinyPbResponse(const TinyPbStruct& response)
     return true;
 }
 
-bool TinyPbRpcAsyncChannel::cancel(const std::string& msgReq)
+bool TinyPbRpcAsyncChannel::cancel(const std::string& reqId)
 {
-    auto context = takePending(msgReq);
+    auto context = takePending(reqId);
     if (context == nullptr) {
         return false;
     }
 
-    auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->controller);
+    auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->m_controller);
     if (tinyController != nullptr) {
         tinyController->StartCancel();
     }
     setControllerError(
-        context->controller,
+        context->m_controller,
         ERROR_RPC_ASYNC_CANCELED,
-        "async rpc request canceled, msgReq = " + msgReq);
+        "async rpc request canceled, reqId = " + reqId);
     finishContext(context);
     return true;
 }
@@ -224,37 +224,37 @@ std::thread::id TinyPbRpcAsyncChannel::getIOThreadId() const
     return m_ioThread->getThreadId();
 }
 
-std::string TinyPbRpcAsyncChannel::genMsgReq() const
+std::string TinyPbRpcAsyncChannel::genReqId() const
 {
-    if (m_msgReqGenerator != nullptr) {
-        return m_msgReqGenerator();
+    if (m_reqIdGenerator != nullptr) {
+        return m_reqIdGenerator();
     }
 
-    return MsgReqUtil::genMsgNumber();
+    return ReqIdUtil::genReqId();
 }
 
 void TinyPbRpcAsyncChannel::registerPending(const std::shared_ptr<AsyncCallContext>& context)
 {
-    if (context == nullptr || context->msgReq.empty()) {
+    if (context == nullptr || context->m_reqId.empty()) {
         return;
     }
 
     std::lock_guard<std::mutex> lock(m_pendingMutex);
-    m_pendingContexts[context->msgReq] = context;
+    m_pendingContexts[context->m_reqId] = context;
 }
 
 void TinyPbRpcAsyncChannel::registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
 {
-    int timeoutMs = getControllerTimeout(context == nullptr ? nullptr : context->controller);
-    if (context == nullptr || context->msgReq.empty() || timeoutMs <= 0 || m_ioThread == nullptr) {
+    int timeoutMs = getControllerTimeout(context == nullptr ? nullptr : context->m_controller);
+    if (context == nullptr || context->m_reqId.empty() || timeoutMs <= 0 || m_ioThread == nullptr) {
         return;
     }
 
-    context->timeoutEvent = std::make_shared<TimerEvent>(timeoutMs, false, [this, msgReq = context->msgReq]() {
-        handleTimeout(msgReq);
+    context->m_timeoutEvent = std::make_shared<TimerEvent>(timeoutMs, false, [this, reqId = context->m_reqId]() {
+        handleTimeout(reqId);
     });
 
-    auto event = context->timeoutEvent;
+    auto event = context->m_timeoutEvent;
     m_ioThread->addTask([this, event]() {
         if (event == nullptr || event->isCanceled() || m_ioThread == nullptr) {
             return;
@@ -267,10 +267,10 @@ void TinyPbRpcAsyncChannel::registerTimeoutEvent(const std::shared_ptr<AsyncCall
     });
 }
 
-std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::string& msgReq)
+std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::string& reqId)
 {
     std::lock_guard<std::mutex> lock(m_pendingMutex);
-    auto iter = m_pendingContexts.find(msgReq);
+    auto iter = m_pendingContexts.find(reqId);
     if (iter == m_pendingContexts.end()) {
         return nullptr;
     }
@@ -283,44 +283,44 @@ std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::
 
 void TinyPbRpcAsyncChannel::cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context)
 {
-    if (context != nullptr && context->timeoutEvent != nullptr) {
-        context->timeoutEvent->cancel();
+    if (context != nullptr && context->m_timeoutEvent != nullptr) {
+        context->m_timeoutEvent->cancel();
     }
 }
 
-void TinyPbRpcAsyncChannel::handleTimeout(const std::string& msgReq)
+void TinyPbRpcAsyncChannel::handleTimeout(const std::string& reqId)
 {
     finishPendingWithError(
-        msgReq,
+        reqId,
         ERROR_RPC_ASYNC_TIMEOUT,
-        "async rpc request timeout, msgReq = " + msgReq);
+        "async rpc request timeout, reqId = " + reqId);
 }
 
 void TinyPbRpcAsyncChannel::finishContext(const std::shared_ptr<AsyncCallContext>& context)
 {
     if (context != nullptr) {
-        auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->controller);
+        auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->m_controller);
         if (tinyController != nullptr) {
-            tinyController->ClearCancelCallback();
+            tinyController->clearCancelCallback();
         }
     }
 
-    if (context != nullptr && context->done != nullptr) {
-        context->done->Run();
+    if (context != nullptr && context->m_done != nullptr) {
+        context->m_done->Run();
     }
 }
 
 bool TinyPbRpcAsyncChannel::finishPendingWithError(
-    const std::string& msgReq,
+    const std::string& reqId,
     int errorCode,
     const std::string& errorInfo)
 {
-    auto context = takePending(msgReq);
+    auto context = takePending(reqId);
     if (context == nullptr) {
         return false;
     }
 
-    setControllerError(context->controller, errorCode, errorInfo);
+    setControllerError(context->m_controller, errorCode, errorInfo);
     finishContext(context);
     return true;
 }
@@ -332,7 +332,7 @@ int TinyPbRpcAsyncChannel::getControllerTimeout(google::protobuf::RpcController 
         return 0;
     }
 
-    return tinyController->Timeout();
+    return tinyController->getTimeout();
 }
 
 void TinyPbRpcAsyncChannel::setControllerError(
@@ -346,7 +346,7 @@ void TinyPbRpcAsyncChannel::setControllerError(
 
     auto *tinyController = dynamic_cast<TinyPbRpcController *>(controller);
     if (tinyController != nullptr) {
-        tinyController->SetError(errorCode, errorInfo);
+        tinyController->setError(errorCode, errorInfo);
         return;
     }
 

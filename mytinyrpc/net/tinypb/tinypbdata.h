@@ -12,7 +12,7 @@ namespace tinyrpc {
 // 编解码由 TinyPbCodec 负责（本任务只定义数据结构，不实现编解码）。
 //
 // 字段布局（按网络传输顺序）：
-//   pkLen | msgReqLen | msgReq | serviceNameLen | serviceFullName
+//   pkLen | reqIdLen | reqId | serviceNameLen | serviceFullName
 //   | errCode | errInfoLen | errInfo | pbData | checkNum
 //
 // 其中 pkLen 为完整包长度（含自身），checkNum 为校验值。
@@ -24,9 +24,9 @@ class TinyPbStruct : public AbstractData {
     int32_t m_pkLen {0};
 
     // 请求号长度
-    int32_t m_msgReqLen {0};
+    int32_t m_reqIdLen {0};
     // 请求号，用于关联请求与响应
-    std::string m_msgReq;
+    std::string m_reqId;
 
     // 服务完整名长度
     int32_t m_serviceNameLen {0};

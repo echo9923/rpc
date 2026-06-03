@@ -21,22 +21,22 @@ int main()
     // ────────────────────────────────────────────
     // Test 1：程序开始时应在主协程中
     // ────────────────────────────────────────────
-    if (!tinyrpc::Coroutine::IsMainCoroutine()) {
-        std::cerr << "[coroutine] FAIL: IsMainCoroutine() should be true "
+    if (!tinyrpc::Coroutine::isMainCoroutine()) {
+        std::cerr << "[coroutine] FAIL: isMainCoroutine() should be true "
                      "at program start"
                   << std::endl;
         return 1;
     }
 
-    if (tinyrpc::Coroutine::GetCurrentCoroutine()
-        != tinyrpc::Coroutine::GetMainCoroutine()) {
-        std::cerr << "[coroutine] FAIL: GetCurrentCoroutine() should equal "
-                     "GetMainCoroutine() at program start"
+    if (tinyrpc::Coroutine::getCurrentCoroutine()
+        != tinyrpc::Coroutine::getMainCoroutine()) {
+        std::cerr << "[coroutine] FAIL: getCurrentCoroutine() should equal "
+                     "getMainCoroutine() at program start"
                   << std::endl;
         return 1;
     }
 
-    if (tinyrpc::Coroutine::GetMainCoroutine()->getId() != 0) {
+    if (tinyrpc::Coroutine::getMainCoroutine()->getId() != 0) {
         std::cerr << "[coroutine] FAIL: main coroutine id should be 0"
                   << std::endl;
         return 1;
@@ -53,9 +53,9 @@ int main()
 
         trace.push_back("start");
 
-        // 在协程内部确认 IsMainCoroutine() == false
-        if (tinyrpc::Coroutine::IsMainCoroutine()) {
-            std::cerr << "[coroutine] FAIL: IsMainCoroutine() should be "
+        // 在协程内部确认 isMainCoroutine() == false
+        if (tinyrpc::Coroutine::isMainCoroutine()) {
+            std::cerr << "[coroutine] FAIL: isMainCoroutine() should be "
                          "false inside coroutine"
                       << std::endl;
             // 不能直接 exit(1)，因为可能在协程内调用 exit 不安全。
@@ -65,12 +65,12 @@ int main()
         }
 
         // 让出执行权，回到主协程
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
 
         trace.push_back("end");
     });
 
-    // 第一次 resume：协程应执行到 Yield() 并返回
+    // 第一次 resume：协程应执行到 yield() 并返回
     co.resume();
 
     if (execCount != 1) {
@@ -153,7 +153,7 @@ int main()
     // Test 5：协程 ID 分配
     // ────────────────────────────────────────────
     // 主协程 ID 为 0
-    if (tinyrpc::Coroutine::GetMainCoroutine()->getId() != 0) {
+    if (tinyrpc::Coroutine::getMainCoroutine()->getId() != 0) {
         std::cerr << "[coroutine] FAIL: main coroutine id should be 0"
                   << std::endl;
         return 1;
@@ -168,10 +168,10 @@ int main()
 
     // 多个协程 ID 互不相同
     tinyrpc::Coroutine co2([]() {
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
     });
     tinyrpc::Coroutine co3([]() {
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
     });
 
     if (co2.getId() == co.getId()) {

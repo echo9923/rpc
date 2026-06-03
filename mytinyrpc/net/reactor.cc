@@ -224,7 +224,7 @@ int Reactor::waitOnce(int timeoutMs)
         // data.ptr 在 epollAdd 时已被设为 FdEvent*，直接还原调用。
         auto* event = static_cast<FdEvent*>(events[i].data.ptr);
 
-        // 如果 FdEvent 上挂有协程，说明此前 read_hook/write_hook 遇到 EAGAIN
+        // 如果 FdEvent 上挂有协程，说明此前 readHook/writeHook 遇到 EAGAIN
         // 后将协程挂起并注册了 epoll 事件。此时 fd 已就绪，恢复协程继续执行。
         // 先 clearCoroutine() 再 resume()，避免协程恢复结束后 FdEvent 还留着旧指针。
         //

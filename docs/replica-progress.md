@@ -28,7 +28,7 @@
 当前限制：
 
 - 真实 Stub 到真实 `TcpServer` 的端到端验收留到任务三十九。
-- `msgReq` 自动生成工具和 mismatch 检查留到任务四十/四十六。
+- `reqId` 自动生成工具和 mismatch 检查留到任务四十/四十六。
 - 超时、重试和连接池留到后续阶段。
 
 ### 任务三十九：真实 Stub 到服务端端到端同步 RPC
@@ -57,18 +57,18 @@
 
 已完成能力：
 
-- 新增 `MsgReqUtil::genMsgNumber()`，生成非空、递增且进程内不重复的请求号。
-- `TinyPbRpcController` 支持 `MsgReq()`、`ErrorCode()`、`ErrorText()` 和 `Timeout()` 占位。
-- `TinyPbRpcChannel` 在 controller 未预设 `msgReq` 时自动生成请求号。
-- `TinyPbRpcChannel` 在 controller 已预设 `msgReq` 时复用该请求号。
-- Channel 收到 response 后检查 `msgReq`，不匹配时设置 `ERROR_RPC_MSGREQ_MISMATCH`。
-- 新增 `test_msg_req`，并扩展 `test_tinypb_rpc_channel` 覆盖预设请求号和 mismatch。
+- 新增 `ReqIdUtil::genReqId()`，生成非空、递增且进程内不重复的请求号。
+- `TinyPbRpcController` 支持 `ReqId()`、`ErrorCode()`、`ErrorText()` 和 `Timeout()` 占位。
+- `TinyPbRpcChannel` 在 controller 未预设 `reqId` 时自动生成请求号。
+- `TinyPbRpcChannel` 在 controller 已预设 `reqId` 时复用该请求号。
+- Channel 收到 response 后检查 `reqId`，不匹配时设置 `ERROR_RPC_REQID_MISMATCH`。
+- 新增 `test_req_id`，并扩展 `test_tinypb_rpc_channel` 覆盖预设请求号和 mismatch。
 
 验证命令：
 
 ```bash
 ./build.sh
-./build/test_msg_req
+./build/test_req_id
 ./build/test_tinypb_rpc_channel
 ./scripts/check_stage8_rpc.sh
 ```
@@ -170,7 +170,7 @@
 已完成能力：
 
 - 新增 `scripts/check_rpc_sync.sh`，作为后续阶段必须运行的同步 RPC 回归入口。
-- 脚本覆盖构建、TcpBuffer、AbstractCodec、TinyPB data/codec、连接编解码、Protobuf service、dispatcher、msgReq、TcpClient、TinyPbRpcChannel 和真实端到端同步 RPC。
+- 脚本覆盖构建、TcpBuffer、AbstractCodec、TinyPB data/codec、连接编解码、Protobuf service、dispatcher、reqId、TcpClient、TinyPbRpcChannel 和真实端到端同步 RPC。
 - README 将推荐入口从基础脚本更新为 `./scripts/check_rpc_sync.sh`。
 - 阶段 9 文档明确后续阶段完成前需要运行该脚本。
 
@@ -180,13 +180,13 @@
 ./scripts/check_rpc_sync.sh
 ```
 
-### 任务四十六：推迟响应缓存，仅保留 msgReq mismatch 检查
+### 任务四十六：推迟响应缓存，仅保留 reqId mismatch 检查
 
 已完成能力：
 
-- 明确同步 RPC 只有单 in-flight request，`TinyPbRpcChannel` 收到一个 response 后立即进行 `msgReq` 校验。
-- `msgReq` 不匹配时直接设置 `ERROR_RPC_MSGREQ_MISMATCH`，不反序列化业务 response。
-- 同步 `TcpClient` 和 `TinyPbRpcChannel` 文档注释明确不维护 `msgReq -> response` 缓存。
+- 明确同步 RPC 只有单 in-flight request，`TinyPbRpcChannel` 收到一个 response 后立即进行 `reqId` 校验。
+- `reqId` 不匹配时直接设置 `ERROR_RPC_REQID_MISMATCH`，不反序列化业务 response。
+- 同步 `TcpClient` 和 `TinyPbRpcChannel` 文档注释明确不维护 `reqId -> response` 缓存。
 - 阶段 9 文档说明 pending map、乱序响应缓存和迟到响应处理留到异步 RPC 阶段。
 
 验证命令：
@@ -362,20 +362,20 @@
 
 已完成能力：
 
-- 新增 `mytinyrpc/net/iothread_pool.h` 和 `mytinyrpc/net/iothread_pool.cc`。
+- 新增 `mytinyrpc/net/iothreadpool.h` 和 `mytinyrpc/net/iothreadpool.cc`。
 - `IOThreadPool` 构造时启动固定数量 `IOThread`。
 - `getNextIOThread()` 按 round-robin 分配线程。
 - `getIOThreadByIndex()` 和 `addTaskByIndex()` 支持指定 index 获取或投递任务。
 - `broadcastTask()` 向每个 IOThread 各投递一次任务。
 - `stop()` 停止池内全部线程，析构时兜底调用。
-- 新增 `test_iothread_pool`，覆盖轮转、广播、指定 index 投递和线程归属。
+- 新增 `test_iothreadpool`，覆盖轮转、广播、指定 index 投递和线程归属。
 - `docs/stage-11.md` 补充 IOThreadPool 任务投递路径和当前边界。
 
 验证命令：
 
 ```bash
 ./build.sh
-./build/test_iothread_pool
+./build/test_iothreadpool
 ./build/test_iothread
 ./scripts/check_rpc_sync.sh
 ```
@@ -423,16 +423,16 @@
 
 已完成能力：
 
-- 新增 `mytinyrpc/net/http/http_define.h` 和 `http_define.cc`，定义 HTTP method、status code、header 类型和基础转换函数。
+- 新增 `mytinyrpc/net/http/httpdefine.h` 和 `httpdefine.cc`，定义 HTTP method、status code、header 类型和基础转换函数。
 - 新增 `HttpRequest`，支持 method、path、version、header 和 body 的设置与读取。
 - 新增 `HttpResponse`，支持 status、version、header 和 body 的设置与读取，并可生成最小 HTTP response 字符串。
-- 新增 `test_http_define`，覆盖 `httpCodeToString(200)`、header 设置读取和 response 状态行、header、body 生成。
+- 新增 `test_httpdefine`，覆盖 `httpCodeToString(200)`、header 设置读取和 response 状态行、header、body 生成。
 - 新增 `docs/stage-12.md`，记录阶段 12 当前能力和边界。
 
 验证命令：
 ```bash
 ./build.sh
-./build/test_http_define
+./build/test_httpdefine
 ./scripts/check_rpc_sync.sh
 ```
 
@@ -547,7 +547,7 @@
 
 - `Logger` 支持同步文件日志初始化、级别过滤和 flush。
 - 日志格式包含时间、级别、线程 id、文件行号和正文。
-- 支持带 `msgReq` 的日志接口，便于记录请求号、方法名和错误码。
+- 支持带 `reqId` 的日志接口，便于记录请求号、方法名和错误码。
 - 支持关闭日志输出。
 - 支持简化异步队列模式，`flush()` 和 `shutdown()` 会等待日志落盘。
 - 未初始化文件日志时保持控制台输出，兼容现有调试路径。
@@ -583,10 +583,10 @@
 已完成能力：
 
 - `Runtime` 新增线程局部 `RequestContext`。
-- 请求上下文保存当前 msgReq、method name、local addr 和 peer addr。
+- 请求上下文保存当前 reqId、method name、local addr 和 peer addr。
 - `TinyPbDispatcher` 在调用业务 Service 前设置上下文，请求结束后自动清理。
-- `Logger` 未显式传 msgReq 时会读取当前线程 request context。
-- 新增 `test_runtime`，覆盖请求处理中读取 msgReq、请求后清理、多线程隔离和日志自动打印 msgReq。
+- `Logger` 未显式传 reqId 时会读取当前线程 request context。
+- 新增 `test_runtime`，覆盖请求处理中读取 reqId、请求后清理、多线程隔离和日志自动打印 reqId。
 
 验证命令：
 ```bash
@@ -603,7 +603,7 @@
 
 - 新增 `docs/coroutine-model.md`。
 - 梳理 `Coroutine` 创建、状态转换、`Yield()` 和 `resume()` 路径。
-- 梳理 `read_hook()` / `write_hook()` 的启用边界和主协程直通路径。
+- 梳理 `readHook()` / `writeHook()` 的启用边界和主协程直通路径。
 - 梳理 `FdEvent` 挂载协程、Reactor 事件匹配和恢复协程的链路。
 - 补充 `TcpConnection` 中 input、execute、output 与 hook 的关系。
 - 补充协程和 hook 调试清单。
@@ -620,9 +620,9 @@
 
 已完成能力：
 
-- 新增 `connect_hook()`，主协程中直通原始 `connect()`。
+- 新增 `connectHook()`，主协程中直通原始 `connect()`。
 - 非主协程中，非阻塞 connect 返回 `EINPROGRESS` 后会挂载当前协程并等待 `EPOLLOUT`。
-- Reactor 监听到可写事件后恢复协程，`connect_hook()` 通过 `getsockopt(SO_ERROR)` 判断连接成功或失败。
+- Reactor 监听到可写事件后恢复协程，`connectHook()` 通过 `getsockopt(SO_ERROR)` 判断连接成功或失败。
 - 支持 timeout：到期后 TimerEvent 恢复协程，并返回 `ETIMEDOUT`。
 - 扩展 `test_hook`，覆盖连接成功、连接拒绝、连接超时和主协程直通路径。
 - 更新 `docs/coroutine-model.md`，补充 connect hook 的恢复和超时路径。
@@ -638,10 +638,10 @@
 
 已完成能力：
 
-- 新增 `sleep_hook(Reactor*, seconds)`，主协程中直通原始 `sleep()`。
-- 新增 `usleep_hook(Reactor*, usec)`，主协程中直通原始 `usleep()`。
+- 新增 `sleepHook(Reactor*, seconds)`，主协程中直通原始 `sleep()`。
+- 新增 `usleepHook(Reactor*, usec)`，主协程中直通原始 `usleep()`。
 - 非主协程中通过一次性 `TimerEvent` 挂起当前协程，Timer 到期后由 Reactor 恢复。
-- 新增 `test_hook_sleep`，覆盖主协程直通、`sleep_hook`/`usleep_hook` 定时恢复、一个协程 sleep 不阻塞另一个协程，以及多个协程按时间恢复。
+- 新增 `test_hook_sleep`，覆盖主协程直通、`sleepHook`/`usleepHook` 定时恢复、一个协程 sleep 不阻塞另一个协程，以及多个协程按时间恢复。
 - 更新 `docs/coroutine-model.md`，补充 sleep/usleep hook 的 Reactor Timer 恢复路径和调试要点。
 
 验证命令：
@@ -656,9 +656,9 @@
 
 已完成能力：
 
-- 新增 `recv_hook()`，在非主协程中遇到 `EAGAIN` / `EWOULDBLOCK` / `EINTR` 时等待 `EPOLLIN`。
-- 新增 `send_hook()`，在非主协程中遇到发送缓冲区暂不可写时等待 `EPOLLOUT`。
-- 新增 `accept_hook()`，在非主协程中遇到监听 socket 暂无连接时等待 `EPOLLIN`。
+- 新增 `recvHook()`，在非主协程中遇到 `EAGAIN` / `EWOULDBLOCK` / `EINTR` 时等待 `EPOLLIN`。
+- 新增 `sendHook()`，在非主协程中遇到发送缓冲区暂不可写时等待 `EPOLLOUT`。
+- 新增 `acceptHook()`，在非主协程中遇到监听 socket 暂无连接时等待 `EPOLLIN`。
 - 三个 socket hook 均支持可选 `timeoutMs`，超时后恢复协程并返回 `errno = ETIMEDOUT`。
 - 新增 `test_hook_socket`，覆盖 recv 数据到达恢复、recv 超时、send peer drain 后恢复、accept 新连接恢复、accept 超时以及主协程直通路径。
 - 更新 `docs/coroutine-model.md`，补充 socket hook 的恢复路径和当前限制。
@@ -687,12 +687,12 @@
 - `getCoroutine(cb)` 优先复用空闲协程；容量耗尽时返回 `nullptr`，不隐式扩容。
 - `returnCoroutine(co)` 只接受 Ready / Finished 协程，拒绝归还 Suspended / Running 协程。
 - 归还成功时会把协程 reset 成空任务，避免旧回调捕获污染下一次使用。
-- 新增 `test_coroutine_pool`，覆盖任务运行、复用、耗尽、挂起状态拒绝归还和 `Coroutine::reset()` 边界。
+- 新增 `test_coroutinepool`，覆盖任务运行、复用、耗尽、挂起状态拒绝归还和 `Coroutine::reset()` 边界。
 
 验证命令：
 ```bash
 ./build.sh
-./build/test_coroutine_pool
+./build/test_coroutinepool
 ./build/test_coroutine
 ./build/test_hook_socket
 ./scripts/check_rpc_sync.sh
@@ -719,7 +719,7 @@
 ```bash
 ./build.sh
 ./build/test_memory_pool
-./build/test_coroutine_pool
+./build/test_coroutinepool
 ./build/test_coroutine
 ./scripts/check_rpc_sync.sh
 ```
@@ -737,8 +737,8 @@
 已完成能力：
 
 - 新增 `TinyPbRpcAsyncChannel`，继承 `google::protobuf::RpcChannel`。
-- 新增 `AsyncCallContext`，保存 `msgReq`、method 全名、controller、request、response 和 closure。
-- 异步 Channel 在参数合法时生成或复用 controller 中的 `msgReq`。
+- 新增 `AsyncCallContext`，保存 `reqId`、method 全名、controller、request、response 和 closure。
+- 异步 Channel 在参数合法时生成或复用 controller 中的 `reqId`。
 - 当前外壳内部临时复用 `TinyPbRpcChannel` 完成同步 TinyPB 网络请求。
 - 成功路径和失败路径都会执行 `done` closure。
 - 新增 `test_tinypb_rpc_async_channel`，覆盖成功调用、网络失败仍执行 done、非法参数仍执行 done。
@@ -759,17 +759,17 @@
 - 当前不支持乱序响应匹配。
 - 当前不做异步超时和取消。
 
-### 任务七十五：异步请求表和 msgReq 匹配
+### 任务七十五：异步请求表和 reqId 匹配
 
 已完成能力：
 
-- `TinyPbRpcAsyncChannel` 新增 `msgReq -> AsyncCallContext` pending 表。
+- `TinyPbRpcAsyncChannel` 新增 `reqId -> AsyncCallContext` pending 表。
 - `CallMethod()` 在参数合法且 request 序列化成功后先注册 pending。
 - 新增 `setSyncFallbackEnabled(false)` 测试入口，用于只注册 pending、不走同步网络 fallback。
-- 新增 `handleTinyPbResponse()`，按 response `msgReq` 命中上下文、移除 pending、反序列化业务 response 并执行 closure。
-- 支持乱序响应匹配，未知 `msgReq` response 会返回 false 并保留已有 pending。
+- 新增 `handleTinyPbResponse()`，按 response `reqId` 命中上下文、移除 pending、反序列化业务 response 并执行 closure。
+- 支持乱序响应匹配，未知 `reqId` response 会返回 false 并保留已有 pending。
 - TinyPB 错误响应会设置 controller error 并执行 closure。
-- 扩展 `test_tinypb_rpc_async_channel`，覆盖乱序响应、未知 msgReq 和错误响应。
+- 扩展 `test_tinypb_rpc_async_channel`，覆盖乱序响应、未知 reqId 和错误响应。
 - 更新 `docs/stage-15.md`，补充 pending map 调用链和当前边界。
 
 验证命令：
@@ -793,7 +793,7 @@
 - `TinyPbRpcAsyncChannel` 构造时持有一个 `IOThread`。
 - 默认 `CallMethod()` 在注册 pending 后把网络请求投递到 IOThread，调用线程不再阻塞等待网络返回。
 - IOThread 内部执行当前最小网络路径：使用 `TcpClient::sendAndRecvTinyPb()` 连接、发送请求并读取响应。
-- response 返回后由 IOThread 调用 `handleTinyPbResponse()`，按 `msgReq` 完成上下文并执行 closure。
+- response 返回后由 IOThread 调用 `handleTinyPbResponse()`，按 `reqId` 完成上下文并执行 closure。
 - 网络失败时会删除 pending、设置 controller error 并执行 closure，单个失败不会影响其他请求。
 - 新增 `stop()`、`isIOThreadStarted()` 和 `getIOThreadId()`，用于观察和停止内部 IOThread。
 - 扩展 `test_tinypb_rpc_async_channel`，覆盖 closure 执行线程归属和 10 个异步请求全部完成。
@@ -820,20 +820,20 @@
 
 - `AsyncCallContext` 新增 `timeoutEvent`，保存本次异步请求对应的一次性 `TimerEvent`。
 - `TinyPbRpcAsyncChannel` 读取 `TinyPbRpcController::Timeout()`，在 pending 请求注册后把超时事件投递到内部 IOThread 的 Reactor Timer。
-- 超时到期后按 `msgReq` 从 pending map 取出上下文，设置 `ERROR_RPC_ASYNC_TIMEOUT` 并执行 closure。
+- 超时到期后按 `reqId` 从 pending map 取出上下文，设置 `ERROR_RPC_ASYNC_TIMEOUT` 并执行 closure。
 - `handleTinyPbResponse()`、网络失败、超时和取消统一通过 pending map 做一次性完成仲裁，避免二次回调。
 - 请求成功、失败、超时或取消完成后都会取消对应 `TimerEvent`，并清理 controller 上的内部取消回调。
 - `TinyPbRpcController::StartCancel()` 支持触发 Channel 注册的取消回调；Channel 会删除 pending、设置 `ERROR_RPC_ASYNC_CANCELED` 并执行 closure。
 - `TimerEvent` 的取消标记改为 atomic，并显式禁止拷贝，避免跨线程取消标记的数据竞争和误拷贝。
 - 扩展 `test_tinypb_rpc_async_channel`，覆盖超时清理、迟到响应不二次回调、controller 取消清理。
-- 扩展 `test_msg_req`，覆盖 controller 取消回调执行与 Reset 清理。
+- 扩展 `test_req_id`，覆盖 controller 取消回调执行与 Reset 清理。
 - 更新 `docs/stage-15.md`，补充超时/取消调用链和当前边界。
 
 验证命令：
 ```bash
 ./build.sh
 ./build/test_tinypb_rpc_async_channel
-./build/test_msg_req
+./build/test_req_id
 ./build/test_timer
 ./build/test_timer_event
 ./scripts/check_rpc_sync.sh
@@ -853,7 +853,7 @@
 - `test_tinypb_async_client` 内部启动本地 TinyPB mock server，发起 6 个异步 Stub 请求，覆盖成功响应和服务端 TinyPB 错误响应。
 - `test_tinypb_async_client` 单独覆盖超时请求，验证 callback 执行、controller 错误码和 pending 清理。
 - 新增 `scripts/check_rpc_async.sh`，作为阶段 15 一键异步回归入口。
-- `check_rpc_async.sh` 串联构建、`test_tinypb_rpc_async_channel`、`test_tinypb_async_client`、`test_msg_req`、`test_timer`、`test_timer_event`、`test_tinypb_rpc_channel` 和同步 RPC 安全网。
+- `check_rpc_async.sh` 串联构建、`test_tinypb_rpc_async_channel`、`test_tinypb_async_client`、`test_req_id`、`test_timer`、`test_timer_event`、`test_tinypb_rpc_channel` 和同步 RPC 安全网。
 - 更新 `docs/stage-15.md`，补充完整异步生命周期图，以及 request 发出、pending 注册、响应匹配、timeout、取消和 closure 执行线程说明。
 - `CMakeLists.txt` 新增 `test_tinypb_async_client` 目标。
 
@@ -978,7 +978,7 @@
 已完成能力：
 
 - 新增 `docs/original-coverage-matrix.md`。
-- 按 `comm/config`、`comm/log`、`comm/start`、`comm/runtime`、`coroutine`、`coroutine_pool`、`net/reactor`、`net/timer`、`net/tcp`、`net/http`、`net/tinypb` 和 `generator` 建立覆盖矩阵。
+- 按 `comm/config`、`comm/log`、`comm/start`、`comm/runtime`、`coroutine`、`coroutinepool`、`net/reactor`、`net/timer`、`net/tcp`、`net/http`、`net/tinypb` 和 `generator` 建立覆盖矩阵。
 - 每个模块标注“已复刻 / 简化复刻 / 暂不复刻”状态。
 - 每个已覆盖模块都写明当前能力、简化边界和验证方式。
 - 单独列出 MySQL 插件、连接池、HTTPS/HTTP2、tracing、压测优化和完整 Protobuf parser 等暂不复刻项。
@@ -1046,4 +1046,4 @@
 
 - **任务八十六：扩展 Config schema 到原项目核心字段**。
 
-该任务会先补齐原 TinyRPC 配置中的日志、协程池、msgReq、连接超时、IOThread 和时间轮字段，为后续日志补全、透明 hook、客户端 Reactor 化和真正异步 RPC 提供统一配置来源。
+该任务会先补齐原 TinyRPC 配置中的日志、协程池、reqId、连接超时、IOThread 和时间轮字段，为后续日志补全、透明 hook、客户端 Reactor 化和真正异步 RPC 提供统一配置来源。

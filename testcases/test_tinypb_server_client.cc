@@ -123,7 +123,7 @@ int runClient(uint16_t port)
 
     stub.query_name(&controller, &request, &response, nullptr);
     if (controller.Failed()) {
-        std::cerr << "[stage8-client] rpc failed, code = " << controller.ErrorCode()
+        std::cerr << "[stage8-client] rpc failed, code = " << controller.getErrorCode()
                   << ", error = " << controller.ErrorText() << std::endl;
         return 1;
     }

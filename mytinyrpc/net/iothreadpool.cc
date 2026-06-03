@@ -1,4 +1,4 @@
-#include "net/iothread_pool.h"
+#include "net/iothreadpool.h"
 
 #include <algorithm>
 #include <utility>
@@ -18,7 +18,7 @@ IOThreadPool::~IOThreadPool()
     stop();
 }
 
-std::size_t IOThreadPool::size() const
+std::size_t IOThreadPool::getSize() const
 {
     return m_threads.size();
 }

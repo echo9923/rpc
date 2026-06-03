@@ -9,7 +9,7 @@
 | 任务 | 状态 | 说明 |
 |------|------|------|
 | 任务二十：抽象最小协程对象与 FdEvent 挂载点 | 已完成 | 最小 `Coroutine` 类（创建/恢复/让出/完成）；`FdEvent` 挂载 `Coroutine*`。 |
-| 任务二十一：引入 read_hook/write_hook 的最小雏形 | 已完成 | `read_hook`/`write_hook`（显式传入 `FdEvent*`，EAGAIN 时挂起协程、添加 epoll 事件、Yield）。 |
+| 任务二十一：引入 readHook/writeHook 的最小雏形 | 已完成 | `readHook`/`writeHook`（显式传入 `FdEvent*`，EAGAIN 时挂起协程、添加 epoll 事件、Yield）。 |
 | 任务二十二：让 Reactor 恢复挂载在 FdEvent 上的协程 | 已完成 | `Reactor::waitOnce()` 事件分发中识别 `FdEvent` 上的协程并 `resume()`，协程路径与 callback 路径互斥。 |
 
 ## 任务二十记录
@@ -18,7 +18,7 @@
 
 - 新建 `mytinyrpc/coroutine/` 目录，包含：
   - `coctx.h`：x86-64 寄存器上下文结构体与偏移常量。
-  - `coctx_swap.S`：汇编上下文切换（保存/恢复 14 个通用寄存器，复制自 Tencent/libco）。
+  - `coctxswap.s`：汇编上下文切换（保存/恢复 14 个通用寄存器，复制自 Tencent/libco）。
   - `coroutine.h` / `coroutine.cc`：`Coroutine` 类，支持 `resume()` / `Yield()` / 状态管理。
 - `Coroutine` 构造时 `malloc` 分配独立栈，初始化寄存器上下文，`CoFunc` 作为入口包装函数。
 - `Coroutine::Yield()` 只允许在非主协程中调用。
@@ -28,12 +28,12 @@
 
 ## 任务二十一记录
 
-任务二十一完成的目标是引入 `read_hook`/`write_hook` 的最小雏形，实现"IO 暂不可用 → 协程主动让出"的挂起半边：
+任务二十一完成的目标是引入 `readHook`/`writeHook` 的最小雏形，实现"IO 暂不可用 → 协程主动让出"的挂起半边：
 
-- 新增 `mytinyrpc/coroutine/coroutine_hook.h` / `.cc`，接口为显式传入 `FdEvent*`：
-  - `read_hook(FdEvent* fdEvent, void* buf, size_t count)`：fd 从 `fdEvent->getFd()` 取。
+- 新增 `mytinyrpc/coroutine/coroutinehook.h` / `.cc`，接口为显式传入 `FdEvent*`：
+  - `readHook(FdEvent* fdEvent, void* buf, size_t count)`：fd 从 `fdEvent->getFd()` 取。
     非主协程中遇到 `EAGAIN/EWOULDBLOCK` 时，挂载协程到传入的 `fdEvent`、添加 `EPOLLIN`、调用 `Coroutine::Yield()`；恢复后再次 `::read`。
-  - `write_hook(FdEvent* fdEvent, const void* buf, size_t count)`：对称实现，`EAGAIN` 时添加 `EPOLLOUT` 并 `Yield`。
+  - `writeHook(FdEvent* fdEvent, const void* buf, size_t count)`：对称实现，`EAGAIN` 时添加 `EPOLLOUT` 并 `Yield`。
   - 主协程中直接透传系统调用结果，不做任何挂起。
 - 调用方负责提供与 fd 关联的 `FdEvent`（如 `TcpConnection::m_fdEvent`），避免同一 fd 存在多个 `FdEvent` 实例。
 - 不引入 `FdEventContainer`：当前 `TcpConnection` 已持有 `m_fdEvent`，不需要全局 fd→FdEvent 映射。
@@ -48,7 +48,7 @@
 - 协程路径与 callback 路径互斥：如果 `FdEvent` 上挂了协程，本次事件不再调用 `handleEvent()`，避免同一 fd 同时走 callback 和 coroutine 两条路径。
 - 先 `clearCoroutine()` 再 `resume()`，避免协程恢复并结束后 `FdEvent` 还留着旧指针。
 - `reactor.cc` 新增 `#include "coroutine/coroutine.h"`，确保能调用 `Coroutine::resume()`。
-- 新增 `testcases/test_hook.cc` 中的 `ReactorResumesReadHookCoroutine` 测试用例：使用 `pipe()` 创建读写 fd，协程内部调用 `read_hook` 遇到 `EAGAIN` 后挂起，向 pipe 写端写入数据，`Reactor::waitOnce()` 收到 `EPOLLIN` 事件后自动恢复协程，验证完整闭环。
+- 新增 `testcases/test_hook.cc` 中的 `ReactorResumesReadHookCoroutine` 测试用例：使用 `pipe()` 创建读写 fd，协程内部调用 `readHook` 遇到 `EAGAIN` 后挂起，向 pipe 写端写入数据，`Reactor::waitOnce()` 收到 `EPOLLIN` 事件后自动恢复协程，验证完整闭环。
 - `Reactor`、`TcpConnection`、Echo Server 的 callback 行为保持不变。
 
 ## 下一任务

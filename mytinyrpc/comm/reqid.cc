@@ -1,4 +1,4 @@
-#include "comm/msgreq.h"
+#include "comm/reqid.h"
 
 #include <atomic>
 #include <chrono>
@@ -6,7 +6,7 @@
 
 namespace tinyrpc {
 
-std::string MsgReqUtil::genMsgNumber()
+std::string ReqIdUtil::genReqId()
 {
     static std::atomic<unsigned long long> sequence {0};
 

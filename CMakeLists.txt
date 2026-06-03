@@ -25,30 +25,30 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS testcases/test_tinypb_server.proto)
 set(SRC
     mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
-    mytinyrpc/comm/msgreq.cc
+    mytinyrpc/comm/reqid.cc
     mytinyrpc/comm/runtime.cc
     mytinyrpc/comm/start.cc
-    mytinyrpc/coroutine/coctx_swap.S
+    mytinyrpc/coroutine/coctxswap.s
     mytinyrpc/coroutine/coroutine.cc
-    mytinyrpc/coroutine/coroutine_hook.cc
-    mytinyrpc/coroutine/coroutine_pool.cc
+    mytinyrpc/coroutine/coroutinehook.cc
+    mytinyrpc/coroutine/coroutinepool.cc
     mytinyrpc/coroutine/memory.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/http/httpcodec.cc
-    mytinyrpc/net/http/http_define.cc
-    mytinyrpc/net/http/http_request.cc
-    mytinyrpc/net/http/http_response.cc
+    mytinyrpc/net/http/httpdefine.cc
+    mytinyrpc/net/http/httprequest.cc
+    mytinyrpc/net/http/httpresponse.cc
     mytinyrpc/net/http/httpdispatcher.cc
     mytinyrpc/net/http/httpservlet.cc
     mytinyrpc/net/iothread.cc
-    mytinyrpc/net/iothread_pool.cc
+    mytinyrpc/net/iothreadpool.cc
     mytinyrpc/net/mutex.cc
     mytinyrpc/net/netaddress.cc
     mytinyrpc/net/reactor.cc
     mytinyrpc/net/tcpbuffer.cc
     mytinyrpc/net/tcpconnection.cc
-    mytinyrpc/net/tcpconnection_timewheel.cc
+    mytinyrpc/net/tcpconnectiontimewheel.cc
     mytinyrpc/net/tcpclient.cc
     mytinyrpc/net/tcpserver.cc
     mytinyrpc/net/timer.cc
@@ -188,11 +188,11 @@ add_executable(test_tinypb_server_client
 )
 target_link_libraries(test_tinypb_server_client pthread ${Protobuf_LIBRARIES})
 
-add_executable(test_msg_req
-    testcases/test_msg_req.cc
+add_executable(test_req_id
+    testcases/test_req_id.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
-target_link_libraries(test_msg_req ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+target_link_libraries(test_req_id ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
 add_executable(test_timer_event
     testcases/test_timer_event.cc

@@ -1,6 +1,6 @@
-#include "net/http/http_define.h"
-#include "net/http/http_request.h"
-#include "net/http/http_response.h"
+#include "net/http/httpdefine.h"
+#include "net/http/httprequest.h"
+#include "net/http/httpresponse.h"
 
 #include <gtest/gtest.h>
 
@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     ::testing::InitGoogleTest(&argc, argv);
     int result = RUN_ALL_TESTS();
     if (result == 0) {
-        std::cout << "[http_define] PASS" << std::endl;
+        std::cout << "[httpdefine] PASS" << std::endl;
     }
     return result;
 }

@@ -33,7 +33,7 @@ TEST(ConnectionCodecTest, CodecRoundTrip)
 
     // 构造原始请求
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-conn-001";
+    request.m_reqId = "req-conn-001";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_errCode = 0;
     request.m_errInfo = "";
@@ -53,7 +53,7 @@ TEST(ConnectionCodecTest, CodecRoundTrip)
     ASSERT_TRUE(decoded.m_decodeSucc);
 
     // 校验 decode 字段与原输入一致
-    EXPECT_EQ(decoded.m_msgReq, "req-conn-001");
+    EXPECT_EQ(decoded.m_reqId, "req-conn-001");
     EXPECT_EQ(decoded.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(decoded.m_errCode, 0);
     EXPECT_EQ(decoded.m_errInfo, "");
@@ -82,7 +82,7 @@ TEST(ConnectionCodecTest, PartialFrameNoConsume)
 
     // 构造完整帧
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-partial";
+    original.m_reqId = "req-partial";
     original.m_serviceFullName = "Svc.partial";
 
     tinyrpc::TcpBuffer encodeBuf(256);
@@ -119,7 +119,7 @@ TEST(ConnectionCodecTest, SendProtocolDataWritesOutput)
 
     // 构造请求
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-send-001";
+    request.m_reqId = "req-send-001";
     request.m_serviceFullName = "OrderService.create";
     request.m_pbData = "\xAB\xCD";
     request.m_errCode = 42;
@@ -137,7 +137,7 @@ TEST(ConnectionCodecTest, SendProtocolDataWritesOutput)
     ASSERT_TRUE(decoded.m_decodeSucc);
 
     // 验证字段与请求一致
-    EXPECT_EQ(decoded.m_msgReq, "req-send-001");
+    EXPECT_EQ(decoded.m_reqId, "req-send-001");
     EXPECT_EQ(decoded.m_serviceFullName, "OrderService.create");
     EXPECT_EQ(decoded.m_pbData, std::string("\xAB\xCD", 2));
     EXPECT_EQ(decoded.m_errCode, 42);
@@ -198,7 +198,7 @@ TEST(ConnectionCodecTest, ExecuteDispatchesTinyPbRpcRequest)
 
     // 构造 TinyPB 请求帧
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-chain-001";
+    request.m_reqId = "req-chain-001";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = pbData;
     request.m_errCode = 0;
@@ -221,7 +221,7 @@ TEST(ConnectionCodecTest, ExecuteDispatchesTinyPbRpcRequest)
     codec->decode(outputBuf, &response);
     ASSERT_TRUE(response.m_decodeSucc);
 
-    EXPECT_EQ(response.m_msgReq, "req-chain-001");
+    EXPECT_EQ(response.m_reqId, "req-chain-001");
     EXPECT_EQ(response.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.m_errCode, 0);
 

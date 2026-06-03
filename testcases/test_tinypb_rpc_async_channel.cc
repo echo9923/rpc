@@ -239,7 +239,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, StubCallTriggersDoneAndKeepsContextObservable)
         pbRes.set_name("async Alice");
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         ASSERT_TRUE(pbRes.SerializeToString(&response.m_pbData));
 
@@ -255,7 +255,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, StubCallTriggersDoneAndKeepsContextObservable)
     });
 
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "async-req-001"; });
+    channel.setReqIdGenerator([]() { return "async-req-001"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -275,19 +275,19 @@ TEST_F(TinyPbRpcAsyncChannelTest, StubCallTriggersDoneAndKeepsContextObservable)
     ASSERT_TRUE(serverOk) << serverError;
     ASSERT_TRUE(waitUntil([&]() { return doneCalled.load(); }, 1000));
     EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
-    EXPECT_EQ(decodedRequest.m_msgReq, "async-req-001");
+    EXPECT_EQ(decodedRequest.m_reqId, "async-req-001");
     EXPECT_EQ(decodedRequest.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.name(), "async Alice");
     EXPECT_EQ(doneThreadId, channel.getIOThreadId());
 
     auto context = channel.getLastContext();
     ASSERT_NE(context, nullptr);
-    EXPECT_EQ(context->msgReq, "async-req-001");
-    EXPECT_EQ(context->methodFullName, "QueryService.query_name");
-    EXPECT_EQ(context->controller, &controller);
-    EXPECT_EQ(context->request, &request);
-    EXPECT_EQ(context->response, &response);
-    EXPECT_EQ(context->done, &done);
+    EXPECT_EQ(context->m_reqId, "async-req-001");
+    EXPECT_EQ(context->m_methodFullName, "QueryService.query_name");
+    EXPECT_EQ(context->m_controller, &controller);
+    EXPECT_EQ(context->m_request, &request);
+    EXPECT_EQ(context->m_response, &response);
+    EXPECT_EQ(context->m_done, &done);
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, NetworkFailureStillRunsDone)
@@ -309,7 +309,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, NetworkFailureStillRunsDone)
 
     tinyrpc::TinyPbRpcAsyncChannel channel(
         tinyrpc::IPAddress("127.0.0.1", ntohs(nonListenAddr.sin_port)));
-    channel.setMsgReqGenerator([]() { return "async-network-fail"; });
+    channel.setReqIdGenerator([]() { return "async-network-fail"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -327,12 +327,12 @@ TEST_F(TinyPbRpcAsyncChannelTest, NetworkFailureStillRunsDone)
 
     ASSERT_TRUE(waitUntil([&]() { return doneCalled.load(); }, 1000));
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
 
     auto context = channel.getLastContext();
     ASSERT_NE(context, nullptr);
-    EXPECT_EQ(context->msgReq, "async-network-fail");
-    EXPECT_EQ(context->controller, &controller);
+    EXPECT_EQ(context->m_reqId, "async-network-fail");
+    EXPECT_EQ(context->m_controller, &controller);
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, InvalidArgumentRunsDoneAndSetsError)
@@ -346,14 +346,14 @@ TEST_F(TinyPbRpcAsyncChannelTest, InvalidArgumentRunsDoneAndSetsError)
 
     EXPECT_TRUE(doneCalled.load());
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_INVALID_ARGUMENT);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_INVALID_ARGUMENT);
 
     auto context = channel.getLastContext();
     ASSERT_NE(context, nullptr);
-    EXPECT_EQ(context->controller, &controller);
-    EXPECT_EQ(context->request, nullptr);
-    EXPECT_EQ(context->response, nullptr);
-    EXPECT_EQ(context->done, &done);
+    EXPECT_EQ(context->m_controller, &controller);
+    EXPECT_EQ(context->m_request, nullptr);
+    EXPECT_EQ(context->m_response, nullptr);
+    EXPECT_EQ(context->m_done, &done);
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
@@ -391,7 +391,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
             pbRes.set_name("async-" + std::to_string(pbReq.id()));
 
             tinyrpc::TinyPbStruct response;
-            response.m_msgReq = decodedRequest.m_msgReq;
+            response.m_reqId = decodedRequest.m_reqId;
             response.m_serviceFullName = decodedRequest.m_serviceFullName;
             if (!pbRes.SerializeToString(&response.m_pbData)) {
                 serverError = "response serialize failed";
@@ -416,9 +416,9 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
     });
 
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    int nextMsgReq = 0;
-    channel.setMsgReqGenerator([&]() {
-        return "async-iothread-" + std::to_string(nextMsgReq++);
+    int nextReqId = 0;
+    channel.setReqIdGenerator([&]() {
+        return "async-iothread-" + std::to_string(nextReqId++);
     });
     QueryService_Stub stub(&channel);
 
@@ -462,10 +462,10 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    std::vector<std::string> msgReqs {"async-pending-1", "async-pending-2"};
-    size_t nextMsgReq = 0;
-    channel.setMsgReqGenerator([&]() {
-        return msgReqs[nextMsgReq++];
+    std::vector<std::string> reqIds {"async-pending-1", "async-pending-2"};
+    size_t nextReqId = 0;
+    channel.setReqIdGenerator([&]() {
+        return reqIds[nextReqId++];
     });
     QueryService_Stub stub(&channel);
 
@@ -505,7 +505,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     pbResponse2.set_name("second");
 
     tinyrpc::TinyPbStruct tinyResponse2;
-    tinyResponse2.m_msgReq = "async-pending-2";
+    tinyResponse2.m_reqId = "async-pending-2";
     tinyResponse2.m_serviceFullName = "QueryService.query_name";
     ASSERT_TRUE(pbResponse2.SerializeToString(&tinyResponse2.m_pbData));
 
@@ -525,7 +525,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     pbResponse1.set_name("first");
 
     tinyrpc::TinyPbStruct tinyResponse1;
-    tinyResponse1.m_msgReq = "async-pending-1";
+    tinyResponse1.m_reqId = "async-pending-1";
     tinyResponse1.m_serviceFullName = "QueryService.query_name";
     ASSERT_TRUE(pbResponse1.SerializeToString(&tinyResponse1.m_pbData));
 
@@ -537,11 +537,11 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)
     EXPECT_FALSE(controller2.Failed()) << controller2.ErrorText();
 }
 
-TEST_F(TinyPbRpcAsyncChannelTest, UnknownMsgReqResponseIsIgnored)
+TEST_F(TinyPbRpcAsyncChannelTest, UnknownReqIdResponseIsIgnored)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() { return "known-pending"; });
+    channel.setReqIdGenerator([]() { return "known-pending"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -558,7 +558,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, UnknownMsgReqResponseIsIgnored)
     ASSERT_EQ(channel.getPendingCount(), 1u);
 
     tinyrpc::TinyPbStruct unknownResponse;
-    unknownResponse.m_msgReq = "unknown-msg-req";
+    unknownResponse.m_reqId = "unknown-msg-req";
     unknownResponse.m_serviceFullName = "QueryService.query_name";
 
     EXPECT_FALSE(channel.handleTinyPbResponse(unknownResponse));
@@ -571,7 +571,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingResponseErrorRunsClosure)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() { return "pending-error"; });
+    channel.setReqIdGenerator([]() { return "pending-error"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -588,7 +588,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingResponseErrorRunsClosure)
     ASSERT_EQ(channel.getPendingCount(), 1u);
 
     tinyrpc::TinyPbStruct tinyResponse;
-    tinyResponse.m_msgReq = "pending-error";
+    tinyResponse.m_reqId = "pending-error";
     tinyResponse.m_serviceFullName = "QueryService.query_name";
     tinyResponse.m_errCode = tinyrpc::ERROR_SERVICE_NOT_FOUND;
     tinyResponse.m_errInfo = "service missing";
@@ -596,7 +596,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingResponseErrorRunsClosure)
     EXPECT_TRUE(channel.handleTinyPbResponse(tinyResponse));
     EXPECT_TRUE(doneCalled.load());
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_SERVICE_NOT_FOUND);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_SERVICE_NOT_FOUND);
     EXPECT_EQ(controller.ErrorText(), "service missing");
     EXPECT_EQ(channel.getPendingCount(), 0u);
 }
@@ -605,7 +605,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingRequestTimeoutRunsClosureAndClearsPendi
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() { return "pending-timeout"; });
+    channel.setReqIdGenerator([]() { return "pending-timeout"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -615,7 +615,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingRequestTimeoutRunsClosureAndClearsPendi
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    controller.SetTimeout(30);
+    controller.setTimeout(30);
     std::atomic<int> doneCount {0};
     CountClosure done(&doneCount);
 
@@ -623,7 +623,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, PendingRequestTimeoutRunsClosureAndClearsPendi
 
     ASSERT_TRUE(waitUntil([&]() { return doneCount.load() == 1; }, 1000));
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_ASYNC_TIMEOUT);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_ASYNC_TIMEOUT);
     EXPECT_EQ(channel.getPendingCount(), 0u);
     EXPECT_FALSE(channel.hasPending("pending-timeout"));
 }
@@ -632,7 +632,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, LateResponseAfterTimeoutDoesNotRunClosureAgain
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() { return "late-after-timeout"; });
+    channel.setReqIdGenerator([]() { return "late-after-timeout"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -642,7 +642,7 @@ TEST_F(TinyPbRpcAsyncChannelTest, LateResponseAfterTimeoutDoesNotRunClosureAgain
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    controller.SetTimeout(30);
+    controller.setTimeout(30);
     std::atomic<int> doneCount {0};
     CountClosure done(&doneCount);
 
@@ -657,21 +657,21 @@ TEST_F(TinyPbRpcAsyncChannelTest, LateResponseAfterTimeoutDoesNotRunClosureAgain
     pbResponse.set_name("late");
 
     tinyrpc::TinyPbStruct tinyResponse;
-    tinyResponse.m_msgReq = "late-after-timeout";
+    tinyResponse.m_reqId = "late-after-timeout";
     tinyResponse.m_serviceFullName = "QueryService.query_name";
     ASSERT_TRUE(pbResponse.SerializeToString(&tinyResponse.m_pbData));
 
     EXPECT_FALSE(channel.handleTinyPbResponse(tinyResponse));
     EXPECT_EQ(doneCount.load(), 1);
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_ASYNC_TIMEOUT);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_ASYNC_TIMEOUT);
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, ControllerCancelClearsPendingAndRunsClosureOnce)
 {
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
     channel.setSyncFallbackEnabled(false);
-    channel.setMsgReqGenerator([]() { return "pending-cancel"; });
+    channel.setReqIdGenerator([]() { return "pending-cancel"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -692,11 +692,11 @@ TEST_F(TinyPbRpcAsyncChannelTest, ControllerCancelClearsPendingAndRunsClosureOnc
     EXPECT_EQ(doneCount.load(), 1);
     EXPECT_TRUE(controller.IsCanceled());
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_ASYNC_CANCELED);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_ASYNC_CANCELED);
     EXPECT_EQ(channel.getPendingCount(), 0u);
 
     tinyrpc::TinyPbStruct tinyResponse;
-    tinyResponse.m_msgReq = "pending-cancel";
+    tinyResponse.m_reqId = "pending-cancel";
     tinyResponse.m_serviceFullName = "QueryService.query_name";
     EXPECT_FALSE(channel.handleTinyPbResponse(tinyResponse));
     EXPECT_EQ(doneCount.load(), 1);

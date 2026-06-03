@@ -62,7 +62,7 @@ TEST(TinyPbCodecTest, EncodeWritesExpectedFrame)
 {
     tinyrpc::TinyPbCodec codec;
     tinyrpc::TinyPbStruct pb;
-    pb.m_msgReq = "req-001";
+    pb.m_reqId = "req-001";
     pb.m_serviceFullName = "QueryService.query_name";
     pb.m_errCode = 0;
     pb.m_errInfo = "";
@@ -88,13 +88,13 @@ TEST(TinyPbCodecTest, EncodeWritesExpectedFrame)
     int32_t pkLen = readNetInt32(buffer, 1);
     EXPECT_EQ(pkLen, pb.m_pkLen);
 
-    // msgReqLen 字段（offset=5, 4字节）
-    int32_t msgReqLen = readNetInt32(buffer, 5);
-    EXPECT_EQ(msgReqLen, 7);
+    // reqIdLen 字段（offset=5, 4字节）
+    int32_t reqIdLen = readNetInt32(buffer, 5);
+    EXPECT_EQ(reqIdLen, 7);
 
-    // msgReq 内容（offset=9, 7字节）
-    std::string msgReq(raw + 9, 7);
-    EXPECT_EQ(msgReq, "req-001");
+    // reqId 内容（offset=9, 7字节）
+    std::string reqId(raw + 9, 7);
+    EXPECT_EQ(reqId, "req-001");
 
     // serviceNameLen 字段（offset=16, 4字节）
     int32_t serviceNameLen = readNetInt32(buffer, 16);
@@ -132,7 +132,7 @@ TEST(TinyPbCodecTest, EncodeUsesNetworkByteOrder)
 {
     tinyrpc::TinyPbCodec codec;
     tinyrpc::TinyPbStruct pb;
-    pb.m_msgReq = "req-002";
+    pb.m_reqId = "req-002";
     pb.m_serviceFullName = "Svc.method";
     pb.m_errCode = 0x01020304;
     pb.m_errInfo = "";
@@ -164,10 +164,10 @@ TEST(TinyPbCodecTest, EncodeUsesNetworkByteOrder)
         EXPECT_EQ(errPtr[i], expected[i]);
     }
 
-    // 验证 msgReqLen 的网络序
-    uint32_t msgReqLenNet;
-    std::memcpy(&msgReqLenNet, raw + 5, 4);
-    EXPECT_EQ(static_cast<int32_t>(ntohl(msgReqLenNet)), 7);
+    // 验证 reqIdLen 的网络序
+    uint32_t reqIdLenNet;
+    std::memcpy(&reqIdLenNet, raw + 5, 4);
+    EXPECT_EQ(static_cast<int32_t>(ntohl(reqIdLenNet)), 7);
 
     // 验证 serviceNameLen 的网络序
     uint32_t svcNameLenNet;
@@ -195,7 +195,7 @@ TEST(TinyPbCodecTest, EncodeBackfillsFields)
 {
     tinyrpc::TinyPbCodec codec;
     tinyrpc::TinyPbStruct pb;
-    pb.m_msgReq = "req-003";
+    pb.m_reqId = "req-003";
     pb.m_serviceFullName = "OrderService.create";
     pb.m_errCode = 42;
     pb.m_errInfo = "service not found";
@@ -212,7 +212,7 @@ TEST(TinyPbCodecTest, EncodeBackfillsFields)
     EXPECT_EQ(static_cast<size_t>(pb.m_pkLen), buffer.getReadableBytes());
 
     // 长度字段回填
-    EXPECT_EQ(pb.m_msgReqLen, static_cast<int32_t>(pb.m_msgReq.size()));
+    EXPECT_EQ(pb.m_reqIdLen, static_cast<int32_t>(pb.m_reqId.size()));
     EXPECT_EQ(pb.m_serviceNameLen, static_cast<int32_t>(pb.m_serviceFullName.size()));
     EXPECT_EQ(pb.m_errInfoLen, static_cast<int32_t>(pb.m_errInfo.size()));
 
@@ -230,7 +230,7 @@ TEST(TinyPbCodecTest, EncodeRejectsInvalidData)
     // 5a. buffer == nullptr
     {
         tinyrpc::TinyPbStruct pb;
-        pb.m_msgReq = "req";
+        pb.m_reqId = "req";
         pb.m_serviceFullName = "Svc.m";
         codec.encode(nullptr, &pb);
         EXPECT_FALSE(pb.m_encodeSucc);
@@ -253,11 +253,11 @@ TEST(TinyPbCodecTest, EncodeRejectsInvalidData)
         EXPECT_EQ(buffer.getReadableBytes(), 0u);
     }
 
-    // 5d. m_msgReq 为空
+    // 5d. m_reqId 为空
     {
         tinyrpc::TcpBuffer buffer(64);
         tinyrpc::TinyPbStruct pb;
-        pb.m_msgReq = "";
+        pb.m_reqId = "";
         pb.m_serviceFullName = "Svc.m";
         codec.encode(&buffer, &pb);
         EXPECT_FALSE(pb.m_encodeSucc);
@@ -268,7 +268,7 @@ TEST(TinyPbCodecTest, EncodeRejectsInvalidData)
     {
         tinyrpc::TcpBuffer buffer(64);
         tinyrpc::TinyPbStruct pb;
-        pb.m_msgReq = "req";
+        pb.m_reqId = "req";
         pb.m_serviceFullName = "";
         codec.encode(&buffer, &pb);
         EXPECT_FALSE(pb.m_encodeSucc);
@@ -285,7 +285,7 @@ TEST(TinyPbCodecTest, DecodeRoundTripSingleFrame)
 
     // 构造原始数据
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-roundtrip";
+    original.m_reqId = "req-roundtrip";
     original.m_serviceFullName = "OrderService.create";
     original.m_errCode = 42;
     original.m_errInfo = "service not found";
@@ -308,8 +308,8 @@ TEST(TinyPbCodecTest, DecodeRoundTripSingleFrame)
 
     // 所有字段应与原始一致（encode 回填后的值）
     EXPECT_EQ(decoded.m_pkLen, original.m_pkLen);
-    EXPECT_EQ(decoded.m_msgReqLen, original.m_msgReqLen);
-    EXPECT_EQ(decoded.m_msgReq, original.m_msgReq);
+    EXPECT_EQ(decoded.m_reqIdLen, original.m_reqIdLen);
+    EXPECT_EQ(decoded.m_reqId, original.m_reqId);
     EXPECT_EQ(decoded.m_serviceNameLen, original.m_serviceNameLen);
     EXPECT_EQ(decoded.m_serviceFullName, original.m_serviceFullName);
     EXPECT_EQ(decoded.m_errCode, original.m_errCode);
@@ -327,7 +327,7 @@ TEST(TinyPbCodecTest, DecodeParsesNetworkByteOrderFields)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-netorder";
+    original.m_reqId = "req-netorder";
     original.m_serviceFullName = "Svc.method";
     original.m_errCode = 0x01020304;
     original.m_errInfo = "err detail";
@@ -345,7 +345,7 @@ TEST(TinyPbCodecTest, DecodeParsesNetworkByteOrderFields)
     EXPECT_EQ(decoded.m_errInfo, "err detail");
     EXPECT_EQ(decoded.m_errInfoLen, static_cast<int32_t>(original.m_errInfo.size()));
     EXPECT_EQ(decoded.m_pbData, std::string("\xAB\xCD\xEF", 3));
-    EXPECT_EQ(decoded.m_msgReq, "req-netorder");
+    EXPECT_EQ(decoded.m_reqId, "req-netorder");
     EXPECT_EQ(decoded.m_serviceFullName, "Svc.method");
     EXPECT_EQ(decoded.m_checkNum, 1);
 }
@@ -358,7 +358,7 @@ TEST(TinyPbCodecTest, DecodeRejectsIncompleteFrameWithoutConsuming)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-incomplete";
+    original.m_reqId = "req-incomplete";
     original.m_serviceFullName = "Svc.m";
 
     tinyrpc::TcpBuffer buffer(256);
@@ -393,7 +393,7 @@ TEST(TinyPbCodecTest, DecodeRejectsBadStartOrEndWithoutConsuming)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-badmarker";
+    original.m_reqId = "req-badmarker";
     original.m_serviceFullName = "Svc.m";
 
     // 9a. 篡改起始符
@@ -443,7 +443,7 @@ TEST(TinyPbCodecTest, DecodeRejectsInvalidDataType)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-type";
+    original.m_reqId = "req-type";
     original.m_serviceFullName = "Svc.m";
 
     tinyrpc::TcpBuffer buffer(256);
@@ -470,7 +470,7 @@ TEST(TinyPbCodecTest, DecodeSkipsBytesBeforeStartWhenFullFrameExists)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-noise";
+    original.m_reqId = "req-noise";
     original.m_serviceFullName = "Svc.method";
     original.m_errCode = 0;
     original.m_errInfo = "some error";
@@ -494,7 +494,7 @@ TEST(TinyPbCodecTest, DecodeSkipsBytesBeforeStartWhenFullFrameExists)
     EXPECT_TRUE(decoded.m_decodeSucc);
 
     // 字段应与原始一致
-    EXPECT_EQ(decoded.m_msgReq, "req-noise");
+    EXPECT_EQ(decoded.m_reqId, "req-noise");
     EXPECT_EQ(decoded.m_serviceFullName, "Svc.method");
     EXPECT_EQ(decoded.m_errCode, 0);
     EXPECT_EQ(decoded.m_errInfo, "some error");
@@ -513,12 +513,12 @@ TEST(TinyPbCodecTest, DecodeKeepsTrailingFrameAfterFirstDecode)
 
     // 第一帧
     tinyrpc::TinyPbStruct frame1;
-    frame1.m_msgReq = "req-1";
+    frame1.m_reqId = "req-1";
     frame1.m_serviceFullName = "Svc.one";
 
     // 第二帧
     tinyrpc::TinyPbStruct frame2;
-    frame2.m_msgReq = "req-2";
+    frame2.m_reqId = "req-2";
     frame2.m_serviceFullName = "Svc.two";
 
     tinyrpc::TcpBuffer buf1(256);
@@ -544,7 +544,7 @@ TEST(TinyPbCodecTest, DecodeKeepsTrailingFrameAfterFirstDecode)
     codec.decode(&buffer, &decoded1);
 
     EXPECT_TRUE(decoded1.m_decodeSucc);
-    EXPECT_EQ(decoded1.m_msgReq, "req-1");
+    EXPECT_EQ(decoded1.m_reqId, "req-1");
     EXPECT_EQ(decoded1.m_serviceFullName, "Svc.one");
 
     // buffer 中应保留第二帧
@@ -559,11 +559,11 @@ TEST(TinyPbCodecTest, DecodeSecondFrameOnSecondCall)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct frame1;
-    frame1.m_msgReq = "req-A";
+    frame1.m_reqId = "req-A";
     frame1.m_serviceFullName = "Svc.alpha";
 
     tinyrpc::TinyPbStruct frame2;
-    frame2.m_msgReq = "req-B";
+    frame2.m_reqId = "req-B";
     frame2.m_serviceFullName = "Svc.beta";
     frame2.m_errCode = 99;
     frame2.m_errInfo = "oops";
@@ -585,13 +585,13 @@ TEST(TinyPbCodecTest, DecodeSecondFrameOnSecondCall)
     tinyrpc::TinyPbStruct decoded1;
     codec.decode(&buffer, &decoded1);
     ASSERT_TRUE(decoded1.m_decodeSucc);
-    EXPECT_EQ(decoded1.m_msgReq, "req-A");
+    EXPECT_EQ(decoded1.m_reqId, "req-A");
 
     // 第二次 decode
     tinyrpc::TinyPbStruct decoded2;
     codec.decode(&buffer, &decoded2);
     EXPECT_TRUE(decoded2.m_decodeSucc);
-    EXPECT_EQ(decoded2.m_msgReq, "req-B");
+    EXPECT_EQ(decoded2.m_reqId, "req-B");
     EXPECT_EQ(decoded2.m_serviceFullName, "Svc.beta");
     EXPECT_EQ(decoded2.m_errCode, 99);
     EXPECT_EQ(decoded2.m_errInfo, "oops");
@@ -609,7 +609,7 @@ TEST(TinyPbCodecTest, DecodePartialThenAppendRest)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-partial";
+    original.m_reqId = "req-partial";
     original.m_serviceFullName = "Svc.partial";
     original.m_errCode = 7;
     original.m_errInfo = "partial test";
@@ -642,7 +642,7 @@ TEST(TinyPbCodecTest, DecodePartialThenAppendRest)
     tinyrpc::TinyPbStruct decoded2;
     codec.decode(&buffer, &decoded2);
     EXPECT_TRUE(decoded2.m_decodeSucc);
-    EXPECT_EQ(decoded2.m_msgReq, "req-partial");
+    EXPECT_EQ(decoded2.m_reqId, "req-partial");
     EXPECT_EQ(decoded2.m_serviceFullName, "Svc.partial");
     EXPECT_EQ(decoded2.m_errCode, 7);
     EXPECT_EQ(decoded2.m_errInfo, "partial test");
@@ -660,7 +660,7 @@ TEST(TinyPbCodecTest, DecodeWithNoiseThenPartialFrameDoesNotConsume)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-noisypartial";
+    original.m_reqId = "req-noisypartial";
     original.m_serviceFullName = "Svc.np";
 
     tinyrpc::TcpBuffer encBuf(256);
@@ -735,7 +735,7 @@ TEST(TinyPbCodecTest, DecodeSkipsBadFrameThenParsesNextValidFrame)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-after-bad";
+    original.m_reqId = "req-after-bad";
     original.m_serviceFullName = "Svc.good";
     original.m_errCode = 10;
     original.m_errInfo = "ok";
@@ -758,7 +758,7 @@ TEST(TinyPbCodecTest, DecodeSkipsBadFrameThenParsesNextValidFrame)
 
     // 应跳过坏帧，解析合法帧
     EXPECT_TRUE(decoded.m_decodeSucc);
-    EXPECT_EQ(decoded.m_msgReq, "req-after-bad");
+    EXPECT_EQ(decoded.m_reqId, "req-after-bad");
     EXPECT_EQ(decoded.m_serviceFullName, "Svc.good");
     EXPECT_EQ(decoded.m_errCode, 10);
     EXPECT_EQ(decoded.m_errInfo, "ok");
@@ -775,7 +775,7 @@ TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooSmallPackageLength)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-small";
+    original.m_reqId = "req-small";
     original.m_serviceFullName = "Svc.ok";
 
     tinyrpc::TcpBuffer encBuf(256);
@@ -794,7 +794,7 @@ TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooSmallPackageLength)
     codec.decode(&buffer, &decoded);
 
     EXPECT_TRUE(decoded.m_decodeSucc);
-    EXPECT_EQ(decoded.m_msgReq, "req-small");
+    EXPECT_EQ(decoded.m_reqId, "req-small");
     EXPECT_EQ(decoded.m_serviceFullName, "Svc.ok");
 
     // buffer 应为空
@@ -809,7 +809,7 @@ TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooLargePackageLength)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-large";
+    original.m_reqId = "req-large";
     original.m_serviceFullName = "Svc.ok";
 
     tinyrpc::TcpBuffer encBuf(256);
@@ -828,7 +828,7 @@ TEST(TinyPbCodecTest, DecodeSkipsCandidateWithTooLargePackageLength)
     codec.decode(&buffer, &decoded);
 
     EXPECT_TRUE(decoded.m_decodeSucc);
-    EXPECT_EQ(decoded.m_msgReq, "req-large");
+    EXPECT_EQ(decoded.m_reqId, "req-large");
     EXPECT_EQ(decoded.m_serviceFullName, "Svc.ok");
 
     // buffer 应为空
@@ -843,7 +843,7 @@ TEST(TinyPbCodecTest, DecodeKeepsIncompleteValidCandidateWithoutSkipping)
     tinyrpc::TinyPbCodec codec;
 
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req-incomplete-valid";
+    original.m_reqId = "req-incomplete-valid";
     original.m_serviceFullName = "Svc.iv";
 
     tinyrpc::TcpBuffer encBuf(256);
@@ -872,7 +872,7 @@ TEST(TinyPbCodecTest, DecodeKeepsIncompleteValidCandidateWithoutSkipping)
     tinyrpc::TinyPbStruct decoded2;
     codec.decode(&buffer, &decoded2);
     EXPECT_TRUE(decoded2.m_decodeSucc);
-    EXPECT_EQ(decoded2.m_msgReq, "req-incomplete-valid");
+    EXPECT_EQ(decoded2.m_reqId, "req-incomplete-valid");
     EXPECT_EQ(buffer.getReadableBytes(), 0u);
 }
 
@@ -887,7 +887,7 @@ TEST(TinyPbCodecTest, DecodeReturnsFalseWhenOnlyBadCandidatesExist)
     std::string bad1 = makeTooSmallPkLenCandidate();
     // 坏候选 2：尾字节错误（基于一个合法帧）
     tinyrpc::TinyPbStruct original;
-    original.m_msgReq = "req";
+    original.m_reqId = "req";
     original.m_serviceFullName = "S.m";
     tinyrpc::TcpBuffer encBuf(256);
     codec.encode(&encBuf, &original);

@@ -12,9 +12,9 @@ thread_local RequestContext t_requestContext;
 
 }  // namespace
 
-const std::string& RequestContext::getMsgReq() const
+const std::string& RequestContext::getReqId() const
 {
-    return m_msgReq;
+    return m_reqId;
 }
 
 const std::string& RequestContext::getMethodName() const
@@ -33,13 +33,13 @@ const std::string& RequestContext::getPeerAddr() const
 }
 
 void RequestContext::set(
-    const std::string& msgReq,
+    const std::string& reqId,
     const std::string& methodName,
     const std::string& localAddr,
     const std::string& peerAddr
 )
 {
-    m_msgReq = msgReq;
+    m_reqId = reqId;
     m_methodName = methodName;
     m_localAddr = localAddr;
     m_peerAddr = peerAddr;
@@ -47,7 +47,7 @@ void RequestContext::set(
 
 void RequestContext::clear()
 {
-    m_msgReq.clear();
+    m_reqId.clear();
     m_methodName.clear();
     m_localAddr.clear();
     m_peerAddr.clear();
@@ -142,13 +142,13 @@ const RequestContext& Runtime::getCurrentRequestContext() const
 }
 
 void Runtime::setCurrentRequestContext(
-    const std::string& msgReq,
+    const std::string& reqId,
     const std::string& methodName,
     const std::string& localAddr,
     const std::string& peerAddr
 )
 {
-    t_requestContext.set(msgReq, methodName, localAddr, peerAddr);
+    t_requestContext.set(reqId, methodName, localAddr, peerAddr);
 }
 
 void Runtime::clearCurrentRequestContext()

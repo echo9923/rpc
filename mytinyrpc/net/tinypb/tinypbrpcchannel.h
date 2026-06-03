@@ -15,7 +15,7 @@ namespace tinyrpc {
 // 当前阶段只支持一问一答的同步 RPC：
 //   1. 把 Protobuf request 序列化到 TinyPbStruct::m_pbData
 //   2. 调用 TcpClient::sendAndRecvTinyPb()
-//   3. 校验 response msgReq 与 request msgReq 是否一致
+//   3. 校验 response reqId 与 request reqId 是否一致
 //   4. 不匹配时直接设置框架错误，不缓存乱序 response
 //   5. 把 TinyPB response 的 m_pbData 反序列化到 Protobuf response
 //
@@ -36,17 +36,17 @@ class TinyPbRpcChannel : public google::protobuf::RpcChannel {
         google::protobuf::Closure *done) override;
 
     // 设置请求号生成器，仅用于测试稳定断言；生产路径使用默认生成器。
-    void setMsgReqGenerator(std::function<std::string()> generator);
+    void setReqIdGenerator(std::function<std::string()> generator);
 
  private:
-    std::string genMsgReq() const;
+    std::string genReqId() const;
     static void setControllerError(
         google::protobuf::RpcController *controller,
         int errorCode,
         const std::string& errorInfo);
 
     IPAddress m_peerAddr;
-    std::function<std::string()> m_msgReqGenerator;
+    std::function<std::string()> m_reqIdGenerator;
 };
 
 }

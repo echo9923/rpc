@@ -23,19 +23,19 @@ class TimerEvent;
 // request/response/controller/closure 仍由 Protobuf Stub 调用方持有。
 // 后续任务会把上下文放入 pending map 并延长跨事件生命周期。
 struct AsyncCallContext {
-    std::string msgReq;
-    std::string methodFullName;
-    TinyPbStruct tinyRequest;
-    google::protobuf::RpcController *controller {nullptr};
-    const google::protobuf::Message *request {nullptr};
-    google::protobuf::Message *response {nullptr};
-    google::protobuf::Closure *done {nullptr};
-    std::shared_ptr<TimerEvent> timeoutEvent;
+    std::string m_reqId;
+    std::string m_methodFullName;
+    TinyPbStruct m_tinyRequest;
+    google::protobuf::RpcController *m_controller {nullptr};
+    const google::protobuf::Message *m_request {nullptr};
+    google::protobuf::Message *m_response {nullptr};
+    google::protobuf::Closure *m_done {nullptr};
+    std::shared_ptr<TimerEvent> m_timeoutEvent;
 };
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
 //
-// 当前已支持 msgReq -> AsyncCallContext pending 表和 response 匹配。
+// 当前已支持 reqId -> AsyncCallContext pending 表和 response 匹配。
 // 默认仍临时复用同步 TinyPbRpcChannel 完成网络请求；禁用同步 fallback 后，
 // CallMethod() 只注册 pending，等待 handleTinyPbResponse() 完成上下文。
 // 不包含并发异步 IO、连接池、异步超时和取消。
@@ -51,28 +51,28 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
         google::protobuf::Message *response,
         google::protobuf::Closure *done) override;
 
-    void setMsgReqGenerator(std::function<std::string()> generator);
+    void setReqIdGenerator(std::function<std::string()> generator);
     void setSyncFallbackEnabled(bool enabled);
 
     std::shared_ptr<AsyncCallContext> getLastContext() const;
     size_t getPendingCount() const;
-    bool hasPending(const std::string& msgReq) const;
+    bool hasPending(const std::string& reqId) const;
     bool handleTinyPbResponse(const TinyPbStruct& response);
-    bool cancel(const std::string& msgReq);
+    bool cancel(const std::string& reqId);
     void stop();
     bool isIOThreadStarted() const;
     std::thread::id getIOThreadId() const;
 
  private:
-    std::string genMsgReq() const;
+    std::string genReqId() const;
     void registerPending(const std::shared_ptr<AsyncCallContext>& context);
     void registerTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
-    std::shared_ptr<AsyncCallContext> takePending(const std::string& msgReq);
+    std::shared_ptr<AsyncCallContext> takePending(const std::string& reqId);
     void cancelTimeoutEvent(const std::shared_ptr<AsyncCallContext>& context);
-    void handleTimeout(const std::string& msgReq);
+    void handleTimeout(const std::string& reqId);
     void finishContext(const std::shared_ptr<AsyncCallContext>& context);
     bool finishPendingWithError(
-        const std::string& msgReq,
+        const std::string& reqId,
         int errorCode,
         const std::string& errorInfo);
     static int getControllerTimeout(google::protobuf::RpcController *controller);
@@ -82,7 +82,7 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
         const std::string& errorInfo);
 
     IPAddress m_peerAddr;
-    std::function<std::string()> m_msgReqGenerator;
+    std::function<std::string()> m_reqIdGenerator;
     std::shared_ptr<AsyncCallContext> m_lastContext;
     std::unordered_map<std::string, std::shared_ptr<AsyncCallContext>> m_pendingContexts;
     mutable std::mutex m_pendingMutex;

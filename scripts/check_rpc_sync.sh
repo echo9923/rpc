@@ -6,8 +6,12 @@ BUILD_DIR="${ROOT_DIR}/build"
 
 cd "${ROOT_DIR}"
 
-echo "[rpc-sync] build project"
-./build.sh
+if [[ "${MYTINYRPC_SKIP_BUILD:-0}" == "1" ]]; then
+    echo "[rpc-sync] skip build"
+else
+    echo "[rpc-sync] build project"
+    ./build.sh
+fi
 
 run_test() {
     local name="$1"
@@ -29,7 +33,7 @@ run_test test_tinypb_codec
 run_test test_connection_codec
 run_test test_protobuf_service
 run_test test_tinypb_dispatcher
-run_test test_msg_req
+run_test test_req_id
 run_test test_tcp_client
 run_test test_tinypb_rpc_channel
 

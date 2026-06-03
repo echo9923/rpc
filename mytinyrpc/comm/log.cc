@@ -221,7 +221,7 @@ std::string formatLine(
     const char* file,
     int line,
     const std::string& msg,
-    const std::string& msgReq
+    const std::string& reqId
 )
 {
     std::ostringstream stream;
@@ -229,8 +229,8 @@ std::string formatLine(
            << "[" << logLevelToString(level) << "] "
            << "[tid=" << formatThreadId() << "] "
            << "[" << file << ":" << line << "] ";
-    if (!msgReq.empty()) {
-        stream << "[msgReq=" << msgReq << "] ";
+    if (!reqId.empty()) {
+        stream << "[reqId=" << reqId << "] ";
     }
     stream << msg;
     return stream.str();
@@ -270,7 +270,7 @@ void Logger::flush()
 
 void Logger::log(LogLevel level, const char* file, int line, const std::string& msg)
 {
-    log(level, file, line, msg, getRuntime().getCurrentRequestContext().getMsgReq());
+    log(level, file, line, msg, getRuntime().getCurrentRequestContext().getReqId());
 }
 
 void Logger::log(
@@ -278,10 +278,10 @@ void Logger::log(
     const char* file,
     int line,
     const std::string& msg,
-    const std::string& msgReq
+    const std::string& reqId
 )
 {
-    getLoggerState().write(level, formatLine(level, file, line, msg, msgReq));
+    getLoggerState().write(level, formatLine(level, file, line, msg, reqId));
 }
 
 }

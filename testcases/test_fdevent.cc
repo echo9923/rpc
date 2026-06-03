@@ -104,7 +104,7 @@ int main()
     // 创建一个 FdEvent 和一个 Coroutine（仅验证指针操作，不 resume）
     tinyrpc::FdEvent evt(-1);
     tinyrpc::Coroutine coro([]() {
-        tinyrpc::Coroutine::Yield();
+        tinyrpc::Coroutine::yield();
     });
 
     // 默认 m_coroutine 应为 nullptr

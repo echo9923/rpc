@@ -46,7 +46,7 @@ run_test test_hook_sleep
 run_test test_hook_socket
 
 echo "[all] run sync rpc regression"
-./scripts/check_rpc_sync.sh
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh
 
 echo "[all] run multi-reactor server regression"
 ./scripts/check_stage11_server.sh
@@ -55,7 +55,7 @@ echo "[all] run http regression"
 ./scripts/check_stage12_http.sh
 
 echo "[all] run async rpc regression"
-./scripts/check_rpc_async.sh
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 
 echo "[all] run generator regression"
 ./scripts/check_generator.sh

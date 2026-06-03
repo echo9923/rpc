@@ -369,7 +369,7 @@ TEST_F(TcpClientTest, SendTinyPbRequestWritesFrame)
     tinyrpc::TcpClient client(peerAddr);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "client-req-1";
+    request.m_reqId = "client-req-1";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = "request-payload";
 
@@ -381,7 +381,7 @@ TEST_F(TcpClientTest, SendTinyPbRequestWritesFrame)
     ASSERT_TRUE(clientOk) << clientError;
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(decodedRequest.m_decodeSucc);
-    EXPECT_EQ(decodedRequest.m_msgReq, "client-req-1");
+    EXPECT_EQ(decodedRequest.m_reqId, "client-req-1");
     EXPECT_EQ(decodedRequest.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(decodedRequest.m_pbData, "request-payload");
 }
@@ -399,7 +399,7 @@ TEST_F(TcpClientTest, RecvTinyPbResponseDecodesFrame)
         }
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = "client-req-2";
+        response.m_reqId = "client-req-2";
         response.m_serviceFullName = "QueryService.query_name";
         response.m_errCode = 0;
         response.m_pbData = "response-payload";
@@ -427,7 +427,7 @@ TEST_F(TcpClientTest, RecvTinyPbResponseDecodesFrame)
     ASSERT_TRUE(clientOk) << clientError;
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(response.m_decodeSucc);
-    EXPECT_EQ(response.m_msgReq, "client-req-2");
+    EXPECT_EQ(response.m_reqId, "client-req-2");
     EXPECT_EQ(response.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.m_errCode, 0);
     EXPECT_EQ(response.m_pbData, "response-payload");
@@ -452,7 +452,7 @@ TEST_F(TcpClientTest, SendAndRecvTinyPbRoundTrip)
         }
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         response.m_errCode = 0;
         response.m_pbData = "roundtrip-response";
@@ -472,7 +472,7 @@ TEST_F(TcpClientTest, SendAndRecvTinyPbRoundTrip)
     tinyrpc::TcpClient client(peerAddr);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "client-req-3";
+    request.m_reqId = "client-req-3";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = "roundtrip-request";
 
@@ -483,11 +483,11 @@ TEST_F(TcpClientTest, SendAndRecvTinyPbRoundTrip)
 
     ASSERT_TRUE(clientOk) << clientError;
     ASSERT_TRUE(serverOk) << serverError;
-    EXPECT_EQ(decodedRequest.m_msgReq, "client-req-3");
+    EXPECT_EQ(decodedRequest.m_reqId, "client-req-3");
     EXPECT_EQ(decodedRequest.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(decodedRequest.m_pbData, "roundtrip-request");
     EXPECT_TRUE(response.m_decodeSucc);
-    EXPECT_EQ(response.m_msgReq, "client-req-3");
+    EXPECT_EQ(response.m_reqId, "client-req-3");
     EXPECT_EQ(response.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.m_errCode, 0);
     EXPECT_EQ(response.m_pbData, "roundtrip-response");
@@ -555,14 +555,14 @@ TEST_F(TcpClientTest, SendTinyPbRequestRejectsInvalidRequest)
         EXPECT_FALSE(serverSawData);
     };
 
-    tinyrpc::TinyPbStruct emptyMsgReq;
-    emptyMsgReq.m_msgReq = "";
-    emptyMsgReq.m_serviceFullName = "QueryService.query_name";
-    emptyMsgReq.m_pbData = "invalid-request";
-    runInvalidRequest(&emptyMsgReq);
+    tinyrpc::TinyPbStruct emptyReqId;
+    emptyReqId.m_reqId = "";
+    emptyReqId.m_serviceFullName = "QueryService.query_name";
+    emptyReqId.m_pbData = "invalid-request";
+    runInvalidRequest(&emptyReqId);
 
     tinyrpc::TinyPbStruct emptyServiceName;
-    emptyServiceName.m_msgReq = "client-req-invalid";
+    emptyServiceName.m_reqId = "client-req-invalid";
     emptyServiceName.m_serviceFullName = "";
     emptyServiceName.m_pbData = "invalid-request";
     runInvalidRequest(&emptyServiceName);
@@ -669,7 +669,7 @@ TEST_F(TcpClientTest, SendTinyPbRequestFailsWhenPeerResetsConnection)
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "send-fail";
+    request.m_reqId = "send-fail";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData.assign(1024 * 1024, 'x');
 
@@ -698,7 +698,7 @@ TEST_F(TcpClientTest, SlowResponseBeforeTimeoutSucceeds)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = "slow-ok";
+        response.m_reqId = "slow-ok";
         response.m_serviceFullName = "QueryService.query_name";
         response.m_errCode = 0;
         response.m_pbData = "slow-response";
@@ -727,7 +727,7 @@ TEST_F(TcpClientTest, SlowResponseBeforeTimeoutSucceeds)
     ASSERT_TRUE(serverOk) << serverError;
     ASSERT_TRUE(clientOk) << clientError;
     EXPECT_EQ(client.getErrorCode(), 0);
-    EXPECT_EQ(response.m_msgReq, "slow-ok");
+    EXPECT_EQ(response.m_reqId, "slow-ok");
     EXPECT_EQ(response.m_pbData, "slow-response");
 }
 
@@ -762,7 +762,7 @@ TEST_F(TcpClientTest, RetryConnectSucceedsWhenServerStartsLater)
         }
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         response.m_errCode = 0;
         response.m_pbData = "retry-response";
@@ -784,7 +784,7 @@ TEST_F(TcpClientTest, RetryConnectSucceedsWhenServerStartsLater)
     client.setConnectRetry(5, 50);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "retry-req";
+    request.m_reqId = "retry-req";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = "retry-request";
 
@@ -795,7 +795,7 @@ TEST_F(TcpClientTest, RetryConnectSucceedsWhenServerStartsLater)
 
     ASSERT_TRUE(clientOk) << clientError;
     ASSERT_TRUE(serverOk) << serverError;
-    EXPECT_EQ(decodedRequest.m_msgReq, "retry-req");
+    EXPECT_EQ(decodedRequest.m_reqId, "retry-req");
     EXPECT_EQ(response.m_pbData, "retry-response");
     EXPECT_EQ(client.getErrorCode(), 0);
 }
@@ -837,7 +837,7 @@ TEST_F(TcpClientTest, SendAndRecvReconnectsAfterExplicitClose)
             }
 
             tinyrpc::TinyPbStruct response;
-            response.m_msgReq = decodedRequest.m_msgReq;
+            response.m_reqId = decodedRequest.m_reqId;
             response.m_serviceFullName = decodedRequest.m_serviceFullName;
             response.m_errCode = 0;
             response.m_pbData = "close-reconnect-response-" + std::to_string(i + 1);
@@ -861,7 +861,7 @@ TEST_F(TcpClientTest, SendAndRecvReconnectsAfterExplicitClose)
     tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
 
     tinyrpc::TinyPbStruct request1;
-    request1.m_msgReq = "close-reconnect-1";
+    request1.m_reqId = "close-reconnect-1";
     request1.m_serviceFullName = "QueryService.query_name";
     request1.m_pbData = "request-1";
 
@@ -874,7 +874,7 @@ TEST_F(TcpClientTest, SendAndRecvReconnectsAfterExplicitClose)
     EXPECT_EQ(client.getFd(), tinyrpc::kInvalidSocket);
 
     tinyrpc::TinyPbStruct request2;
-    request2.m_msgReq = "close-reconnect-2";
+    request2.m_reqId = "close-reconnect-2";
     request2.m_serviceFullName = "QueryService.query_name";
     request2.m_pbData = "request-2";
 

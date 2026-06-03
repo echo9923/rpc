@@ -13,7 +13,7 @@ constexpr char kTinyPbStart = 0x02;
 constexpr char kTinyPbEnd = 0x03;
 
 // TinyPB 协议帧长度上下限
-// 最小帧：START(1) + pkLen(4) + msgReqLen(4) + serviceNameLen(4)
+// 最小帧：START(1) + pkLen(4) + reqIdLen(4) + serviceNameLen(4)
 //         + errCode(4) + errInfoLen(4) + checkNum(4) + END(1) = 26
 constexpr int32_t kTinyPbMinPackageLength = 26;
 
@@ -22,7 +22,7 @@ constexpr int32_t kTinyPbMaxPackageLength = 1024 * 1024;
 
 // TinyPbCodec 负责 TinyPB 协议的编码和解码。
 // 编码布局（按网络传输顺序）：
-//   PB_START(1) | pkLen(4) | msgReqLen(4) | msgReq(N) | serviceNameLen(4)
+//   PB_START(1) | pkLen(4) | reqIdLen(4) | reqId(N) | serviceNameLen(4)
 //   | serviceFullName(N) | errCode(4) | errInfoLen(4) | errInfo(N)
 //   | pbData(N) | checkNum(4) | PB_END(1)
 //
@@ -36,9 +36,9 @@ class TinyPbCodec : public AbstractCodec {
 
     // 将 TinyPbStruct 编码为字节流并追加到 buffer。
     // 前置校验：buffer/data 非 nullptr、data 可转为 TinyPbStruct、
-    // m_msgReq 和 m_serviceFullName 非空。
+    // m_reqId 和 m_serviceFullName 非空。
     // 校验失败时 data->m_encodeSucc 置 false，不向 buffer 写入任何数据。
-    // 成功时回填 m_pkLen / m_msgReqLen / m_serviceNameLen / m_errInfoLen / m_checkNum，
+    // 成功时回填 m_pkLen / m_reqIdLen / m_serviceNameLen / m_errInfoLen / m_checkNum，
     // 并将 data->m_encodeSucc 置 true。
     void encode(TcpBuffer *buffer, AbstractData *data) override;
 

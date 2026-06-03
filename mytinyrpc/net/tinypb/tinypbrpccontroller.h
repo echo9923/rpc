@@ -15,8 +15,8 @@ namespace tinyrpc {
 //   - SetFailed() 设置错误信息
 //   - Failed() 查询是否出错
 //   - ErrorText() 获取错误描述
-//   - SetError()/ErrorCode() 记录框架层错误码
-//   - SetMsgReq()/MsgReq() 记录本次 RPC 请求号
+//   - setError()/getErrorCode() 记录框架层错误码
+//   - setReqId()/getReqId() 记录本次 RPC 请求号
 //
 // 取消机制支持记录取消状态、触发 Protobuf 取消回调，并为异步 Channel 提供
 // 一个内部取消回调入口，用于把 StartCancel() 转换为 pending 清理。
@@ -35,28 +35,28 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     void SetFailed(const std::string& reason) override;
 
     // 设置框架层错误码和错误文本。
-    void SetError(int code, const std::string& info);
+    void setError(int code, const std::string& info);
 
     // 返回框架层错误码，0 表示未记录错误。
-    int ErrorCode() const;
+    int getErrorCode() const;
 
     // 设置本次 RPC 请求号。
-    void SetMsgReq(const std::string& msgReq);
+    void setReqId(const std::string& reqId);
 
     // 返回本次 RPC 请求号。
-    const std::string& MsgReq() const;
+    const std::string& getReqId() const;
 
     // 设置同步 RPC 超时时间占位，单位毫秒；0 表示未设置。
-    void SetTimeout(int timeoutMs);
+    void setTimeout(int timeoutMs);
 
     // 返回同步 RPC 超时时间占位，单位毫秒。
-    int Timeout() const;
+    int getTimeout() const;
 
     // 注册 TinyRPC 内部取消回调。异步 Channel 用它把 StartCancel() 转换为 pending 清理。
-    void SetCancelCallback(std::function<void()> callback);
+    void setCancelCallback(std::function<void()> callback);
 
     // 清理 TinyRPC 内部取消回调，避免请求完成后再次触发旧 pending。
-    void ClearCancelCallback();
+    void clearCancelCallback();
 
     // 发起取消请求，将 m_canceled 置为 true。
     void StartCancel() override;
@@ -74,7 +74,7 @@ class TinyPbRpcController : public google::protobuf::RpcController {
     bool m_canceled {false};
     int m_errorCode {0};
     int m_timeoutMs {0};
-    std::string m_msgReq;
+    std::string m_reqId;
     std::string m_errorText;
     std::function<void()> m_cancelCallback;
     std::vector<google::protobuf::Closure *> m_notifyCancelCallbacks;

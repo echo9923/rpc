@@ -200,7 +200,7 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
         pbRes.set_name("Alice");
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         response.m_errCode = 0;
         if (!pbRes.SerializeToString(&response.m_pbData)) {
@@ -221,7 +221,7 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "channel-req-001"; });
+    channel.setReqIdGenerator([]() { return "channel-req-001"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -240,7 +240,7 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
     ASSERT_TRUE(serverOk) << serverError;
     ASSERT_FALSE(controller.Failed()) << controller.ErrorText();
     EXPECT_TRUE(doneCalled);
-    EXPECT_EQ(decodedRequest.m_msgReq, "channel-req-001");
+    EXPECT_EQ(decodedRequest.m_reqId, "channel-req-001");
     EXPECT_EQ(decodedRequest.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.ret_code(), 0);
     EXPECT_EQ(response.res_info(), "ok");
@@ -249,7 +249,7 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
     EXPECT_EQ(response.name(), "Alice");
 }
 
-TEST_F(TinyPbRpcChannelTest, ControllerPresetMsgReqIsUsedByChannel)
+TEST_F(TinyPbRpcChannelTest, ControllerPresetReqIdIsUsedByChannel)
 {
     tinyrpc::TinyPbStruct decodedRequest;
     bool serverOk = false;
@@ -275,7 +275,7 @@ TEST_F(TinyPbRpcChannelTest, ControllerPresetMsgReqIsUsedByChannel)
         pbRes.set_name("Bob");
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         ASSERT_TRUE(pbRes.SerializeToString(&response.m_pbData));
 
@@ -300,15 +300,15 @@ TEST_F(TinyPbRpcChannelTest, ControllerPresetMsgReqIsUsedByChannel)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    controller.SetMsgReq("preset-msg-req");
+    controller.setReqId("preset-msg-req");
 
     stub.query_name(&controller, &request, &response, nullptr);
     serverThread.join();
 
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
-    EXPECT_EQ(controller.MsgReq(), "preset-msg-req");
-    EXPECT_EQ(decodedRequest.m_msgReq, "preset-msg-req");
+    EXPECT_EQ(controller.getReqId(), "preset-msg-req");
+    EXPECT_EQ(decodedRequest.m_reqId, "preset-msg-req");
     EXPECT_EQ(response.name(), "Bob");
 }
 
@@ -331,7 +331,7 @@ TEST_F(TinyPbRpcChannelTest, ServerTinyPbErrorSetsControllerError)
         }
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         response.m_errCode = tinyrpc::ERROR_SERVICE_NOT_FOUND;
         response.m_errInfo = "service not found";
@@ -348,7 +348,7 @@ TEST_F(TinyPbRpcChannelTest, ServerTinyPbErrorSetsControllerError)
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "channel-req-002"; });
+    channel.setReqIdGenerator([]() { return "channel-req-002"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -367,7 +367,7 @@ TEST_F(TinyPbRpcChannelTest, ServerTinyPbErrorSetsControllerError)
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(doneCalled);
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_SERVICE_NOT_FOUND);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_SERVICE_NOT_FOUND);
     EXPECT_EQ(controller.ErrorText(), "service not found");
 }
 
@@ -390,7 +390,7 @@ TEST_F(TinyPbRpcChannelTest, BadResponsePayloadSetsDeserializeError)
         }
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = decodedRequest.m_msgReq;
+        response.m_reqId = decodedRequest.m_reqId;
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         response.m_errCode = 0;
         response.m_pbData = "not a queryNameRes protobuf payload";
@@ -407,7 +407,7 @@ TEST_F(TinyPbRpcChannelTest, BadResponsePayloadSetsDeserializeError)
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "channel-req-003"; });
+    channel.setReqIdGenerator([]() { return "channel-req-003"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -426,7 +426,7 @@ TEST_F(TinyPbRpcChannelTest, BadResponsePayloadSetsDeserializeError)
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(doneCalled);
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_FAILED_DESERIALIZE);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_FAILED_DESERIALIZE);
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 
@@ -452,7 +452,7 @@ TEST_F(TinyPbRpcChannelTest, NetworkFailureSetsControllerError)
 
     tinyrpc::TinyPbRpcChannel channel(
         tinyrpc::IPAddress("127.0.0.1", ntohs(nonListenAddr.sin_port)));
-    channel.setMsgReqGenerator([]() { return "channel-req-network-fail"; });
+    channel.setReqIdGenerator([]() { return "channel-req-network-fail"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -470,7 +470,7 @@ TEST_F(TinyPbRpcChannelTest, NetworkFailureSetsControllerError)
 
     EXPECT_TRUE(doneCalled);
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_TCP_CONNECT_FAILED);
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 
@@ -492,7 +492,7 @@ TEST_F(TinyPbRpcChannelTest, ControllerTimeoutIsPassedToTcpClient)
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "channel-timeout-req"; });
+    channel.setReqIdGenerator([]() { return "channel-timeout-req"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -502,18 +502,18 @@ TEST_F(TinyPbRpcChannelTest, ControllerTimeoutIsPassedToTcpClient)
 
     queryNameRes response;
     tinyrpc::TinyPbRpcController controller;
-    controller.SetTimeout(50);
+    controller.setTimeout(50);
 
     stub.query_name(&controller, &request, &response, nullptr);
     serverThread.join();
 
     ASSERT_TRUE(serverAccepted) << serverError;
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 
-TEST_F(TinyPbRpcChannelTest, MismatchedResponseMsgReqSetsControllerError)
+TEST_F(TinyPbRpcChannelTest, MismatchedResponseReqIdSetsControllerError)
 {
     bool serverOk = false;
     std::string serverError;
@@ -539,7 +539,7 @@ TEST_F(TinyPbRpcChannelTest, MismatchedResponseMsgReqSetsControllerError)
         pbRes.set_name("Carol");
 
         tinyrpc::TinyPbStruct response;
-        response.m_msgReq = "wrong-msg-req";
+        response.m_reqId = "wrong-msg-req";
         response.m_serviceFullName = decodedRequest.m_serviceFullName;
         ASSERT_TRUE(pbRes.SerializeToString(&response.m_pbData));
 
@@ -555,7 +555,7 @@ TEST_F(TinyPbRpcChannelTest, MismatchedResponseMsgReqSetsControllerError)
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
-    channel.setMsgReqGenerator([]() { return "expected-msg-req"; });
+    channel.setReqIdGenerator([]() { return "expected-msg-req"; });
     QueryService_Stub stub(&channel);
 
     queryNameReq request;
@@ -571,7 +571,7 @@ TEST_F(TinyPbRpcChannelTest, MismatchedResponseMsgReqSetsControllerError)
 
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.ErrorCode(), tinyrpc::ERROR_RPC_MSGREQ_MISMATCH);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_REQID_MISMATCH);
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 

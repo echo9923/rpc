@@ -27,10 +27,10 @@ class ContextServiceImpl : public QueryService {
         google::protobuf::Closure *done) override
     {
         auto& context = tinyrpc::getRuntime().getCurrentRequestContext();
-        observedMsgReq = context.getMsgReq();
-        observedMethod = context.getMethodName();
-        observedLocalAddr = context.getLocalAddr();
-        observedPeerAddr = context.getPeerAddr();
+        m_observedReqId = context.getReqId();
+        m_observedMethod = context.getMethodName();
+        m_observedLocalAddr = context.getLocalAddr();
+        m_observedPeerAddr = context.getPeerAddr();
 
         response->set_ret_code(0);
         response->set_res_info("runtime ok");
@@ -43,10 +43,10 @@ class ContextServiceImpl : public QueryService {
         }
     }
 
-    std::string observedMsgReq;
-    std::string observedMethod;
-    std::string observedLocalAddr;
-    std::string observedPeerAddr;
+    std::string m_observedReqId;
+    std::string m_observedMethod;
+    std::string m_observedLocalAddr;
+    std::string m_observedPeerAddr;
 };
 
 std::shared_ptr<tinyrpc::TcpConnection> makeConnection(
@@ -57,7 +57,7 @@ std::shared_ptr<tinyrpc::TcpConnection> makeConnection(
     return std::make_shared<tinyrpc::TcpConnection>(-1, reactor, codec, dispatcher);
 }
 
-tinyrpc::TinyPbStruct makeRequest(const std::string& msgReq)
+tinyrpc::TinyPbStruct makeRequest(const std::string& reqId)
 {
     queryNameReq pbRequest;
     pbRequest.set_req_no(6701);
@@ -65,7 +65,7 @@ tinyrpc::TinyPbStruct makeRequest(const std::string& msgReq)
     pbRequest.set_type(1);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = msgReq;
+    request.m_reqId = reqId;
     request.m_serviceFullName = "QueryService.query_name";
     EXPECT_TRUE(pbRequest.SerializeToString(&request.m_pbData));
     return request;
@@ -95,25 +95,25 @@ TEST(RuntimeTest, DispatcherSetsAndClearsRequestContext)
 
     dispatcher->dispatch(&request, conn.get());
 
-    EXPECT_EQ(service->observedMsgReq, "runtime-req-001");
-    EXPECT_EQ(service->observedMethod, "QueryService.query_name");
-    EXPECT_FALSE(service->observedLocalAddr.empty());
-    EXPECT_FALSE(service->observedPeerAddr.empty());
-    EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getMsgReq().empty());
+    EXPECT_EQ(service->m_observedReqId, "runtime-req-001");
+    EXPECT_EQ(service->m_observedMethod, "QueryService.query_name");
+    EXPECT_FALSE(service->m_observedLocalAddr.empty());
+    EXPECT_FALSE(service->m_observedPeerAddr.empty());
+    EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getReqId().empty());
     EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getMethodName().empty());
 }
 
 TEST(RuntimeTest, RequestContextIsThreadLocal)
 {
-    auto task = [](const std::string& msgReq) {
+    auto task = [](const std::string& reqId) {
         tinyrpc::getRuntime().setCurrentRequestContext(
-            msgReq,
+            reqId,
             "QueryService.query_name",
             "127.0.0.1:1000",
             "127.0.0.1:2000"
         );
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        std::string observed = tinyrpc::getRuntime().getCurrentRequestContext().getMsgReq();
+        std::string observed = tinyrpc::getRuntime().getCurrentRequestContext().getReqId();
         tinyrpc::getRuntime().clearCurrentRequestContext();
         return observed;
     };
@@ -123,10 +123,10 @@ TEST(RuntimeTest, RequestContextIsThreadLocal)
 
     EXPECT_EQ(first.get(), "thread-req-1");
     EXPECT_EQ(second.get(), "thread-req-2");
-    EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getMsgReq().empty());
+    EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getReqId().empty());
 }
 
-TEST(RuntimeTest, LoggerUsesCurrentContextMsgReq)
+TEST(RuntimeTest, LoggerUsesCurrentContextReqId)
 {
     std::filesystem::create_directories("build/log-tests");
     std::string path = "build/log-tests/runtime-context.log";
@@ -147,7 +147,7 @@ TEST(RuntimeTest, LoggerUsesCurrentContextMsgReq)
     tinyrpc::Logger::shutdown();
 
     std::string content = readFile(path);
-    EXPECT_NE(content.find("[msgReq=log-context-req]"), std::string::npos);
+    EXPECT_NE(content.find("[reqId=log-context-req]"), std::string::npos);
     EXPECT_NE(content.find("log from runtime context"), std::string::npos);
     std::filesystem::remove(path);
 }

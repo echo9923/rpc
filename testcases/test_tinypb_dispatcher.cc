@@ -166,7 +166,7 @@ TEST(TinyPbDispatcherTest, DispatchCallsServiceAndSerializesResponse)
 
     // 构造 TinyPB 请求
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-dispatch-001";
+    request.m_reqId = "req-dispatch-001";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = pbData;
     request.m_errCode = 0;
@@ -184,7 +184,7 @@ TEST(TinyPbDispatcherTest, DispatchCallsServiceAndSerializesResponse)
     ASSERT_TRUE(response.m_decodeSucc);
 
     // 验证 TinyPB 层面字段
-    EXPECT_EQ(response.m_msgReq, "req-dispatch-001");
+    EXPECT_EQ(response.m_reqId, "req-dispatch-001");
     EXPECT_EQ(response.m_serviceFullName, "QueryService.query_name");
     EXPECT_EQ(response.m_errCode, 0);
     EXPECT_EQ(response.m_errInfo, "");
@@ -218,7 +218,7 @@ TEST(TinyPbDispatcherTest, DispatchRejectsUnknownService)
     auto conn = makeConnection(&reactor, codec, dispatcher);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-unknown-svc";
+    request.m_reqId = "req-unknown-svc";
     request.m_serviceFullName = "UnknownService.query_name";
 
     dispatcher->dispatch(&request, conn.get());
@@ -249,7 +249,7 @@ TEST(TinyPbDispatcherTest, DispatchRejectsUnknownMethod)
     auto conn = makeConnection(&reactor, codec, dispatcher);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-unknown-method";
+    request.m_reqId = "req-unknown-method";
     request.m_serviceFullName = "QueryService.unknown_method";
 
     dispatcher->dispatch(&request, conn.get());
@@ -277,7 +277,7 @@ TEST(TinyPbDispatcherTest, DispatchRejectsBadServiceFullName)
     auto conn = makeConnection(&reactor, codec, dispatcher);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-bad-name";
+    request.m_reqId = "req-bad-name";
     request.m_serviceFullName = "BadServiceName";
 
     dispatcher->dispatch(&request, conn.get());
@@ -308,7 +308,7 @@ TEST(TinyPbDispatcherTest, DispatchRejectsBadPbData)
     auto conn = makeConnection(&reactor, codec, dispatcher);
 
     tinyrpc::TinyPbStruct request;
-    request.m_msgReq = "req-bad-pb";
+    request.m_reqId = "req-bad-pb";
     request.m_serviceFullName = "QueryService.query_name";
     request.m_pbData = "bad protobuf data";
 

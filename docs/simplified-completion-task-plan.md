@@ -42,11 +42,11 @@
 
 | 模块 | 当前状态 | 主要简化点 | 补全阶段 |
 |---|---|---|---|
-| `comm/config` | 简化复刻 | 只读取 server/protocol/iothread/timeout/log level，缺少日志、协程、timewheel、msgReq、插件配置。 | 阶段 18 |
+| `comm/config` | 简化复刻 | 只读取 server/protocol/iothread/timeout/log level，缺少日志、协程、timewheel、reqId、插件配置。 | 阶段 18 |
 | `comm/log` | 简化复刻 | 只有单类 Logger 和简化异步队列，缺少 RPC/App 双日志、LogEvent、周期 flush、滚动策略。 | 阶段 18 |
 | `comm/start/runtime` | 简化复刻 | 已有启动入口和线程局部 request context，但全局 config/server/timer/runtime 能力不完整。 | 阶段 18 |
-| `coroutine_hook` | 简化复刻 | 主要使用显式 hook 函数，未提供原项目式 libc 符号级透明 hook。 | 阶段 19 |
-| `coroutine_pool` | 简化复刻 | 固定容量池，容量耗尽返回空，不支持内存块扩展策略。 | 阶段 19 |
+| `coroutinehook` | 简化复刻 | 主要使用显式 hook 函数，未提供原项目式 libc 符号级透明 hook。 | 阶段 19 |
+| `coroutinepool` | 简化复刻 | 固定容量池，容量耗尽返回空，不支持内存块扩展策略。 | 阶段 19 |
 | 协程栈内存池 | 简化复刻 | 固定块内存池已独立可用，但 `Coroutine` 栈仍未强制接入。 | 阶段 19 |
 | `TcpClient` | 简化复刻 | 使用 `poll()` 做同步超时，未接入 Reactor、Timer、TcpConnection 响应缓存。 | 阶段 20 |
 | 异步 RPC | 简化复刻 | pending/timeout/cancel 已有，但真实网络仍复用同步 `TcpClient` 路径。 | 阶段 21 |
@@ -67,7 +67,7 @@
 
 - XML 能读取原项目核心配置字段。
 - RPC 日志和 APP 日志分开记录。
-- 日志事件包含时间、级别、线程、协程、文件、行号、函数名、msgReq。
+- 日志事件包含时间、级别、线程、协程、文件、行号、函数名、reqId。
 - 日志后台 flush、关闭、滚动策略可测试。
 - 启动入口能公开 `GetConfig()`、`GetServer()`、`GetIOThreadPoolSize()`、`AddTimerEvent()` 等框架级能力。
 - `docs/original-coverage-matrix.md` 中 `comm/config`、`comm/log`、`comm/start`、`comm/runtime` 的状态可以从“简化复刻”推进到“已复刻核心语义”。
@@ -80,7 +80,7 @@
 
 ### 学习目标
 
-理解原 TinyRPC 配置不是只服务 `TcpServer`，它还统一驱动日志、协程池、msgReq、连接超时、IOThread 和时间轮。
+理解原 TinyRPC 配置不是只服务 `TcpServer`，它还统一驱动日志、协程池、reqId、连接超时、IOThread 和时间轮。
 
 ### 实现目标
 
@@ -95,7 +95,7 @@
   - `cor_stack_size`
   - `cor_pool_size`
 - 补充 RPC 与网络配置：
-  - `msg_req_len`
+  - `req_id_len`
   - `max_connect_timeout`
   - `iothread_num`
   - `timewheel_bucket_num`
@@ -148,7 +148,7 @@
 - 增加对原项目风格节点的读取：
   - log 节点。
   - coroutine 节点。
-  - msg_req / connect_timeout / iothread / timewheel 相关节点。
+  - req_id / connect_timeout / iothread / timewheel 相关节点。
 - 增加 `getXmlNode()` 等价能力或内部辅助函数，统一节点查找。
 - 明确同一个字段在新旧格式同时出现时的优先级。
 
@@ -198,7 +198,7 @@
   - 进程 id / 线程 id。
   - 当前协程 id（没有协程时为 0）。
   - 文件、行号、函数名。
-  - msgReq。
+  - reqId。
   - 日志类型。
 - `Logger` 支持分别设置 RPC 日志级别和 APP 日志级别。
 - 新增 `AppDebugLog` / `AppInfoLog` / `AppWarnLog` / `AppErrorLog` 宏或等价函数入口。
@@ -216,8 +216,8 @@
 ### 测试方式
 
 - RPC 日志和 APP 日志分别按自己的 level 过滤。
-- 日志行包含文件、行号、线程 id、msgReq。
-- request context 中存在 msgReq 时，未显式传入 msgReq 的日志能自动补齐。
+- 日志行包含文件、行号、线程 id、reqId。
+- request context 中存在 reqId 时，未显式传入 reqId 的日志能自动补齐。
 
 ### 验收标准
 
@@ -298,7 +298,7 @@
 - `GetIOThreadPoolSize()` 从配置读取 IOThread 数量。
 - `AddTimerEvent()` 将 TimerEvent 投递到当前 server / reactor。
 - `Runtime::RequestContext` 补齐：
-  - msgReq。
+  - reqId。
   - interface / method name。
   - local addr。
   - peer addr。
@@ -380,8 +380,8 @@
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_hook.h`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.h`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `testcases/test_hook.cc`
 - `testcases/test_hook_socket.cc`
 - `docs/coroutine-model.md`
@@ -432,7 +432,7 @@
 - `mytinyrpc/net/fdevent.cc`
 - `mytinyrpc/net/reactor.h`
 - `mytinyrpc/net/reactor.cc`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `testcases/test_fdevent.cc`
 - `testcases/test_hook_socket.cc`
 
@@ -479,10 +479,10 @@
 
 ### 关键文件
 
-- `mytinyrpc/coroutine/coroutine_pool.h`
-- `mytinyrpc/coroutine/coroutine_pool.cc`
+- `mytinyrpc/coroutine/coroutinepool.h`
+- `mytinyrpc/coroutine/coroutinepool.cc`
 - `mytinyrpc/comm/config.h`
-- `testcases/test_coroutine_pool.cc`
+- `testcases/test_coroutinepool.cc`
 - `docs/coroutine-model.md`
 
 ### 测试方式
@@ -496,7 +496,7 @@
 
 ```bash
 ./build.sh
-./build/test_coroutine_pool
+./build/test_coroutinepool
 ./build/test_coroutine
 ```
 
@@ -528,11 +528,11 @@
 
 - `mytinyrpc/coroutine/coroutine.h`
 - `mytinyrpc/coroutine/coroutine.cc`
-- `mytinyrpc/coroutine/coroutine_pool.cc`
+- `mytinyrpc/coroutine/coroutinepool.cc`
 - `mytinyrpc/coroutine/memory.h`
 - `mytinyrpc/coroutine/memory.cc`
 - `testcases/test_memory_pool.cc`
-- `testcases/test_coroutine_pool.cc`
+- `testcases/test_coroutinepool.cc`
 
 ### 测试方式
 
@@ -546,7 +546,7 @@
 ```bash
 ./build.sh
 ./build/test_memory_pool
-./build/test_coroutine_pool
+./build/test_coroutinepool
 ./build/test_coroutine
 ```
 
@@ -567,14 +567,14 @@
 
 ### 实现目标
 
-- 新增 `scripts/check_coroutine_hook.sh`。
+- 新增 `scripts/check_coroutinehook.sh`。
 - 串联运行协程、hook、socket hook、sleep hook、FdEvent、Reactor 测试。
 - `docs/coroutine-model.md` 增加透明 hook 路径图。
 - `docs/original-coverage-matrix.md` 更新 coroutine 状态。
 
 ### 关键文件
 
-- `scripts/check_coroutine_hook.sh`
+- `scripts/check_coroutinehook.sh`
 - `docs/coroutine-model.md`
 - `docs/original-coverage-matrix.md`
 - `docs/replica-progress.md`
@@ -582,7 +582,7 @@
 ### 测试方式
 
 ```bash
-./scripts/check_coroutine_hook.sh
+./scripts/check_coroutinehook.sh
 ./scripts/check_all.sh
 ```
 
@@ -608,7 +608,7 @@
 
 - `TcpClient` 内部可以使用 `TcpConnection`、`TcpBuffer`、`TinyPbCodec`。
 - 同步调用的 connect / write / read 超时由 Reactor Timer 驱动。
-- 客户端连接支持响应缓存和按 msgReq 取响应。
+- 客户端连接支持响应缓存和按 reqId 取响应。
 - 连接复用、显式关闭、失败后重建的边界清楚。
 
 ---
@@ -645,7 +645,7 @@
 ### 测试方式
 
 - 客户端 `TcpConnection` 能 encode request 到 output buffer。
-- 读取 TinyPB response 后按 msgReq 存入 response map。
+- 读取 TinyPB response 后按 reqId 存入 response map。
 - 不影响服务端 `TcpConnection` 既有测试。
 
 ### 验收标准
@@ -675,8 +675,8 @@
 ### 实现目标
 
 - `TcpClient` 获取当前线程 Reactor。
-- connect 过程使用 `connect_hook()` 或等价 Reactor 写事件。
-- 发送和接收使用 `write_hook()` / `read_hook()` 或等价 Reactor 事件。
+- connect 过程使用 `connectHook()` 或等价 Reactor 写事件。
+- 发送和接收使用 `writeHook()` / `readHook()` 或等价 Reactor 事件。
 - 超时由一次性 `TimerEvent` 控制。
 - 超时后设置连接 overtime flag，并恢复当前协程。
 - 失败后关闭 fd，下一次调用重新创建 fd。
@@ -685,7 +685,7 @@
 
 - `mytinyrpc/net/tcpclient.cc`
 - `mytinyrpc/net/tcpconnection.cc`
-- `mytinyrpc/coroutine/coroutine_hook.cc`
+- `mytinyrpc/coroutine/coroutinehook.cc`
 - `mytinyrpc/net/timer.h`
 - `testcases/test_tcp_client.cc`
 - `testcases/test_tinypb_rpc_channel.cc`
@@ -719,14 +719,14 @@
 
 ### 学习目标
 
-理解同步单请求模型可以直接等待当前响应，但客户端连接复用后，仍需要明确“不匹配响应、迟到响应、未知 msgReq”的处理策略。
+理解同步单请求模型可以直接等待当前响应，但客户端连接复用后，仍需要明确“不匹配响应、迟到响应、未知 reqId”的处理策略。
 
 ### 实现目标
 
-- `TcpConnection` 客户端侧维护 `msgReq -> TinyPbStruct` response map。
-- `getResPackageData(msgReq)` 成功后删除 map 中响应。
-- 未知 msgReq 记录日志并保留或丢弃，策略写入文档。
-- 同步 Channel 收到非当前 msgReq 时不污染业务 response。
+- `TcpConnection` 客户端侧维护 `reqId -> TinyPbStruct` response map。
+- `getResPackageData(reqId)` 成功后删除 map 中响应。
+- 未知 reqId 记录日志并保留或丢弃，策略写入文档。
+- 同步 Channel 收到非当前 reqId 时不污染业务 response。
 
 ### 关键文件
 
@@ -739,7 +739,7 @@
 
 ### 测试方式
 
-- mock server 先返回错误 msgReq，再返回正确 msgReq。
+- mock server 先返回错误 reqId，再返回正确 reqId。
 - 未知响应不会使当前调用成功。
 - 正确响应被取出后 map 清理。
 
@@ -853,7 +853,7 @@
 - 异步 Channel 不再依赖同步 `TcpClient::sendAndRecvTinyPb()` 作为默认路径。
 - IOThread 中维护连接、发送队列和读取循环。
 - 多个 in-flight 请求可共用连接。
-- 响应按 msgReq 匹配 pending。
+- 响应按 reqId 匹配 pending。
 - timeout / cancel 能清理 pending，并避免二次回调。
 - 异步端到端脚本使用真实 `TcpServer`。
 
@@ -962,7 +962,7 @@
 - 循环 decode 多个完整 TinyPB response。
 - 每个 response 调用 `handleTinyPbResponse()`。
 - 支持乱序响应。
-- 未知 msgReq 响应记录日志并丢弃。
+- 未知 reqId 响应记录日志并丢弃。
 
 ### 关键文件
 
@@ -975,7 +975,7 @@
 
 - mock server 一次返回多个 response。
 - mock server 乱序返回 response。
-- mock server 返回未知 msgReq response。
+- mock server 返回未知 reqId response。
 - 粘包和半包都正确处理。
 
 ### 验收标准
@@ -1118,8 +1118,8 @@
 
 ### 关键文件
 
-- `mytinyrpc/net/http/http_request.h`
-- `mytinyrpc/net/http/http_request.cc`
+- `mytinyrpc/net/http/httprequest.h`
+- `mytinyrpc/net/http/httprequest.cc`
 - `mytinyrpc/net/http/httpcodec.cc`
 - `testcases/test_http_codec.cc`
 
@@ -1164,7 +1164,7 @@
 
 ### 关键文件
 
-- `mytinyrpc/net/http/http_request.h`
+- `mytinyrpc/net/http/httprequest.h`
 - `mytinyrpc/net/http/httpcodec.cc`
 - `testcases/test_http_codec.cc`
 
@@ -1209,12 +1209,12 @@
 
 ### 关键文件
 
-- `mytinyrpc/net/http/http_response.h`
-- `mytinyrpc/net/http/http_response.cc`
-- `mytinyrpc/net/http/http_define.h`
-- `mytinyrpc/net/http/http_define.cc`
+- `mytinyrpc/net/http/httpresponse.h`
+- `mytinyrpc/net/http/httpresponse.cc`
+- `mytinyrpc/net/http/httpdefine.h`
+- `mytinyrpc/net/http/httpdefine.cc`
 - `mytinyrpc/net/http/httpcodec.cc`
-- `testcases/test_http_define.cc`
+- `testcases/test_httpdefine.cc`
 - `testcases/test_http_codec.cc`
 
 ### 测试方式
@@ -1229,7 +1229,7 @@
 
 ```bash
 ./build.sh
-./build/test_http_define
+./build/test_httpdefine
 ./build/test_http_codec
 ```
 
@@ -1254,7 +1254,7 @@
 - 支持默认 NotFound servlet。
 - 重复注册返回失败并保留旧 servlet。
 - servlet 执行异常或失败时返回 500。
-- request context 中写入 path、method、msgReq。
+- request context 中写入 path、method、reqId。
 
 ### 关键文件
 
@@ -1708,8 +1708,8 @@ cmake -S . -B build -DMYTINYRPC_ENABLE_MYSQL=ON
   - 同步客户端。
   - 异步客户端。
   - 日志系统。
-- 每次请求生成 trace id 或复用 msgReq。
-- 日志中自动带 trace/msgReq/interface/peer。
+- 每次请求生成 trace id 或复用 reqId。
+- 日志中自动带 trace/reqId/interface/peer。
 - 文档说明 tracing 当前是轻量实现，不是完整分布式追踪系统。
 
 ### 关键文件
@@ -1726,7 +1726,7 @@ cmake -S . -B build -DMYTINYRPC_ENABLE_MYSQL=ON
 
 ### 测试方式
 
-- TinyPB server 日志带 msgReq。
+- TinyPB server 日志带 reqId。
 - HTTP server 日志带 path/method。
 - 同步 client 日志带 peer addr。
 - 异步 callback 中可读取或观察请求号。
@@ -1862,7 +1862,7 @@ cmake -S . -B build -DMYTINYRPC_ENABLE_MYSQL=ON
 - 新增 `scripts/check_full_completion.sh`。
 - 串联：
   - `check_all.sh`
-  - `check_coroutine_hook.sh`
+  - `check_coroutinehook.sh`
   - `check_rpc_client_reactor.sh`
   - `check_rpc_async.sh`
   - `check_stage12_http.sh`
