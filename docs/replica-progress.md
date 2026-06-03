@@ -1034,9 +1034,125 @@
 - examples 目录以 README 型运行示例为主，复用已验证的测试程序和脚本，不复制一套新的示例源码。
 - 当前总结是学习型收口文档，不是商业级用户手册。
 
+## 阶段 18：配置、日志、启动入口和运行时补全
+
+### 任务八十六：扩展 Config schema 到当前项目核心字段
+
+已完成能力：
+
+- `Config` 新增日志、协程、RPC、网络连接超时和时间轮字段。
+- 所有新增字段都有明确默认值和 getter。
+- `getLogLevel()` 作为兼容入口返回 RPC 日志级别。
+- 数字字段严格解析，非数字、尾部脏字符和越界都会失败并记录 `getLastError()`。
+- 日志级别只支持 `debug`、`info`、`warn`、`error`，大小写不敏感。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./build/test_config"
+docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
+```
+
+当前限制：
+
+- 该任务只补齐内存字段和解析语义，配置文件格式迁移放到任务八十七完成。
+- `req_id_len`、协程和时间轮字段本阶段只作为配置字段暴露，不强制驱动对应子系统。
+
+### 任务八十七：迁移分组式配置文件
+
+已完成能力：
+
+- `Config` 只支持当前项目自有分组式 XML。
+- `conf/*.xml` 和 `generator/template/conf.xml.template` 迁移为 `server`、`network`、`log`、`coroutine`、`timewheel`、`rpc` 分组。
+- 删除旧扁平字段读取路径，不再读取 `server_addr`、根级 `protocol`、根级 `timeout`、根级 `iothread_num` 和根级 `log_level`。
+- `server.protocol` 只支持 `tinypb` / `http`。
+- `log.max_size_mb` 和 `coroutine.stack_size_kb` 按单位转换为 bytes 保存。
+- 生成器检查脚本改为验证 `<host>` 和 `<port>` 分组字段。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./build/test_config && ./build/test_start"
+docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_generator.sh"
+```
+
+当前限制：
+
+- 不兼容旧扁平 XML。
+- 不兼容原 TinyRPC 的历史拼写字段，例如 `protocal`、`inteval`、`log_sync_inteval`、`msg_req_len`。
+- 当前轻量 XML 解析辅助只覆盖本项目固定 schema，不引入 TinyXML。
+
+### 任务八十八：实现双日志和日志事件
+
+已完成能力：
+
+- 新增 `LogType::RpcLog` 和 `LogType::AppLog`。
+- 新增 `LogEvent`，保存日志类型、级别、时间、pid、tid、协程 id、文件、行号、函数、reqId 和 message。
+- `Logger` 支持 RPC/APP 两个 sink，分别设置日志级别。
+- 新增 APP 日志宏 `AppDebugLog`、`AppInfoLog`、`AppWarnLog`、`AppErrorLog`。
+- 日志行格式固定为 `[time] [RPC|APP] [LEVEL] [pid=N] [tid=T] [co=N] [reqId=R] [file:line] [func=F] message`。
+- 未显式传入 reqId 时，日志会自动读取当前 request context。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./build/test_log && ./build/test_runtime"
+```
+
+当前限制：
+
+- 任务八十八只实现双通道和事件格式，周期 flush、shutdown drain 和 rolling 在任务八十九补齐。
+- 没有请求上下文时仍输出空 reqId，保持日志格式稳定。
+
+### 任务八十九：补齐异步日志生命周期
+
+已完成能力：
+
+- `Logger::init(logPath, prefix, rpcLevel, appLevel, async, syncIntervalMs, maxSizeBytes)` 支持完整初始化。
+- 异步模式下业务线程完成过滤、格式化和入队，后台线程按日志类型写入 RPC/APP 文件。
+- `flush()` 在异步模式下等待队列清空和当前写入完成后再 flush 两个文件。
+- `shutdown()` drain 队列、flush、关闭文件、join worker、恢复控制台模式，并支持幂等调用和重新初始化。
+- 按大小滚动 `${prefix}_rpc.log.N` 和 `${prefix}_app.log.N`。
+- 多线程并发写入、shutdown drain、reinit 和小文件滚动都有测试覆盖。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./build/test_log"
+docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
+```
+
+当前限制：
+
+- 不按日期滚动。
+- 不压缩归档。
+- 不做跨进程日志锁。
+- 不做远程日志采集。
+
+### 任务九十：补全启动入口和运行时上下文
+
+已完成能力：
+
+- `start.h` 暴露 `GetConfig()`、`GetConstConfig()`、`GetServer()`、`GetIOThreadPoolSize()` 和 `AddTimerTask()`。
+- `StartRpcServer()` 使用配置初始化 `Logger`，再按协议创建 TinyPB 或 HTTP server。
+- `TcpServer` 支持 `addTimerTask()`，内部委托主 Reactor Timer。
+- `Runtime::addTimerTask()` 和 `tinyrpc::AddTimerTask()` 委托当前 server，server 为空或 task 为空时返回 `false`。
+- `RequestContext` 补齐 reqId、interface name、method name、local addr、peer addr 和 protocol type。
+- TinyPB dispatcher 在成功解析 `serviceFullName` 后设置上下文，纯方法名写入 `methodName`。
+- HTTP dispatcher 在调用 servlet 前设置上下文，reqId 来源为 `X-Req-Id` header。
+- TinyPB/HTTP dispatcher 都使用 RAII guard 清理线程局部上下文。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./build/test_start && ./build/test_runtime"
+docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_rpc_sync.sh && ./scripts/check_stage12_http.sh"
+```
+
+当前限制：
+
+- 不实现 `TcpServer::stop()`。
+- TinyPB/HTTP 的 local/peer 地址当前为 `"local"` / `"peer"` 占位，并已封装成后续可替换 helper。
+- `AddTimerTask()` 投递到当前 server 主 Reactor Timer，不额外创建独立 timer runtime。
+
 ## 后续补全计划：简化实现完整化
 
-当前任务一到任务八十五已经完成，主链路通过 `scripts/check_all.sh` 收口。后续不再沿用原来的“从零复刻”路线，而是针对覆盖矩阵中标注为“简化复刻 / 暂不复刻”的模块进行第二轮补全。
+当前任务一到任务九十已经完成，主链路通过 `scripts/check_all.sh` 收口。后续不再沿用原来的“从零复刻”路线，而是针对覆盖矩阵中标注为“简化复刻 / 暂不复刻”的模块进行第二轮补全。
 
 后续计划入口：
 
@@ -1044,6 +1160,6 @@
 
 下一次最适合开始的任务：
 
-- **任务八十六：扩展 Config schema 到原项目核心字段**。
+- **任务九十一：全局 hook 开关和透明系统调用 hook**。
 
-该任务会先补齐原 TinyRPC 配置中的日志、协程池、reqId、连接超时、IOThread 和时间轮字段，为后续日志补全、透明 hook、客户端 Reactor 化和真正异步 RPC 提供统一配置来源。
+阶段 18 已完成配置、日志、启动入口和运行时上下文补全，后续可以进入阶段 19，继续补齐协程 hook、协程池和栈内存池能力。

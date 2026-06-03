@@ -61,11 +61,12 @@
 
 ## 阶段目标
 
-把当前最小 `Config` / `Logger` / `Start` / `Runtime` 补成更接近原 TinyRPC 的框架启动外壳，使后续协程池、日志滚动、客户端 timeout、时间轮和插件配置都有统一来源。
+把当前最小 `Config` / `Logger` / `Start` / `Runtime` 补成更完整的框架启动外壳。配置结构借鉴原 TinyRPC 的分组思想，但采用当前项目自己的 XML 字段和命名，不兼容原项目配置文件，也不保留旧的扁平 XML 格式。
 
 ## 阶段完成标准
 
-- XML 能读取原项目核心配置字段。
+- XML 迁移为当前项目自有的分组式配置结构，并能读取日志、协程、RPC、网络、时间轮和 server 核心字段。
+- 旧扁平 XML 与原 TinyRPC XML 均不作为兼容目标。
 - RPC 日志和 APP 日志分开记录。
 - 日志事件包含时间、级别、线程、协程、文件、行号、函数名、reqId。
 - 日志后台 flush、关闭、滚动策略可测试。
@@ -74,13 +75,15 @@
 
 ---
 
-## 任务八十六：扩展 Config schema 到原项目核心字段
+## 任务八十六：扩展 Config schema 到当前项目核心字段
 
 **类型**：简化项补全
 
+**状态**：已完成，提交 `d0bfe61`（`任务八十六：扩展配置核心字段`）。
+
 ### 学习目标
 
-理解原 TinyRPC 配置不是只服务 `TcpServer`，它还统一驱动日志、协程池、reqId、连接超时、IOThread 和时间轮。
+理解框架配置不是只服务 `TcpServer`，它还统一驱动日志、协程池、reqId、连接超时、IOThread 和时间轮。任务八十六只补齐 `Config` 内部语义字段和 getter，XML 结构迁移放到任务八十七。
 
 ### 实现目标
 
@@ -102,6 +105,7 @@
   - `timewheel_interval`
 - 保留当前已有 `server_host`、`server_port`、`protocol`、`timeout` 字段。
 - 所有字段都有明确默认值和 getter。
+- 字段命名采用当前项目规范，不沿用原项目的历史拼写，例如 `protocal`、`inteval`、`log_sync_inteval`。
 
 ### 关键文件
 
@@ -114,7 +118,7 @@
 ### 测试方式
 
 - 默认构造时所有新增字段都有合法默认值。
-- XML 缺失新增字段时继续使用默认值。
+- 新增字段缺失时继续使用默认值。
 - 非法数字字段返回失败并写入 `getLastError()`。
 - log level / app log level 字符串能正确转换。
 
@@ -130,41 +134,56 @@
 
 - 不在本任务接入 Logger 行为。
 - 不在本任务启用 MySQL 插件。
-- 不改已有配置文件路径约定。
+- 不在本任务迁移 XML 文件结构。
 
 ---
 
-## 任务八十七：兼容原 TinyRPC XML 配置结构
+## 任务八十七：迁移为当前项目分组式 XML 配置结构
 
 **类型**：简化项补全
 
+**状态**：已完成，提交 `8e654e4`（`任务八十七：迁移分组式配置文件`）。
+
 ### 学习目标
 
-理解“字段完整”和“配置格式兼容”是两件事。先补字段，再让当前解析器能读原项目风格 XML。
+理解“字段完整”和“配置结构清晰”是两件事。先补齐 `Config` 语义字段，再把当前项目配置文件从扁平标签迁移为分组式 XML，使配置按模块归属组织，而不是为了兼容原项目历史格式。
 
 ### 实现目标
 
-- 支持当前项目 XML 格式。
-- 增加对原项目风格节点的读取：
-  - log 节点。
-  - coroutine 节点。
-  - req_id / connect_timeout / iothread / timewheel 相关节点。
-- 增加 `getXmlNode()` 等价能力或内部辅助函数，统一节点查找。
-- 明确同一个字段在新旧格式同时出现时的优先级。
+- 将 `conf/*.xml` 和 `generator/template/conf.xml.template` 全量迁移为当前项目自有的分组式 XML。
+- `Config` 只支持新的分组式 XML，不保留旧扁平格式兼容。
+- 不兼容原 TinyRPC XML 配置文件；只借鉴其按模块分组的组织方式。
+- 建议分组结构：
+  - `server.host`、`server.port`、`server.protocol`
+  - `network.iothread_num`、`network.timeout_ms`、`network.max_connect_timeout_ms`
+  - `log.path`、`log.prefix`、`log.max_size_mb`、`log.rpc_level`、`log.app_level`、`log.sync_interval_ms`
+  - `coroutine.stack_size_kb`、`coroutine.pool_size`
+  - `timewheel.bucket_num`、`timewheel.interval_sec`
+  - `rpc.req_id_len`
+- 增加结构化节点读取辅助函数，统一读取分组字段和错误提示。
+- 字段单位写入字段名，避免依赖注释区分秒、毫秒、KB 或 MB。
 
 ### 关键文件
 
 - `mytinyrpc/comm/config.cc`
 - `conf/test_tinypb_server.xml`
 - `conf/test_http_server.xml`
+- `conf/test_start_tinypb.xml`
+- `conf/test_start_http.xml`
+- `conf/test_partial_server.xml`
+- `conf/test_invalid_server.xml`
+- `generator/template/conf.xml.template`
 - `testcases/test_config.cc`
+- `testcases/test_start.cc`
 - `docs/stage-18.md`
 
 ### 测试方式
 
-- 新增原项目风格 XML 测试样例。
-- 同时读取当前项目 XML 和原项目风格 XML。
-- 覆盖字段缺失、字段重复、非法节点类型。
+- 分组式 TinyPB XML 能被 `Config` 正确读取，并能启动 TinyPB server。
+- 分组式 HTTP XML 能被 `Config` 正确读取，并能启动 HTTP server。
+- 旧扁平 XML 不再作为有效格式；如测试需要，应明确断言失败或删除旧格式样例。
+- 覆盖字段缺失、非法数字、非法协议、非法日志级别和非法节点层级。
+- 生成器产出的 `conf.xml` 使用新的分组式格式。
 
 ### 验收标准
 
@@ -172,11 +191,14 @@
 ./build.sh
 ./build/test_config
 ./build/test_start
+./scripts/check_generator.sh
 ```
 
 ### 不包括
 
-- 不引入 TinyXML 作为硬性依赖，除非当前 XML parser 已经无法维护。
+- 不引入 TinyXML 作为硬性依赖；优先在当前轻量 parser 基础上补结构化读取辅助能力。
+- 不兼容原 TinyRPC 的 `protocal`、`inteval`、`log_sync_inteval`、`msg_req_len` 等历史字段名。
+- 不保留旧的 `server_addr`、根级 `protocol`、根级 `timeout` 等扁平配置格式。
 - 不在本任务解析 MySQL 配置。
 
 ---
@@ -184,6 +206,8 @@
 ## 任务八十八：实现 RPC / APP 双日志和 LogEvent
 
 **类型**：简化项补全
+
+**状态**：已完成，提交 `e8b1a64`（`任务八十八：实现双日志和日志事件`）。
 
 ### 学习目标
 
@@ -238,6 +262,8 @@
 
 **类型**：简化项补全
 
+**状态**：已完成，提交 `1cc9921`（`任务八十九：补齐异步日志生命周期`）。
+
 ### 学习目标
 
 理解日志线程生命周期：生产者只负责入队，后台线程负责落盘、flush、按大小或日期滚动，进程退出时必须安全收尾。
@@ -284,6 +310,8 @@
 ## 任务九十：启动入口和运行时上下文补全
 
 **类型**：简化项补全
+
+**状态**：已完成，提交 `7ff914f`（`任务九十：补全启动入口和运行时上下文`）。
 
 ### 学习目标
 
@@ -1978,13 +2006,13 @@ git status --short
 
 ## 2.1 最推荐的下一步
 
-**任务八十六：扩展 Config schema 到原项目核心字段。**
+**任务九十一：全局 hook 开关和透明系统调用 hook。**
 
 理由：
 
-- 配置字段是日志、协程池、客户端 timeout、timewheel、生成器模板的共同入口。
-- 任务范围小，主要集中在 `Config` 和测试。
-- 完成后不会破坏现有 RPC 主链路。
+- 阶段 18 已经补齐配置、日志、启动入口和 request context。
+- 阶段 19 会继续把当前显式 hook 推进为更接近原 TinyRPC 的透明系统调用 hook。
+- 任务九十一是阶段 19 的第一个任务，范围集中在 hook 开关和系统调用入口。
 
 ## 2.2 阶段依赖
 
@@ -2017,7 +2045,7 @@ git status --short
 最合理的起点是：
 
 ```text
-任务八十六：扩展 Config schema 到原项目核心字段
+任务九十一：全局 hook 开关和透明系统调用 hook
 ```
 
-完成阶段 18 后，配置、日志、启动入口和运行时会成为后续透明 hook、客户端 Reactor 化、真正异步 RPC 和生成器完整化的共同地基。
+阶段 18 已完成，配置、日志、启动入口和运行时已经成为后续透明 hook、客户端 Reactor 化、真正异步 RPC 和生成器完整化的共同地基。下一步可以进入阶段 19。

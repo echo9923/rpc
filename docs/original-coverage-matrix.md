@@ -12,10 +12,10 @@
 
 | 原模块 | 当前路径 | 状态 | 当前能力 | 验证方式 |
 |---|---|---|---|---|
-| `comm/config` | `mytinyrpc/comm/config.*`、`conf/*.xml` | 简化复刻 | 默认配置、XML 读取、TinyPB/HTTP 协议选择、IOThread 数量、timeout、log level。 | `./build/test_config`、`./build/test_start` |
-| `comm/log` | `mytinyrpc/comm/log.*` | 简化复刻 | 同步文件日志、级别过滤、线程 id、文件行号、reqId、flush、关闭输出、简化异步队列。 | `./build/test_log`、`./build/test_runtime` |
-| `comm/start` | `mytinyrpc/comm/start.*` | 简化复刻 | `InitConfig()`、`StartRpcServer()`、`GetServer()`、TinyPB/HTTP 注册宏。 | `./build/test_start`、`scripts/check_generator_project.sh` |
-| `comm/runtime` | `mytinyrpc/comm/runtime.*` | 简化复刻 | 启动期全局 runtime、codec/dispatcher/server 保存、线程局部 request context。 | `./build/test_runtime`、`./build/test_start` |
+| `comm/config` | `mytinyrpc/comm/config.*`、`conf/*.xml` | 已复刻核心语义 | 分组式 XML、默认配置、TinyPB/HTTP 协议选择、IOThread、timeout、最大连接超时、RPC/APP 日志配置、协程配置、reqId 长度和 timewheel 配置。 | `./build/test_config`、`./build/test_start`、`scripts/check_generator.sh` |
+| `comm/log` | `mytinyrpc/comm/log.*` | 已复刻核心语义 | RPC/APP 双日志、独立级别过滤、`LogEvent`、pid/tid/协程 id、文件行号、函数名、reqId 自动补齐、同步/异步 flush、shutdown drain、按大小滚动。 | `./build/test_log`、`./build/test_runtime` |
+| `comm/start` | `mytinyrpc/comm/start.*` | 已复刻核心语义 | `InitConfig()`、`StartRpcServer()`、`GetConfig()`、`GetConstConfig()`、`GetServer()`、`GetIOThreadPoolSize()`、`AddTimerTask()`、TinyPB/HTTP 注册宏。 | `./build/test_start`、`scripts/check_generator_project.sh` |
+| `comm/runtime` | `mytinyrpc/comm/runtime.*` | 已复刻核心语义 | 启动期全局 runtime、codec/dispatcher/server 保存、TimerTask 投递、线程局部 request context，覆盖 reqId、interface、method、local/peer 和协议类型。 | `./build/test_runtime`、`./build/test_start` |
 | `coroutine` | `mytinyrpc/coroutine/coroutine.*`、`coroutinehook.*` | 简化复刻 | 基础协程对象、`Yield()`/`resume()`、read/write/connect/sleep/usleep/recv/send/accept hook。 | `./build/test_coroutine`、`./build/test_hook`、`./build/test_hook_sleep`、`./build/test_hook_socket` |
 | `coroutinepool` | `mytinyrpc/coroutine/coroutinepool.*` | 简化复刻 | 固定容量协程复用、耗尽返回空、归还状态检查。 | `./build/test_coroutinepool` |
 | 协程栈内存池 | `mytinyrpc/coroutine/memory.*` | 简化复刻 | 固定块内存池、归属检查、非法归还防御；暂未强制接入 `Coroutine` 栈。 | `./build/test_memory_pool` |
@@ -52,4 +52,4 @@
 
 ## 结论
 
-当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。主要简化点集中在生产级工程能力：复杂配置 schema、完整 HTTP 协议、连接池、tracing、插件系统、性能优化和完整代码生成器。
+当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。阶段 18 后，`comm/config`、`comm/log`、`comm/start` 和 `comm/runtime` 已推进到“已复刻核心语义”。主要简化点集中在生产级工程能力：透明协程 hook 完整化、完整 HTTP 协议、连接池、tracing、插件系统、性能优化和完整代码生成器。
