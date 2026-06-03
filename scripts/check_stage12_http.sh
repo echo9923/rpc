@@ -26,21 +26,51 @@ fi
 SERVER_PID="$!"
 
 for _ in $(seq 1 50); do
-    if curl --max-time 1 -fsS "http://127.0.0.1:${PORT}/hello" >/dev/null 2>&1; then
+    if printf "GET /hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" \
+        | nc -w 1 127.0.0.1 "${PORT}" >/dev/null 2>&1; then
         break
     fi
     sleep 0.1
 done
 
-hello_body="$(curl --max-time 3 -fsS "http://127.0.0.1:${PORT}/hello")"
+http_get() {
+    local path="$1"
+    local response
+    response="$(
+        printf "GET %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" "${path}" \
+            | nc -w 3 127.0.0.1 "${PORT}"
+    )"
+
+    printf "%s" "${response}" | awk '
+        NR == 1 {
+            print $2
+            next
+        }
+        body_started {
+            print
+            next
+        }
+        $0 == "\r" || $0 == "" {
+            body_started = 1
+        }
+    ' | tr -d '\r'
+}
+
+hello_response="$(http_get "/hello")"
+hello_status="$(printf "%s" "${hello_response}" | sed -n '1p')"
+hello_body="$(printf "%s" "${hello_response}" | sed -n '2,$p')"
+if [[ "${hello_status}" != "200" ]]; then
+    echo "[stage12] unexpected /hello status: ${hello_status}"
+    exit 1
+fi
 if [[ "${hello_body}" != "hello http" ]]; then
     echo "[stage12] unexpected /hello body: ${hello_body}"
     exit 1
 fi
 
-missing_status="$(curl --max-time 3 -s -o /tmp/stage12_missing_body.txt -w "%{http_code}" "http://127.0.0.1:${PORT}/missing")"
-missing_body="$(cat /tmp/stage12_missing_body.txt)"
-rm -f /tmp/stage12_missing_body.txt
+missing_response="$(http_get "/missing")"
+missing_status="$(printf "%s" "${missing_response}" | sed -n '1p')"
+missing_body="$(printf "%s" "${missing_response}" | sed -n '2,$p')"
 
 if [[ "${missing_status}" != "404" ]]; then
     echo "[stage12] unexpected /missing status: ${missing_status}"
