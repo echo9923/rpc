@@ -65,6 +65,9 @@ set(SRC
 
 add_library(mytinyrpc_obj OBJECT ${SRC})
 
+# coroutinehook.cc 使用 dlsym，需要链接 libdl
+link_libraries(dl)
+
 add_executable(test_tcp_echo_server
     testcases/test_tcp_echo_server.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>

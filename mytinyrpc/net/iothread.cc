@@ -1,5 +1,7 @@
 #include "net/iothread.h"
 
+#include "coroutine/coroutinehook.h"
+
 #include <chrono>
 #include <utility>
 
@@ -61,8 +63,12 @@ void IOThread::stop()
 void IOThread::threadFunc()
 {
     m_threadId = std::this_thread::get_id();
+    Reactor::setCurrentReactor(&m_reactor);
+    tinyrpc::SetHook(true);
     m_started.store(true);
     m_reactor.loop();
+    tinyrpc::SetHook(false);
+    Reactor::setCurrentReactor(nullptr);
     m_started.store(false);
 }
 

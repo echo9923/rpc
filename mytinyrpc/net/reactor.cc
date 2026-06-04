@@ -44,6 +44,11 @@ Reactor::~Reactor()
     }
 }
 
+static thread_local Reactor* s_currentReactor = nullptr;
+
+void Reactor::setCurrentReactor(Reactor* reactor) { s_currentReactor = reactor; }
+Reactor* Reactor::getCurrentReactor()             { return s_currentReactor; }
+
 int Reactor::getEpollFd() const
 {
     return m_epollFd;

@@ -35,6 +35,9 @@ class Reactor {
 
   int waitOnce(int timeoutMs);
 
+  static void setCurrentReactor(Reactor* reactor);
+  static Reactor* getCurrentReactor();
+
  private:
   static constexpr int kMaxEvents = 64;
 

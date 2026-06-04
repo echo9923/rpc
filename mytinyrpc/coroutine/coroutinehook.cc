@@ -6,13 +6,64 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <dlfcn.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <memory>
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 真实系统调用函数指针（通过 dlsym(RTLD_NEXT, ...) 获取）
+//
+// 所有显式 hook 函数和透明 hook 都使用这组指针调用系统调用，
+// 避免透明 hook 与显式 hook 相互调用时出现无限递归。
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+using sys_read_t    = ssize_t(*)(int, void*, size_t);
+using sys_write_t   = ssize_t(*)(int, const void*, size_t);
+using sys_recv_t    = ssize_t(*)(int, void*, size_t, int);
+using sys_send_t    = ssize_t(*)(int, const void*, size_t, int);
+using sys_accept_t  = int(*)(int, sockaddr*, socklen_t*);
+using sys_connect_t = int(*)(int, const sockaddr*, socklen_t);
+using sys_sleep_t   = unsigned int(*)(unsigned int);
+using sys_usleep_t  = int(*)(useconds_t);
+
+sys_read_t    g_sys_read    = nullptr;
+sys_write_t   g_sys_write   = nullptr;
+sys_recv_t    g_sys_recv    = nullptr;
+sys_send_t    g_sys_send    = nullptr;
+sys_accept_t  g_sys_accept  = nullptr;
+sys_connect_t g_sys_connect = nullptr;
+sys_sleep_t   g_sys_sleep   = nullptr;
+sys_usleep_t  g_sys_usleep  = nullptr;
+
+}  // namespace
+
+__attribute__((constructor)) static void initSysCallPointers()
+{
+    g_sys_read    = reinterpret_cast<sys_read_t>   (dlsym(RTLD_NEXT, "read"));
+    g_sys_write   = reinterpret_cast<sys_write_t>  (dlsym(RTLD_NEXT, "write"));
+    g_sys_recv    = reinterpret_cast<sys_recv_t>   (dlsym(RTLD_NEXT, "recv"));
+    g_sys_send    = reinterpret_cast<sys_send_t>   (dlsym(RTLD_NEXT, "send"));
+    g_sys_accept  = reinterpret_cast<sys_accept_t> (dlsym(RTLD_NEXT, "accept"));
+    g_sys_connect = reinterpret_cast<sys_connect_t>(dlsym(RTLD_NEXT, "connect"));
+    g_sys_sleep   = reinterpret_cast<sys_sleep_t>  (dlsym(RTLD_NEXT, "sleep"));
+    g_sys_usleep  = reinterpret_cast<sys_usleep_t> (dlsym(RTLD_NEXT, "usleep"));
+}
+
 namespace tinyrpc {
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 全局（线程局部）hook 开关
+// ─────────────────────────────────────────────────────────────────────────────
+
+static thread_local bool s_hookEnabled = false;
+
+void SetHook(bool enabled)  { s_hookEnabled = enabled; }
+bool IsHookEnabled()        { return s_hookEnabled; }
 
 namespace {
 
@@ -129,19 +180,13 @@ bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
 
 ssize_t readHook(FdEvent *fdEvent, void *buf, size_t count)
 {
-    // fdEvent->getFd()：取出此 FdEvent 管理的文件描述符。
     int fd = fdEvent->getFd();
+    ssize_t ret = g_sys_read(fd, buf, count);
 
-    // ::read(fd, buf, count)：从 fd 读取最多 count 字节到 buf。
-    // 非阻塞 fd 上暂无数据时返回 -1 并置 errno = EAGAIN/EWOULDBLOCK。
-    ssize_t ret = ::read(fd, buf, count);
-
-    // 主协程中不做任何挂起，直接透传系统调用结果。
     if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
-    // 读取成功（ret >= 0）或遇到非 EAGAIN 错误，直接返回。
     if (ret >= 0) {
         return ret;
     }
@@ -149,18 +194,10 @@ ssize_t readHook(FdEvent *fdEvent, void *buf, size_t count)
         return ret;
     }
 
-    // 非主协程且遇到 EAGAIN/EWOULDBLOCK：挂起当前协程，等待可读事件。
-
-    // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
     fdEvent->setCoroutine(Coroutine::getCurrentCoroutine());
-
-    // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
     fdEvent->setCoroutineListenEvent(EPOLLIN);
-
-    // 注册关注 EPOLLIN 事件。
     fdEvent->addListenEvent(EPOLLIN);
 
-    // 若 FdEvent 已关联 Reactor，更新或注册事件到 epoll。
     if (fdEvent->getReactor() != nullptr) {
         if (fdEvent->isRegistered()) {
             fdEvent->updateToReactor();
@@ -169,29 +206,20 @@ ssize_t readHook(FdEvent *fdEvent, void *buf, size_t count)
         }
     }
 
-    // 让出执行权，切回主协程。
-    // 恢复后（由调用方手动 resume 或 Reactor 事件驱动）继续执行。
     Coroutine::yield();
 
-    // 协程恢复后再次尝试读取，返回最终结果。
-    return ::read(fd, buf, count);
+    return g_sys_read(fd, buf, count);
 }
 
 ssize_t writeHook(FdEvent *fdEvent, const void *buf, size_t count)
 {
-    // fdEvent->getFd()：取出此 FdEvent 管理的文件描述符。
     int fd = fdEvent->getFd();
+    ssize_t ret = g_sys_write(fd, buf, count);
 
-    // ::write(fd, buf, count)：将 buf 中最多 count 字节写入 fd。
-    // 非阻塞 fd 上发送缓冲区满时返回 -1 并置 errno = EAGAIN/EWOULDBLOCK。
-    ssize_t ret = ::write(fd, buf, count);
-
-    // 主协程中不做任何挂起，直接透传系统调用结果。
     if (Coroutine::isMainCoroutine()) {
         return ret;
     }
 
-    // 写入成功（ret >= 0）或遇到非 EAGAIN 错误，直接返回。
     if (ret >= 0) {
         return ret;
     }
@@ -199,18 +227,10 @@ ssize_t writeHook(FdEvent *fdEvent, const void *buf, size_t count)
         return ret;
     }
 
-    // 非主协程且遇到 EAGAIN/EWOULDBLOCK：挂起当前协程，等待可写事件。
-
-    // 将当前协程挂到 FdEvent，Reactor 恢复时可找到并 resume。
     fdEvent->setCoroutine(Coroutine::getCurrentCoroutine());
-
-    // 记录协程等待的事件类型，Reactor 据此判断是否应该恢复协程。
     fdEvent->setCoroutineListenEvent(EPOLLOUT);
-
-    // 注册关注 EPOLLOUT 事件。
     fdEvent->addListenEvent(EPOLLOUT);
 
-    // 若 FdEvent 已关联 Reactor，更新或注册事件到 epoll。
     if (fdEvent->getReactor() != nullptr) {
         if (fdEvent->isRegistered()) {
             fdEvent->updateToReactor();
@@ -219,20 +239,15 @@ ssize_t writeHook(FdEvent *fdEvent, const void *buf, size_t count)
         }
     }
 
-    // 让出执行权，切回主协程。
     Coroutine::yield();
 
-    // 协程恢复后再次尝试写入，返回最终结果。
-    return ::write(fd, buf, count);
+    return g_sys_write(fd, buf, count);
 }
 
 ssize_t recvHook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeoutMs)
 {
     int fd = fdEvent->getFd();
-
-    // recv(2) 参数依次为：socket fd、接收缓冲区、最多接收字节数、接收标志。
-    // flags 可传 0 或 MSG_DONTWAIT/MSG_PEEK 等；当前 hook 只关心 EAGAIN 等待语义。
-    ssize_t ret = ::recv(fd, buf, count, flags);
+    ssize_t ret = g_sys_recv(fd, buf, count, flags);
 
     if (Coroutine::isMainCoroutine()) {
         return ret;
@@ -250,16 +265,13 @@ ssize_t recvHook(FdEvent *fdEvent, void *buf, size_t count, int flags, int timeo
         return -1;
     }
 
-    return ::recv(fd, buf, count, flags);
+    return g_sys_recv(fd, buf, count, flags);
 }
 
 ssize_t sendHook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int timeoutMs)
 {
     int fd = fdEvent->getFd();
-
-    // send(2) 参数依次为：socket fd、待发送缓冲区、最多发送字节数、发送标志。
-    // 非阻塞 socket 发送缓冲区满时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
-    ssize_t ret = ::send(fd, buf, count, flags);
+    ssize_t ret = g_sys_send(fd, buf, count, flags);
 
     if (Coroutine::isMainCoroutine()) {
         return ret;
@@ -277,16 +289,13 @@ ssize_t sendHook(FdEvent *fdEvent, const void *buf, size_t count, int flags, int
         return -1;
     }
 
-    return ::send(fd, buf, count, flags);
+    return g_sys_send(fd, buf, count, flags);
 }
 
 int acceptHook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeoutMs)
 {
     int fd = fdEvent->getFd();
-
-    // accept(2) 参数依次为：监听 socket fd、输出对端地址、地址长度指针。
-    // 非阻塞监听 fd 暂无连接时返回 -1，并设置 errno = EAGAIN/EWOULDBLOCK。
-    int ret = ::accept(fd, addr, addrLen);
+    int ret = g_sys_accept(fd, addr, addrLen);
 
     if (Coroutine::isMainCoroutine()) {
         return ret;
@@ -304,16 +313,13 @@ int acceptHook(FdEvent *fdEvent, sockaddr *addr, socklen_t *addrLen, int timeout
         return -1;
     }
 
-    return ::accept(fd, addr, addrLen);
+    return g_sys_accept(fd, addr, addrLen);
 }
 
 int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
 {
     int fd = fdEvent->getFd();
-
-    // connect(2) 参数依次为：socket fd、目标地址结构、地址长度。
-    // 对非阻塞 fd，连接尚未完成时返回 -1 并置 errno = EINPROGRESS。
-    int ret = ::connect(fd, addr, addrLen);
+    int ret = g_sys_connect(fd, addr, addrLen);
 
     if (Coroutine::isMainCoroutine()) {
         return ret;
@@ -390,10 +396,8 @@ int connectHook(FdEvent *fdEvent, const sockaddr *addr, socklen_t addrLen, int t
 
 unsigned int sleepHook(Reactor *reactor, unsigned int seconds)
 {
-    // sleep(3) 参数为秒数；返回值为被信号中断时剩余的秒数。
-    // 主协程中不挂起，保持与系统调用一致的阻塞语义。
     if (Coroutine::isMainCoroutine()) {
-        return ::sleep(seconds);
+        return g_sys_sleep(seconds);
     }
 
     if (seconds == 0) {
@@ -401,17 +405,15 @@ unsigned int sleepHook(Reactor *reactor, unsigned int seconds)
     }
 
     if (!yieldByTimer(reactor, static_cast<int64_t>(seconds) * 1000)) {
-        return ::sleep(seconds);
+        return g_sys_sleep(seconds);
     }
     return 0;
 }
 
 int usleepHook(Reactor *reactor, useconds_t usec)
 {
-    // usleep(3) 参数为微秒数；成功返回 0，失败返回 -1 并设置 errno。
-    // 主协程中直接透传，避免改变非协程调用路径的行为。
     if (Coroutine::isMainCoroutine()) {
-        return ::usleep(usec);
+        return g_sys_usleep(usec);
     }
 
     if (usec == 0) {
@@ -419,9 +421,83 @@ int usleepHook(Reactor *reactor, useconds_t usec)
     }
 
     if (!yieldByTimer(reactor, microsecondsToMilliseconds(usec))) {
-        return ::usleep(usec);
+        return g_sys_usleep(usec);
     }
     return 0;
 }
 
 }  // namespace tinyrpc
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 透明 hook：覆盖 libc 同名函数，对调用方无侵入。
+//
+// 规则：
+//   - hook 关闭（s_hookEnabled == false）或主协程 → 直通 g_sys_* 真实调用
+//   - hook 开启且非主协程：
+//       sleep/usleep → 委托 sleepHook / usleepHook（已由 Reactor::getCurrentReactor 获取 Reactor）
+//       read/write/accept/connect → TODO(task-92)：接入 FdEventContainer 后补全协程挂起路径
+// ─────────────────────────────────────────────────────────────────────────────
+
+extern "C" {
+
+ssize_t read(int fd, void *buf, size_t count)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_read(fd, buf, count);
+    }
+    // TODO(task-92): FdEventContainer::getOrCreate(fd) → readHook(fdEvent, buf, count)
+    return g_sys_read(fd, buf, count);
+}
+
+ssize_t write(int fd, const void *buf, size_t count)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_write(fd, buf, count);
+    }
+    // TODO(task-92): FdEventContainer::getOrCreate(fd) → writeHook(fdEvent, buf, count)
+    return g_sys_write(fd, buf, count);
+}
+
+int accept(int fd, sockaddr *addr, socklen_t *addrLen)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_accept(fd, addr, addrLen);
+    }
+    // TODO(task-92): FdEventContainer::getOrCreate(fd) → acceptHook(fdEvent, addr, addrLen)
+    return g_sys_accept(fd, addr, addrLen);
+}
+
+int connect(int fd, const sockaddr *addr, socklen_t addrLen)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_connect(fd, addr, addrLen);
+    }
+    // TODO(task-92): FdEventContainer::getOrCreate(fd) → connectHook(fdEvent, addr, addrLen, -1)
+    return g_sys_connect(fd, addr, addrLen);
+}
+
+unsigned int sleep(unsigned int seconds)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_sleep(seconds);
+    }
+    Reactor *reactor = Reactor::getCurrentReactor();
+    return sleepHook(reactor, seconds);
+}
+
+int usleep(useconds_t usec)
+{
+    using namespace tinyrpc;
+    if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
+        return g_sys_usleep(usec);
+    }
+    Reactor *reactor = Reactor::getCurrentReactor();
+    return usleepHook(reactor, usec);
+}
+
+}  // extern "C"

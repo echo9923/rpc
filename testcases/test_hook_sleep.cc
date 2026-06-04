@@ -144,6 +144,56 @@ TEST(HookSleepTest, MultipleSleepingCoroutinesResumeByTimerOrder)
     EXPECT_EQ(order[1], 2);
 }
 
+TEST(TransparentHookTest, SleepDisabledPassesThrough)
+{
+    tinyrpc::SetHook(false);
+    int64_t startMs = tinyrpc::getNowMs();
+    ::sleep(0);
+    EXPECT_LT(tinyrpc::getNowMs() - startMs, 50);
+    tinyrpc::SetHook(false);
+}
+
+TEST(TransparentHookTest, SleepInMainCoroutinePassesThrough)
+{
+    tinyrpc::SetHook(true);
+    ASSERT_TRUE(tinyrpc::Coroutine::isMainCoroutine());
+    int64_t startMs = tinyrpc::getNowMs();
+    ::sleep(0);
+    EXPECT_LT(tinyrpc::getNowMs() - startMs, 50);
+    tinyrpc::SetHook(false);
+}
+
+TEST(TransparentHookTest, UsleepInCoroutineWithReactorYieldsAndResumes)
+{
+    tinyrpc::Reactor reactor;
+    tinyrpc::Reactor::setCurrentReactor(&reactor);
+    tinyrpc::SetHook(true);
+
+    bool afterSleep = false;
+    int64_t startMs = tinyrpc::getNowMs();
+    int64_t resumedMs = 0;
+
+    tinyrpc::Coroutine co([&]() {
+        ::usleep(20 * 1000);
+        resumedMs = tinyrpc::getNowMs();
+        afterSleep = true;
+    });
+
+    co.resume();
+    ASSERT_EQ(co.getState(), tinyrpc::CoroutineState::Suspended);
+    EXPECT_FALSE(afterSleep);
+
+    driveReactorUntil(&reactor, [&afterSleep]() { return afterSleep; }, 1000);
+
+    ASSERT_TRUE(afterSleep);
+    EXPECT_EQ(co.getState(), tinyrpc::CoroutineState::Finished);
+    EXPECT_GE(resumedMs - startMs, 15);
+    EXPECT_LT(resumedMs - startMs, 250);
+
+    tinyrpc::SetHook(false);
+    tinyrpc::Reactor::setCurrentReactor(nullptr);
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

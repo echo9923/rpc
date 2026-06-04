@@ -10,6 +10,9 @@ namespace tinyrpc {
 
 class Reactor;
 
+void SetHook(bool enabled);
+bool IsHookEnabled();
+
 // readHook — 协程感知的 read 封装。
 //
 // 调用方负责提供与 fd 关联的 FdEvent 对象（例如 TcpConnection::m_fdEvent）。
