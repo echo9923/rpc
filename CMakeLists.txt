@@ -22,6 +22,9 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # 生成 Protobuf 代码：test_tinypb_server.proto → test_tinypb_server.pb.h + test_tinypb_server.pb.cc
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS testcases/test_tinypb_server.proto)
 
+# 生成 E2E 联动测试 Protobuf 代码
+protobuf_generate_cpp(E2E_PROTO_SRCS E2E_PROTO_HDRS e2e/proto/e2e_rpc.proto)
+
 set(SRC
     mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
@@ -277,3 +280,18 @@ add_executable(test_runtime
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_runtime ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+# E2E 联动测试目标
+add_executable(e2e_server
+    e2e/server/server.cc
+    ${E2E_PROTO_SRCS}
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(e2e_server pthread ${Protobuf_LIBRARIES})
+
+add_executable(e2e_client
+    e2e/client/client.cc
+    ${E2E_PROTO_SRCS}
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(e2e_client pthread ${Protobuf_LIBRARIES})

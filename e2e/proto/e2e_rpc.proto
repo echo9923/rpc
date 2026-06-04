@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option cc_generic_services = true;
+
+message E2eEchoRequest {
+  int32 seq = 1;
+  string payload = 2;
+}
+
+message E2eEchoResponse {
+  int32 ret_code = 1;
+  string ret_msg = 2;
+  int32 seq = 3;
+  string echo = 4;
+}
+
+message E2eAddRequest {
+  int32 seq = 1;
+  int32 lhs = 2;
+  int32 rhs = 3;
+}
+
+message E2eAddResponse {
+  int32 ret_code = 1;
+  string ret_msg = 2;
+  int32 seq = 3;
+  int64 result = 4;
+}
+
+service E2eService {
+  rpc echo(E2eEchoRequest) returns (E2eEchoResponse);
+  rpc add(E2eAddRequest) returns (E2eAddResponse);
+}

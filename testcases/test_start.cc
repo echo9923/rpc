@@ -104,7 +104,7 @@ TEST(StartTest, AddTimerTaskRunsOnServerReactor)
     auto server = tinyrpc::GetServer();
     ASSERT_NE(server, nullptr);
     for (int i = 0; i < 20 && runCount.load() == 0; ++i) {
-        server->waitOnce(10);
+        server->getReactor()->waitOnce(10);
     }
 
     EXPECT_EQ(runCount.load(), 1);

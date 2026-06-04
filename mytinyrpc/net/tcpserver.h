@@ -39,8 +39,10 @@ class TcpServer {
     bool init();
 
     void start();
-    int waitOnce(int timeoutMs);
     bool addTimerTask(const std::shared_ptr<TimerTask>& task);
+
+    // 返回主 Reactor 指针，供测试等场景直接驱动事件循环
+    Reactor* getReactor() { return &m_reactor; }
 
     // 注册一个 Protobuf Service 到分发器。
     // 内部转发给 TinyPbDispatcher::registerService()。
@@ -54,18 +56,18 @@ class TcpServer {
     void removeConnection(int fd);
 
  private:
-    IPAddress m_addr;
-    Socket m_listenFd {kInvalidSocket};
+     IPAddress m_addr;                                                          // 服务器监听地址（IP + 端口）
+     Socket m_listenFd {kInvalidSocket};                                       // 监听套接字，用于 accept 客户端连接
 
-    Reactor m_reactor;
-    FdEvent m_listenEvent;
-    AbstractCodec::Ptr m_codec;
-    AbstractDispatcher::Ptr m_dispatcher;
-    std::unique_ptr<IOThreadPool> m_ioThreadPool;
-    int m_ioThreadNum {0};
-    std::unordered_map<int, std::shared_ptr<TcpConnection>> m_connections;
-    mutable Mutex m_connectionMutex;
-    bool m_running {false};
+     Reactor m_reactor;                                                        // 主 Reactor（IO 多路复用），负责监听 accept 事件
+     FdEvent m_listenEvent;                                                    // 监听套接字对应的事件包装器，绑定到 m_reactor
+     AbstractCodec::Ptr m_codec;                                               // 编解码器，用于解析/序列化网络数据（如 Protobuf）
+     AbstractDispatcher::Ptr m_dispatcher;                                     // 请求分发器，将解码后的请求分发给对应的处理逻辑
+     std::unique_ptr<IOThreadPool> m_ioThreadPool;                             // IO 线程池，每个线程拥有独立的子 Reactor，处理已建立的连接
+     int m_ioThreadNum {0};                                                    // IO 线程池中线程的数量
+     std::unordered_map<int, std::shared_ptr<TcpConnection>> m_connections;    // fd -> TcpConnection 映射表，管理所有活跃连接
+     mutable Mutex m_connectionMutex;                                          // 保护 m_connections 的互斥锁（mutable 允许 const 方法加锁）
+     bool m_running {false};                                                   // 服务器运行状态标志
 };
 
 }

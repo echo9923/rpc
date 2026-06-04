@@ -127,11 +127,9 @@ bool Reactor::epollAdd(FdEvent* event)
     // 此调用是同步的：内核在返回前已拷贝完 events / data，局部变量 ev 的地址
     // 不会被内核记住，函数返回后安全销毁。
     if (epoll_ctl(m_epollFd, EPOLL_CTL_ADD, event->getFd(), &ev) < 0) {
-        ErrorLog(
-            "epoll_ctl ADD failed, fd = " + std::to_string(event->getFd()) +
-            ", errno = " + std::to_string(errno)
-        );
-        return false;
+      ErrorLog("epoll_ctl ADD failed, fd = " + std::to_string(event->getFd()) +
+               ", errno = " + std::to_string(errno));
+      return false;
     }
 
     m_events[event->getFd()] = event;
