@@ -338,9 +338,17 @@ bool TcpClient::recvTinyPbResponse(TinyPbStruct *response)
 
 bool TcpClient::sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response)
 {
+    if (request == nullptr || response == nullptr) {
+        m_errorCode = 0;
+        m_errorInfo = "TinyPB request or response is null";
+        return false;
+    }
+
     if (!sendTinyPbRequest(request)) {
         return false;
     }
+
+    response->m_reqId = request->m_reqId;
     return recvTinyPbResponse(response);
 }
 

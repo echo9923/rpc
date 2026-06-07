@@ -495,6 +495,66 @@ TEST_F(TcpClientTest, SendAndRecvTinyPbRoundTrip)
     EXPECT_EQ(response.m_pbData, "roundtrip-response");
 }
 
+TEST_F(TcpClientTest, SendAndRecvWaitsForMatchingReqId)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct decodedRequest;
+        if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct wrongResponse;
+        wrongResponse.m_reqId = "unknown-response";
+        wrongResponse.m_serviceFullName = decodedRequest.m_serviceFullName;
+        wrongResponse.m_pbData = "wrong-response";
+
+        tinyrpc::TinyPbStruct rightResponse;
+        rightResponse.m_reqId = decodedRequest.m_reqId;
+        rightResponse.m_serviceFullName = decodedRequest.m_serviceFullName;
+        rightResponse.m_pbData = "right-response";
+
+        std::string wrongFrame;
+        std::string rightFrame;
+        if (!encodeTinyPbToString(&wrongResponse, &wrongFrame)
+            || !encodeTinyPbToString(&rightResponse, &rightFrame)) {
+            serverError = "encode ordered responses failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        std::string frames = wrongFrame + rightFrame;
+        serverOk = writeAllToFd(clientFd, frames.data(), frames.size(), &serverError);
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+
+    tinyrpc::TinyPbStruct request;
+    request.m_reqId = "match-req";
+    request.m_serviceFullName = "QueryService.query_name";
+    request.m_pbData = "match-request";
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.sendAndRecvTinyPb(&request, &response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    ASSERT_TRUE(clientOk) << clientError;
+    EXPECT_EQ(response.m_reqId, "match-req");
+    EXPECT_EQ(response.m_pbData, "right-response");
+}
+
 TEST_F(TcpClientTest, SendTinyPbRequestRejectsInvalidRequest)
 {
     auto runInvalidRequest = [this](tinyrpc::TinyPbStruct *request) {

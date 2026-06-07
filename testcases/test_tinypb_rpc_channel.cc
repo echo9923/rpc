@@ -513,7 +513,7 @@ TEST_F(TinyPbRpcChannelTest, ControllerTimeoutIsPassedToTcpClient)
     EXPECT_FALSE(controller.ErrorText().empty());
 }
 
-TEST_F(TinyPbRpcChannelTest, MismatchedResponseReqIdSetsControllerError)
+TEST_F(TinyPbRpcChannelTest, OnlyMismatchedResponseDoesNotCompleteCall)
 {
     bool serverOk = false;
     std::string serverError;
@@ -571,8 +571,85 @@ TEST_F(TinyPbRpcChannelTest, MismatchedResponseReqIdSetsControllerError)
 
     ASSERT_TRUE(serverOk) << serverError;
     EXPECT_TRUE(controller.Failed());
-    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_REQID_MISMATCH);
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_TCP_RECV_FAILED);
     EXPECT_FALSE(controller.ErrorText().empty());
+    EXPECT_TRUE(response.name().empty());
+}
+
+TEST_F(TinyPbRpcChannelTest, OutOfOrderResponseWaitsForMatchingReqId)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct decodedRequest;
+        if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        queryNameRes wrongPbRes;
+        wrongPbRes.set_ret_code(0);
+        wrongPbRes.set_res_info("wrong");
+        wrongPbRes.set_req_no(15);
+        wrongPbRes.set_id(108);
+        wrongPbRes.set_name("Wrong");
+
+        queryNameRes rightPbRes;
+        rightPbRes.set_ret_code(0);
+        rightPbRes.set_res_info("ok");
+        rightPbRes.set_req_no(15);
+        rightPbRes.set_id(108);
+        rightPbRes.set_name("Dora");
+
+        tinyrpc::TinyPbStruct wrongResponse;
+        wrongResponse.m_reqId = "unknown-channel-req";
+        wrongResponse.m_serviceFullName = decodedRequest.m_serviceFullName;
+        ASSERT_TRUE(wrongPbRes.SerializeToString(&wrongResponse.m_pbData));
+
+        tinyrpc::TinyPbStruct rightResponse;
+        rightResponse.m_reqId = decodedRequest.m_reqId;
+        rightResponse.m_serviceFullName = decodedRequest.m_serviceFullName;
+        ASSERT_TRUE(rightPbRes.SerializeToString(&rightResponse.m_pbData));
+
+        std::string wrongFrame;
+        std::string rightFrame;
+        if (!encodeTinyPbToString(&wrongResponse, &wrongFrame)
+            || !encodeTinyPbToString(&rightResponse, &rightFrame)) {
+            serverError = "response encode failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        std::string frames = wrongFrame + rightFrame;
+        serverOk = writeAllToFd(clientFd, frames.data(), frames.size(), &serverError);
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    channel.setReqIdGenerator([]() { return "expected-channel-req"; });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq request;
+    request.set_req_no(15);
+    request.set_id(108);
+    request.set_type(1);
+
+    queryNameRes response;
+    tinyrpc::TinyPbRpcController controller;
+
+    stub.query_name(&controller, &request, &response, nullptr);
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
+    EXPECT_EQ(response.name(), "Dora");
 }
 
 int main(int argc, char **argv)
