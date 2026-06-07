@@ -169,6 +169,12 @@ bool TcpClient::connectOnce()
     }
 
     m_isConnected = true;
+    m_connection = std::make_shared<TcpConnection>(
+        m_fd,
+        nullptr,
+        TcpConnectionType::ClientConnection,
+        m_peerAddr,
+        std::make_shared<TinyPbCodec>());
     m_errorCode = 0;
     m_errorInfo.clear();
     InfoLog("TcpClient connected to " + m_peerAddr.toString()
@@ -181,9 +187,15 @@ void TcpClient::closeConnection()
     if (m_fd != kInvalidSocket) {
         close(m_fd);
         DebugLog("TcpClient closed fd = " + std::to_string(m_fd));
-        m_fd = kInvalidSocket;
     }
+    resetConnectionState();
+}
+
+void TcpClient::resetConnectionState()
+{
+    m_fd = kInvalidSocket;
     m_isConnected = false;
+    m_connection.reset();
 }
 
 bool TcpClient::sendTinyPbRequest(TinyPbStruct *request)
@@ -198,16 +210,26 @@ bool TcpClient::sendTinyPbRequest(TinyPbStruct *request)
         return false;
     }
 
-    TcpBuffer outBuffer(256);
-    TinyPbCodec codec;
-    codec.encode(&outBuffer, request);
+    if (m_connection == nullptr) {
+        m_errorCode = 0;
+        m_errorInfo = "TcpClient connection is null";
+        return false;
+    }
+
+    TcpBuffer *outBuffer = m_connection->getOutputBuffer();
+    outBuffer->retrieveAll();
+    m_connection->encodeClientRequest(request);
     if (!request->m_encodeSucc) {
         m_errorCode = 0;
         m_errorInfo = "TinyPB request encode failed";
         return false;
     }
 
-    return writeAll(outBuffer.getReadPtr(), outBuffer.getReadableBytes());
+    bool ok = writeAll(outBuffer->getReadPtr(), outBuffer->getReadableBytes());
+    if (ok) {
+        outBuffer->retrieveAll();
+    }
+    return ok;
 }
 
 bool TcpClient::recvTinyPbResponse(TinyPbStruct *response)
@@ -224,22 +246,41 @@ bool TcpClient::recvTinyPbResponse(TinyPbStruct *response)
         return false;
     }
 
-    TcpBuffer inBuffer(256);
-    TinyPbCodec codec;
+    if (m_connection == nullptr) {
+        m_errorCode = 0;
+        m_errorInfo = "TcpClient connection is null";
+        return false;
+    }
+
+    if (response->m_reqId.empty() && m_connection->popClientResponse(response)) {
+        m_errorCode = 0;
+        m_errorInfo.clear();
+        return true;
+    }
+    if (!response->m_reqId.empty() && m_connection->getClientResponse(response->m_reqId, response)) {
+        m_errorCode = 0;
+        m_errorInfo.clear();
+        return true;
+    }
 
     while (true) {
-        codec.decode(&inBuffer, response);
-        if (response->m_decodeSucc) {
+        m_connection->parseClientResponses();
+        if (response->m_reqId.empty() && m_connection->popClientResponse(response)) {
+            m_errorCode = 0;
+            m_errorInfo.clear();
+            return true;
+        }
+        if (!response->m_reqId.empty() && m_connection->getClientResponse(response->m_reqId, response)) {
             m_errorCode = 0;
             m_errorInfo.clear();
             return true;
         }
 
-        if (!readSomeToBuffer(&inBuffer)) {
+        if (!readSomeToBuffer(m_connection->getInputBuffer())) {
             return false;
         }
 
-        if (inBuffer.getReadableBytes() > static_cast<size_t>(kTinyPbMaxPackageLength)) {
+        if (m_connection->getInputBuffer()->getReadableBytes() > static_cast<size_t>(kTinyPbMaxPackageLength)) {
             m_errorCode = 0;
             m_errorInfo = "TinyPB response exceeds max package length";
             return false;

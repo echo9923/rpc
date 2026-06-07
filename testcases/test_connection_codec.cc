@@ -235,6 +235,72 @@ TEST(ConnectionCodecTest, ExecuteDispatchesTinyPbRpcRequest)
     EXPECT_EQ(pbRes.name(), "Alice");
 }
 
+TEST(ConnectionCodecTest, ClientConnectionEncodesRequestToOutputBuffer)
+{
+    auto codec = std::make_shared<tinyrpc::TinyPbCodec>();
+    tinyrpc::Reactor reactor;
+    tinyrpc::IPAddress peerAddr("127.0.0.1", 12345);
+    auto conn = std::make_shared<tinyrpc::TcpConnection>(
+        -1,
+        &reactor,
+        tinyrpc::TcpConnectionType::ClientConnection,
+        peerAddr,
+        codec);
+
+    tinyrpc::TinyPbStruct request;
+    request.m_reqId = "client-conn-req";
+    request.m_serviceFullName = "QueryService.query_name";
+    request.m_pbData = "client-request";
+
+    conn->encodeClientRequest(&request);
+
+    ASSERT_TRUE(request.m_encodeSucc);
+    EXPECT_EQ(conn->getConnectionType(), tinyrpc::TcpConnectionType::ClientConnection);
+    EXPECT_EQ(conn->getPeerAddress().toString(), "127.0.0.1:12345");
+    ASSERT_GT(conn->getOutputBuffer()->getReadableBytes(), 0u);
+
+    tinyrpc::TinyPbStruct decoded;
+    codec->decode(conn->getOutputBuffer(), &decoded);
+    ASSERT_TRUE(decoded.m_decodeSucc);
+    EXPECT_EQ(decoded.m_reqId, "client-conn-req");
+    EXPECT_EQ(decoded.m_serviceFullName, "QueryService.query_name");
+    EXPECT_EQ(decoded.m_pbData, "client-request");
+}
+
+TEST(ConnectionCodecTest, ClientConnectionCachesResponseByReqId)
+{
+    auto codec = std::make_shared<tinyrpc::TinyPbCodec>();
+    tinyrpc::Reactor reactor;
+    auto conn = std::make_shared<tinyrpc::TcpConnection>(
+        -1,
+        &reactor,
+        tinyrpc::TcpConnectionType::ClientConnection,
+        tinyrpc::IPAddress("127.0.0.1", 23456),
+        codec);
+
+    tinyrpc::TinyPbStruct response;
+    response.m_reqId = "client-cache-req";
+    response.m_serviceFullName = "QueryService.query_name";
+    response.m_errCode = 0;
+    response.m_pbData = "client-cache-response";
+
+    tinyrpc::TcpBuffer buffer(256);
+    codec->encode(&buffer, &response);
+    ASSERT_TRUE(response.m_encodeSucc);
+
+    std::string frame = buffer.retrieveAllAsString();
+    conn->appendClientInput(frame.data(), frame.size());
+    conn->parseClientResponses();
+
+    EXPECT_EQ(conn->getClientResponseCount(), 1u);
+
+    tinyrpc::TinyPbStruct cached;
+    ASSERT_TRUE(conn->getClientResponse("client-cache-req", &cached));
+    EXPECT_EQ(cached.m_reqId, "client-cache-req");
+    EXPECT_EQ(cached.m_pbData, "client-cache-response");
+    EXPECT_EQ(conn->getClientResponseCount(), 0u);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────

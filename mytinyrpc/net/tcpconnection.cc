@@ -24,6 +24,20 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
     refreshActiveTime();
 }
 
+TcpConnection::TcpConnection(Socket fd, Reactor *reactor, TcpConnectionType connectionType,
+                             const IPAddress& peerAddr,
+                             AbstractCodec::Ptr codec,
+                             AbstractDispatcher::Ptr dispatcher)
+    : m_fd(fd),
+      m_reactor(reactor),
+      m_connectionType(connectionType),
+      m_peerAddr(peerAddr),
+      m_codec(std::move(codec)),
+      m_dispatcher(std::move(dispatcher))
+{
+    refreshActiveTime();
+}
+
 TcpConnection::~TcpConnection()
 {
     closeConnection();
@@ -32,6 +46,16 @@ TcpConnection::~TcpConnection()
 Socket TcpConnection::getFd() const
 {
     return m_fd;
+}
+
+TcpConnectionType TcpConnection::getConnectionType() const
+{
+    return m_connectionType;
+}
+
+const IPAddress& TcpConnection::getPeerAddress() const
+{
+    return m_peerAddr;
 }
 
 AbstractCodec::Ptr TcpConnection::getCodec() const
@@ -56,6 +80,81 @@ void TcpConnection::sendProtocolData(AbstractData *data)
     if (m_codec != nullptr && data != nullptr) {
         m_codec->encode(&m_outputBuffer, data);
     }
+}
+
+void TcpConnection::encodeClientRequest(TinyPbStruct *request)
+{
+    // 客户端连接只负责把业务请求编码进输出缓冲区；实际 socket 写出仍由 TcpClient 驱动。
+    if (m_connectionType != TcpConnectionType::ClientConnection || m_codec == nullptr || request == nullptr) {
+        return;
+    }
+
+    m_codec->encode(&m_outputBuffer, request);
+}
+
+void TcpConnection::appendClientInput(const char *data, size_t len)
+{
+    if (m_connectionType != TcpConnectionType::ClientConnection || data == nullptr || len == 0) {
+        return;
+    }
+
+    m_inputBuffer.append(data, len);
+    refreshActiveTime();
+}
+
+void TcpConnection::parseClientResponses()
+{
+    if (m_connectionType != TcpConnectionType::ClientConnection || m_codec == nullptr) {
+        return;
+    }
+
+    while (m_inputBuffer.getReadableBytes() > 0) {
+        TinyPbStruct response;
+        m_codec->decode(&m_inputBuffer, &response);
+        if (!response.m_decodeSucc) {
+            break;
+        }
+
+        if (response.m_reqId.empty()) {
+            ErrorLog("TcpConnection client received TinyPB response with empty reqId, peer = "
+                     + m_peerAddr.toString());
+            continue;
+        }
+        m_clientResponses[response.m_reqId] = response;
+    }
+}
+
+bool TcpConnection::getClientResponse(const std::string& reqId, TinyPbStruct *response)
+{
+    if (response == nullptr) {
+        return false;
+    }
+
+    auto it = m_clientResponses.find(reqId);
+    if (it == m_clientResponses.end()) {
+        return false;
+    }
+
+    *response = it->second;
+    m_clientResponses.erase(it);
+    return true;
+}
+
+bool TcpConnection::popClientResponse(TinyPbStruct *response)
+{
+    if (response == nullptr || m_clientResponses.empty()) {
+        return false;
+    }
+
+    auto it = m_clientResponses.begin();
+    *response = it->second;
+    m_clientResponses.erase(it);
+    return true;
+}
+
+size_t TcpConnection::getClientResponseCount() const
+{
+    return m_clientResponses.size();
 }
 
 void TcpConnection::startConnection()

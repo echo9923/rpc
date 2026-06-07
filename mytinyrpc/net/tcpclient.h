@@ -3,9 +3,11 @@
 #include "net/netaddress.h"
 #include "net/socket.h"
 #include "net/tcpbuffer.h"
+#include "net/tcpconnection.h"
 #include "net/tinypb/tinypbcodec.h"
 #include "net/tinypb/tinypbdata.h"
 
+#include <memory>
 #include <string>
 
 namespace tinyrpc {
@@ -78,6 +80,7 @@ class TcpClient {
 
  private:
     bool connectOnce();
+    void resetConnectionState();
     bool waitFdEvent(short event, const std::string& operation, int timeoutErrorCode);
     bool writeAll(const char *data, size_t len);
     bool readSomeToBuffer(TcpBuffer *buffer);
@@ -90,6 +93,7 @@ class TcpClient {
     int m_connectRetryCount {0};
     int m_connectRetryIntervalMs {0};
     std::string m_errorInfo;
+    std::shared_ptr<TcpConnection> m_connection;
 };
 
 }
