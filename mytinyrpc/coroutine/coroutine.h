@@ -46,6 +46,12 @@ class Coroutine {
     // @param stackSize 协程独立栈大小（字节），默认 128KB。
     explicit Coroutine(std::function<void()> cb, size_t stackSize = 128 * 1024);
 
+    // 构造一个使用外部栈的子协程。
+    // @param cb        协程入口回调函数。
+    // @param stack     外部栈起始地址，由调用方负责管理生命周期。
+    // @param stackSize 外部栈大小（字节）。
+    Coroutine(std::function<void()> cb, void *stack, size_t stackSize);
+
     // 析构函数：释放独立栈空间。
     ~Coroutine();
 
@@ -77,9 +83,21 @@ class Coroutine {
     // 仅允许在 Ready 或 Finished 状态调用，Running/Suspended 状态返回 false。
     bool reset(std::function<void()> cb);
 
+    // 使用新的外部栈重置协程入口回调并重新初始化上下文。
+    // 仅允许在 Ready 或 Finished 状态调用，不释放旧外部栈。
+    bool resetWithExternalStack(std::function<void()> cb, void *stack, size_t stackSize);
+
+    // 分离当前外部栈，清空回调和上下文，返回原外部栈地址。
+    // 仅允许在 Ready 或 Finished 状态且当前使用外部栈时调用。
+    void *detachExternalStack();
+
     // 获取协程唯一 ID。
     // 主协程 ID 为 0，子协程 ID 从 1 开始递增。
     int getId() const { return m_corId; }
+
+    void *getStackAddress() const { return m_stackSp; }
+    size_t getStackSize() const { return m_stackSize; }
+    bool isUsingExternalStack() const { return m_stackSp != nullptr && !m_ownsStack; }
 
  private:
     // 私有无参构造：仅用于创建主协程（无栈、无回调、ID=0）。
@@ -93,10 +111,13 @@ class Coroutine {
     // 初始化子协程上下文，使下一次 resume() 从 coFunc(this) 开始执行。
     void initContext();
 
+    static void initMainCoroutineIfNeeded();
+
     int m_corId {0};                    // 协程 ID，主协程为 0
     Coctx m_coctx {};                   // 寄存器上下文
     size_t m_stackSize {0};             // 独立栈大小
     char* m_stackSp {nullptr};          // 独立栈起始地址（malloc 分配）
+    bool m_ownsStack {false};           // true 表示析构时释放内部栈；外部栈由调用方归还
     CoroutineState m_state {CoroutineState::Ready};
     std::function<void()> m_callback;   // 协程入口回调
 

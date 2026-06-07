@@ -144,6 +144,7 @@ TEST(CoroutinePoolTest, ConfigCanExpandWhenInitialCapacityIsExhausted)
     EXPECT_EQ(pool.getInitialCapacity(), 2u);
     EXPECT_EQ(pool.getCapacity(), 4u);
     EXPECT_EQ(pool.getCreatedCount(), 3u);
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 1u);
 }
 
 TEST(CoroutinePoolTest, ExpandedCoroutineCanBeReturnedAndReused)
@@ -179,6 +180,54 @@ TEST(CoroutinePoolTest, ExpandedCoroutineCanBeReturnedAndReused)
     EXPECT_TRUE(reused->isFinished());
 }
 
+TEST(CoroutinePoolTest, CoroutinesUseDifferentStackBlocksFromPool)
+{
+    tinyrpc::CoroutinePool pool(2);
+
+    auto first = pool.getCoroutine([]() {});
+    auto second = pool.getCoroutine([]() {});
+
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    EXPECT_TRUE(first->isUsingExternalStack());
+    EXPECT_TRUE(second->isUsingExternalStack());
+    EXPECT_NE(first->getStackAddress(), second->getStackAddress());
+    EXPECT_EQ(first->getStackSize(), 128u * 1024);
+    EXPECT_EQ(second->getStackSize(), 128u * 1024);
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 0u);
+}
+
+TEST(CoroutinePoolTest, ReturnedCoroutineReusesStackBlock)
+{
+    tinyrpc::CoroutinePool pool(1);
+
+    auto first = pool.getCoroutine([]() {});
+    ASSERT_NE(first, nullptr);
+    void *firstStack = first->getStackAddress();
+
+    first->resume();
+    ASSERT_TRUE(first->isFinished());
+    ASSERT_TRUE(pool.returnCoroutine(std::move(first)));
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 1u);
+
+    auto second = pool.getCoroutine([]() {});
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(second->getStackAddress(), firstStack);
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 0u);
+}
+
+TEST(CoroutinePoolTest, RejectsCoroutineNotCreatedByPool)
+{
+    tinyrpc::CoroutinePool pool(1);
+    auto coroutine = std::make_unique<tinyrpc::Coroutine>([]() {});
+    coroutine->resume();
+    ASSERT_TRUE(coroutine->isFinished());
+
+    EXPECT_FALSE(pool.returnCoroutine(std::move(coroutine)));
+    EXPECT_EQ(pool.getIdleCount(), 0u);
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 1u);
+}
+
 TEST(CoroutinePoolTest, ExpandPolicySupportsZeroInitialCapacity)
 {
     tinyrpc::CoroutinePool pool(
@@ -193,6 +242,7 @@ TEST(CoroutinePoolTest, ExpandPolicySupportsZeroInitialCapacity)
     EXPECT_EQ(pool.getInitialCapacity(), 0u);
     EXPECT_EQ(pool.getCapacity(), 1u);
     EXPECT_EQ(pool.getCreatedCount(), 1u);
+    EXPECT_EQ(pool.getFreeStackBlockCount(), 0u);
 }
 
 TEST(CoroutinePoolTest, SuspendedCoroutineCannotBeReturned)

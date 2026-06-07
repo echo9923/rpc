@@ -63,13 +63,10 @@ Coroutine::Coroutine()
 Coroutine::Coroutine(std::function<void()> cb, size_t stackSize)
     : m_corId(s_nextCorId++),
       m_stackSize(stackSize),
+      m_ownsStack(true),
       m_callback(std::move(cb))
 {
-    // 懒初始化主协程。如果当前线程还没有主协程，先创建一个。
-    if (m_mainCoroutine == nullptr) {
-        m_mainCoroutine = new Coroutine();
-        m_currentCoroutine = m_mainCoroutine;
-    }
+    initMainCoroutineIfNeeded();
 
     // 分配独立栈空间。
     m_stackSp = static_cast<char*>(std::malloc(m_stackSize));
@@ -78,13 +75,27 @@ Coroutine::Coroutine(std::function<void()> cb, size_t stackSize)
     initContext();
 }
 
+Coroutine::Coroutine(std::function<void()> cb, void *stack, size_t stackSize)
+    : m_corId(s_nextCorId++),
+      m_stackSize(stackSize),
+      m_stackSp(static_cast<char*>(stack)),
+      m_ownsStack(false),
+      m_callback(std::move(cb))
+{
+    initMainCoroutineIfNeeded();
+    assert(m_stackSp != nullptr && "Coroutine: external stack is null");
+    assert(m_stackSize > 0 && "Coroutine: external stack size is zero");
+
+    initContext();
+}
+
 Coroutine::~Coroutine()
 {
-    // 释放独立栈空间。
-    if (m_stackSp != nullptr) {
+    // 只释放构造时由 Coroutine 内部 malloc 的栈；外部栈由提供方负责归还。
+    if (m_stackSp != nullptr && m_ownsStack) {
         std::free(m_stackSp);
-        m_stackSp = nullptr;
     }
+    m_stackSp = nullptr;
 }
 
 // ─────────────────────────────────────────────
@@ -145,14 +156,60 @@ bool Coroutine::reset(std::function<void()> cb)
     if (m_state == CoroutineState::Running || m_state == CoroutineState::Suspended) {
         return false;
     }
+    if (m_stackSp == nullptr || m_stackSize == 0) {
+        return false;
+    }
 
     m_callback = std::move(cb);
     initContext();
     return true;
 }
 
+bool Coroutine::resetWithExternalStack(std::function<void()> cb, void *stack, size_t stackSize)
+{
+    if (m_state == CoroutineState::Running || m_state == CoroutineState::Suspended) {
+        return false;
+    }
+    if (stack == nullptr || stackSize == 0) {
+        return false;
+    }
+
+    if (m_stackSp != nullptr && m_ownsStack) {
+        std::free(m_stackSp);
+    }
+
+    m_stackSp = static_cast<char*>(stack);
+    m_stackSize = stackSize;
+    m_ownsStack = false;
+    m_callback = std::move(cb);
+    initContext();
+    return true;
+}
+
+void *Coroutine::detachExternalStack()
+{
+    if (m_state == CoroutineState::Running || m_state == CoroutineState::Suspended) {
+        return nullptr;
+    }
+    if (m_stackSp == nullptr || m_ownsStack) {
+        return nullptr;
+    }
+
+    void *stack = m_stackSp;
+    std::memset(&m_coctx, 0, sizeof(m_coctx));
+    m_stackSp = nullptr;
+    m_stackSize = 0;
+    m_ownsStack = false;
+    m_callback = nullptr;
+    m_state = CoroutineState::Ready;
+    return stack;
+}
+
 void Coroutine::initContext()
 {
+    assert(m_stackSp != nullptr && "Coroutine: initContext without stack");
+    assert(m_stackSize > 0 && "Coroutine: initContext with zero stack size");
+
     // 计算栈顶指针（栈从高地址向低地址增长）。
     char* top = m_stackSp + m_stackSize;
 
@@ -214,6 +271,14 @@ bool Coroutine::isMainCoroutine()
         return true;
     }
     return false;
+}
+
+void Coroutine::initMainCoroutineIfNeeded()
+{
+    if (m_mainCoroutine == nullptr) {
+        m_mainCoroutine = new Coroutine();
+        m_currentCoroutine = m_mainCoroutine;
+    }
 }
 
 }  // namespace tinyrpc

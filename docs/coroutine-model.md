@@ -59,7 +59,8 @@ flowchart LR
 
 - reset 会替换入口回调。
 - reset 会重新初始化 `coctx`，下一次 `resume()` 会重新从 `CoFunc(this)` 开始执行。
-- reset 不会释放或重新分配栈空间。
+- reset 不会释放或重新分配当前栈空间。
+- `Coroutine` 支持外部栈构造，外部栈由调用方管理生命周期，析构时不会被 `free()`。
 - `Running` 和 `Suspended` 状态仍保存着有效执行现场，reset 会返回 false。
 
 `CoroutinePool` 保留固定初始容量，并支持配置化耗尽策略：
@@ -70,7 +71,8 @@ flowchart LR
 - `coroutine.expand_on_exhausted` 开启后，初始容量耗尽时按扩展块增加容量；扩展块大小默认等于初始容量，初始容量为 `0` 时按 `1` 扩展。
 - 空闲协程按最近归还优先复用，尽量减少反复触碰冷栈内存造成的 page fault。
 - `returnCoroutine(co)` 只接受 `Ready` 或 `Finished` 状态的协程。
-- 归还成功时池会把协程 reset 成空任务，避免旧回调捕获继续留在池中。
+- `CoroutinePool` 从 `FixedMemoryPool` 获取栈块创建或复用协程，归还成功时会分离外部栈并把栈块还给内存池。
+- 归还成功时池会清空旧任务，避免旧回调捕获继续留在池中。
 - 当前池不做调度、不做 work stealing，也不跨线程迁移协程。
 
 ## 固定块内存池
@@ -81,7 +83,8 @@ flowchart LR
 - `allocate()` 从空闲列表借出一个 block；池耗尽时返回 `nullptr`。
 - `deallocate(ptr)` 只接受本池 block，拒绝 `nullptr`、外部指针和重复归还。
 - `owns(ptr)` 用于判断指针是否属于本池。
-- 当前 `Coroutine` 构造仍直接使用 `malloc/free` 管理栈，暂不强制接入内存池，避免性能优化影响主链路。
+- 普通 `Coroutine` 仍可直接使用内部 `malloc/free` 栈。
+- `CoroutinePool` 内的协程栈来自 `FixedMemoryPool`，归还协程时同步归还栈块。
 
 ## 何时 yield
 
@@ -180,7 +183,7 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 - `sleepHook()` / `usleepHook()` 需要显式传入 `Reactor*`，不是 libc 符号级全局替换。
 - 当前 `FdEvent` 只保存非拥有的 `Coroutine*`，协程生命周期仍由调用方管理。
 - 已实现配置化 `CoroutinePool`；默认池耗尽时返回 `nullptr`，开启 `coroutine.expand_on_exhausted` 后按块扩展容量。
-- 已实现独立 `FixedMemoryPool`；暂未接入 `Coroutine` 栈分配策略。
+- 已实现独立 `FixedMemoryPool`；`CoroutinePool` 内部协程栈已接入固定块内存池。
 
 ## 调试清单
 

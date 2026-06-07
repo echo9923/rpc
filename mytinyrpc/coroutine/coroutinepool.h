@@ -1,10 +1,12 @@
 #pragma once
 
 #include "coroutine/coroutine.h"
+#include "coroutine/memory.h"
 
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace tinyrpc {
@@ -37,9 +39,13 @@ class CoroutinePool {
     size_t getInitialCapacity() const;
     size_t getCreatedCount() const;
     size_t getIdleCount() const;
+    size_t getFreeStackBlockCount() const;
 
  private:
     bool expandCapacity();
+    bool addStackBlockPool(size_t blockCount);
+    void *allocateStackBlock();
+    bool deallocateStackBlock(void *stack);
 
     size_t m_initialCapacity {0};
     size_t m_capacity {0};
@@ -48,6 +54,8 @@ class CoroutinePool {
     CoroutinePoolExhaustPolicy m_exhaustPolicy {CoroutinePoolExhaustPolicy::ReturnNull};
     size_t m_expandBlockSize {0};
     std::vector<std::unique_ptr<Coroutine>> m_idleCoroutines;
+    std::vector<std::unique_ptr<FixedMemoryPool>> m_stackPools;
+    std::unordered_map<Coroutine *, void *> m_activeStackBlocks;
 };
 
 }  // namespace tinyrpc

@@ -187,6 +187,38 @@ int main()
     }
 
     // ────────────────────────────────────────────
+    // Test 6：外部栈协程不由 Coroutine 析构释放
+    // ────────────────────────────────────────────
+    std::vector<char> externalStack(64 * 1024);
+    bool externalRan = false;
+    tinyrpc::Coroutine externalCo([&externalRan]() {
+        externalRan = true;
+    }, externalStack.data(), externalStack.size());
+
+    if (!externalCo.isUsingExternalStack()) {
+        std::cerr << "[coroutine] FAIL: external stack should be detected"
+                  << std::endl;
+        return 1;
+    }
+    if (externalCo.getStackAddress() != externalStack.data()) {
+        std::cerr << "[coroutine] FAIL: external stack address mismatch"
+                  << std::endl;
+        return 1;
+    }
+    if (externalCo.getStackSize() != externalStack.size()) {
+        std::cerr << "[coroutine] FAIL: external stack size mismatch"
+                  << std::endl;
+        return 1;
+    }
+
+    externalCo.resume();
+    if (!externalRan || !externalCo.isFinished()) {
+        std::cerr << "[coroutine] FAIL: external stack coroutine did not finish"
+                  << std::endl;
+        return 1;
+    }
+
+    // ────────────────────────────────────────────
     // 全部通过
     // ────────────────────────────────────────────
     std::cout << "[coroutine] PASS" << std::endl;

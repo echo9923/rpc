@@ -82,6 +82,20 @@ TEST(MemoryPoolTest, AllocatedBlockCanStoreBytes)
     EXPECT_TRUE(pool.deallocate(ptr));
 }
 
+TEST(MemoryPoolTest, ReturnedBlockCanBeReusedAfterRejectedDoubleFree)
+{
+    tinyrpc::FixedMemoryPool pool(128, 1);
+    void *ptr = pool.allocate();
+    ASSERT_NE(ptr, nullptr);
+
+    ASSERT_TRUE(pool.deallocate(ptr));
+    ASSERT_FALSE(pool.deallocate(ptr));
+
+    void *reused = pool.allocate();
+    EXPECT_EQ(reused, ptr);
+    EXPECT_EQ(pool.getFreeCount(), 0u);
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);
