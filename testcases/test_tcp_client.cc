@@ -14,8 +14,10 @@
  */
 
 #include "comm/errorcode.h"
+#include "net/reactor.h"
 #include "net/tcpclient.h"
 #include "net/tcpbuffer.h"
+#include "net/timer.h"
 #include "net/tinypb/tinypbcodec.h"
 
 #include <gtest/gtest.h>
@@ -599,6 +601,44 @@ TEST_F(TcpClientTest, RecvTinyPbResponseTimesOutWhenServerDoesNotReply)
     EXPECT_FALSE(clientOk);
     EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
     EXPECT_FALSE(clientError.empty());
+}
+
+TEST_F(TcpClientTest, TimeoutUsesCurrentReactorTimer)
+{
+    tinyrpc::Reactor reactor;
+    tinyrpc::Reactor::setCurrentReactor(&reactor);
+
+    bool serverAccepted = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        serverAccepted = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    client.setTimeout(30);
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+
+    tinyrpc::TinyPbStruct response;
+    bool clientOk = client.recvTinyPbResponse(&response);
+    std::string clientError = client.getErrorInfo();
+    serverThread.join();
+    tinyrpc::Reactor::setCurrentReactor(nullptr);
+
+    ASSERT_TRUE(serverAccepted) << serverError;
+    EXPECT_FALSE(clientOk);
+    EXPECT_EQ(client.getErrorCode(), tinyrpc::ERROR_TCP_TIMEOUT);
+    EXPECT_FALSE(clientError.empty());
+    ASSERT_NE(reactor.getTimer(), nullptr);
+    EXPECT_EQ(reactor.getTimer()->getPendingTaskCount(), 0u);
 }
 
 TEST_F(TcpClientTest, RecvTinyPbResponseFailsWhenServerClosesEarly)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/netaddress.h"
+#include "net/reactor.h"
 #include "net/socket.h"
 #include "net/tcpbuffer.h"
 #include "net/tcpconnection.h"
@@ -79,9 +80,18 @@ class TcpClient {
     bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
 
  private:
+    struct FdWaitResult {
+        bool m_ready {false};
+        bool m_timedOut {false};
+        bool m_failed {false};
+        uint32_t m_revents {0};
+    };
+
     bool connectOnce();
     void resetConnectionState();
-    bool waitFdEvent(short event, const std::string& operation, int timeoutErrorCode);
+    Reactor* getOrCreateReactor();
+    bool prepareFdEvent();
+    bool waitFdEvent(uint32_t event, const std::string& operation, int timeoutErrorCode);
     bool writeAll(const char *data, size_t len);
     bool readSomeToBuffer(TcpBuffer *buffer);
 
@@ -94,6 +104,9 @@ class TcpClient {
     int m_connectRetryIntervalMs {0};
     std::string m_errorInfo;
     std::shared_ptr<TcpConnection> m_connection;
+    FdEvent m_fdEvent;
+    Reactor *m_reactor {nullptr};
+    std::unique_ptr<Reactor> m_ownedReactor;
 };
 
 }

@@ -2,15 +2,17 @@
 #include "comm/errorcode.h"
 #include "comm/log.h"
 #include "net/fdutil.h"
+#include "net/timer.h"
 
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <poll.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <memory>
 #include <thread>
 
 namespace tinyrpc {
@@ -125,6 +127,14 @@ bool TcpClient::connectOnce()
         return false;
     }
 
+    if (m_timeoutMs > 0 && !prepareFdEvent()) {
+        m_errorCode = ERROR_TCP_CONNECT_FAILED;
+        m_errorInfo = "prepare Reactor fd event failed before connect";
+        close(m_fd);
+        m_fd = kInvalidSocket;
+        return false;
+    }
+
     // connect(2)：向 m_peerAddr 发起 TCP 三次握手。
     // 返回值：0 成功；-1 失败，errno 标记原因。
     // 常见 errno：EINPROGRESS（非阻塞模式，连接进行中）、ECONNREFUSED（拒绝）、
@@ -132,10 +142,10 @@ bool TcpClient::connectOnce()
     int rt = connect(m_fd, m_peerAddr.getSockAddr(), m_peerAddr.getSockLen());
     if (rt != 0) {
         // EINPROGRESS：非阻塞 connect 不会等待握手完成，而是立即返回。
-    // 后续通过 poll/select 监听 POLLOUT 事件来确认连接建立（或失败）。
+    // 后续通过 Reactor/epoll 监听 EPOLLOUT 事件来确认连接建立（或失败）。
     if (m_timeoutMs > 0 && errno == EINPROGRESS) {
             // 情况一：非阻塞模式且有超时 —— 等待 POLLOUT 事件确认连接完成
-            if (!waitFdEvent(POLLOUT, "connect", ERROR_TCP_TIMEOUT)) {
+            if (!waitFdEvent(EPOLLOUT, "connect", ERROR_TCP_TIMEOUT)) {
                 close(m_fd);
                 m_fd = kInvalidSocket;
                 return false;
@@ -184,9 +194,17 @@ bool TcpClient::connectOnce()
 
 void TcpClient::closeConnection()
 {
-    if (m_fd != kInvalidSocket) {
-        close(m_fd);
+    if (m_fdEvent.isRegistered()) {
+        m_fdEvent.unregisterFromReactor();
+    }
+
+    if (m_connection != nullptr) {
+        m_connection->closeConnection();
         DebugLog("TcpClient closed fd = " + std::to_string(m_fd));
+    } else if (m_fd != kInvalidSocket) {
+        // close(2) 参数是待关闭的 socket fd；此分支只处理连接对象尚未创建的早期失败路径。
+        close(m_fd);
+        DebugLog("TcpClient closed raw fd = " + std::to_string(m_fd));
     }
     resetConnectionState();
 }
@@ -196,6 +214,36 @@ void TcpClient::resetConnectionState()
     m_fd = kInvalidSocket;
     m_isConnected = false;
     m_connection.reset();
+    m_fdEvent.clearCoroutine();
+    m_fdEvent.setFd(kInvalidSocket);
+}
+
+Reactor* TcpClient::getOrCreateReactor()
+{
+    if (m_reactor != nullptr) {
+        return m_reactor;
+    }
+
+    m_reactor = Reactor::getCurrentReactor();
+    if (m_reactor != nullptr) {
+        return m_reactor;
+    }
+
+    m_ownedReactor = std::make_unique<Reactor>();
+    m_reactor = m_ownedReactor.get();
+    return m_reactor;
+}
+
+bool TcpClient::prepareFdEvent()
+{
+    Reactor *reactor = getOrCreateReactor();
+    if (reactor == nullptr || m_fd == kInvalidSocket) {
+        return false;
+    }
+
+    m_fdEvent.setFd(m_fd);
+    m_fdEvent.setReactor(reactor);
+    return true;
 }
 
 bool TcpClient::sendTinyPbRequest(TinyPbStruct *request)
@@ -306,7 +354,7 @@ bool TcpClient::writeAll(const char *data, size_t len)
 
     size_t written = 0;
     while (written < len) {
-        if (!waitFdEvent(POLLOUT, "write", ERROR_TCP_TIMEOUT)) {
+        if (!waitFdEvent(EPOLLOUT, "write", ERROR_TCP_TIMEOUT)) {
             return false;
         }
 
@@ -353,7 +401,7 @@ bool TcpClient::readSomeToBuffer(TcpBuffer *buffer)
 
     char data[1024];
     while (true) {
-        if (!waitFdEvent(POLLIN, "read", ERROR_TCP_TIMEOUT)) {
+        if (!waitFdEvent(EPOLLIN, "read", ERROR_TCP_TIMEOUT)) {
             return false;
         }
 
@@ -387,54 +435,87 @@ bool TcpClient::readSomeToBuffer(TcpBuffer *buffer)
     }
 }
 
-bool TcpClient::waitFdEvent(short event, const std::string& operation, int timeoutErrorCode)
+bool TcpClient::waitFdEvent(uint32_t event, const std::string& operation, int timeoutErrorCode)
 {
     if (m_timeoutMs <= 0) {
         return true;
     }
 
-    pollfd pfd {};
-    pfd.fd = m_fd;
-    pfd.events = event;
-
-    while (true) {
-        // poll(2) 参数依次为：pollfd 数组、数组长度、超时时间毫秒。
-        // 返回 0 表示超时，>0 表示 fd 有事件，<0 表示系统调用失败。
-        int rt = poll(&pfd, 1, m_timeoutMs);
-        if (rt > 0) {
-            if ((pfd.revents & event) != 0) {
-                m_errorCode = 0;
-                m_errorInfo.clear();
-                return true;
-            }
-            if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-                m_errorCode = operation == "write" ? ERROR_TCP_SEND_FAILED : ERROR_TCP_RECV_FAILED;
-                if (operation == "connect") {
-                    m_errorCode = ERROR_TCP_CONNECT_FAILED;
-                }
-                m_errorInfo = operation + " fd event error, revents = " + std::to_string(pfd.revents);
-                return false;
-            }
-            continue;
-        }
-
-        if (rt == 0) {
-            m_errorCode = timeoutErrorCode;
-            m_errorInfo = operation + " timeout after " + std::to_string(m_timeoutMs) + " ms";
-            return false;
-        }
-
-        if (errno == EINTR) {
-            continue;
-        }
-
+    if (!prepareFdEvent()) {
         m_errorCode = operation == "write" ? ERROR_TCP_SEND_FAILED : ERROR_TCP_RECV_FAILED;
         if (operation == "connect") {
             m_errorCode = ERROR_TCP_CONNECT_FAILED;
         }
-        m_errorInfo = operation + " poll failed: " + std::string(std::strerror(errno));
+        m_errorInfo = operation + " prepare Reactor fd event failed";
         return false;
     }
+
+    uint32_t epollEvent = event;
+    auto result = std::make_shared<FdWaitResult>();
+    auto timerTask = std::make_shared<TimerTask>(m_timeoutMs, false, [result]() {
+        if (result->m_ready || result->m_failed) {
+            return;
+        }
+        result->m_timedOut = true;
+    });
+
+    m_fdEvent.setReadCallback([result]() {
+        result->m_ready = true;
+        result->m_revents |= EPOLLIN;
+    });
+    m_fdEvent.setWriteCallback([result]() {
+        result->m_ready = true;
+        result->m_revents |= EPOLLOUT;
+    });
+    m_fdEvent.addListenEvent(epollEvent | EPOLLERR | EPOLLHUP);
+
+    if (m_fdEvent.isRegistered()) {
+        if (!m_fdEvent.updateToReactor()) {
+            result->m_failed = true;
+        }
+    } else if (!m_fdEvent.registerToReactor()) {
+        result->m_failed = true;
+    }
+
+    Reactor *reactor = getOrCreateReactor();
+    if (!result->m_failed && reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->addTimerTask(timerTask);
+    }
+
+    while (!result->m_ready && !result->m_timedOut && !result->m_failed) {
+        // epoll_wait(2) 由 Reactor::waitOnce() 封装；timeout=-1 表示等到 fd 或 timerfd 事件到来。
+        int rt = reactor->waitOnce(-1);
+        if (rt < 0) {
+            result->m_failed = true;
+        }
+    }
+
+    if (reactor != nullptr && reactor->getTimer() != nullptr) {
+        reactor->getTimer()->delTimerTask(timerTask);
+    }
+    m_fdEvent.delListenEvent(epollEvent | EPOLLERR | EPOLLHUP);
+    if (m_fdEvent.isRegistered()) {
+        m_fdEvent.unregisterFromReactor();
+    }
+
+    if (result->m_ready) {
+        m_errorCode = 0;
+        m_errorInfo.clear();
+        return true;
+    }
+
+    if (result->m_timedOut) {
+        m_errorCode = timeoutErrorCode;
+        m_errorInfo = operation + " timeout after " + std::to_string(m_timeoutMs) + " ms";
+        return false;
+    }
+
+    m_errorCode = operation == "write" ? ERROR_TCP_SEND_FAILED : ERROR_TCP_RECV_FAILED;
+    if (operation == "connect") {
+        m_errorCode = ERROR_TCP_CONNECT_FAILED;
+    }
+    m_errorInfo = operation + " Reactor wait failed";
+    return false;
 }
 
 }
