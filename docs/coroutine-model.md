@@ -12,7 +12,9 @@
 - `connectHook()`：协程感知的非阻塞连接封装，等待 `EPOLLOUT` 或 Timer 超时后恢复协程。
 - `recvHook()` / `sendHook()` / `acceptHook()`：socket 专用 hook，保留 `recv(2)` / `send(2)` 的 flags 参数和 `accept(2)` 的地址输出，并支持等待事件超时。
 - `sleepHook()` / `usleepHook()`：协程感知的睡眠封装，子协程中通过 Reactor Timer 恢复，不阻塞 Reactor 线程。
+- `SetHook()` / `IsHookEnabled()`：线程局部透明 hook 开关，用于测试和排障时显式启停 libc 同名入口。
 - `FdEvent`：保存 fd、epoll 监听事件、普通回调，以及一个非拥有的 `Coroutine*`。
+- `FdEventContainer`：线程局部 fd 到 `FdEvent` 的索引，透明 hook 通过它找到当前 fd 的事件对象和 Reactor。
 - `Reactor`：等待 epoll 事件；当事件匹配 `FdEvent` 上协程等待的事件时，恢复该协程。
 - `TcpConnection`：在连接读写协程里调用 `readHook()` 和 `writeHook()`，形成 input、execute、output 的服务端路径。
 
@@ -140,7 +142,7 @@ Reactor 恢复：
 
 ## hook 如何找到当前 Reactor
 
-hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模型是显式传入 Reactor 相关对象：
+显式 hook 路径仍由调用方传入 Reactor 相关对象：
 
 - `TcpConnection` 持有 `m_fdEvent`。
 - `TcpConnection::startConnection()` 把连接 fd 注册到连接所属 Reactor。
@@ -150,18 +152,32 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 - `sleepHook(&reactor, ...)` 和 `usleepHook(&reactor, ...)` 直接通过显式传入的 `Reactor*` 获取 Timer。
 - 如果 `getReactor()` 为 `nullptr`，hook 只挂载协程和事件标记，不会自动注册 epoll。
 
-这意味着 hook 的调用方必须保证 `FdEvent` 已经正确关联目标 Reactor。测试里也会显式 `readEvent.setReactor(&reactor)`。
+透明 hook 路径通过 `FdEventContainer::getInstance().getOrCreate(fd)` 获取当前线程内稳定的 `FdEvent`。如果该 fd 还没有绑定 Reactor，`getOrCreate()` 会读取 `Reactor::getCurrentReactor()` 并写入 `FdEvent`，因此测试或 IO 线程需要先调用 `Reactor::setCurrentReactor(&reactor)`。
+
+透明 hook 路径如下：
+
+```mermaid
+flowchart TD
+    A["业务代码<br/>read/write/accept/connect/sleep/usleep"] --> B["extern C 透明 hook"]
+    B --> C{"SetHook(true)<br/>且不是主协程?"}
+    C -->|否| D["真实系统调用<br/>dlsym(RTLD_NEXT)"]
+    C -->|是| E{"sleep/usleep?"}
+    E -->|是| F["当前线程 Reactor<br/>TimerTask 恢复协程"]
+    E -->|否| G["FdEventContainer<br/>按 fd 获取 FdEvent"]
+    G --> H["注册 EPOLLIN/EPOLLOUT<br/>Coroutine::yield()"]
+    H --> I["Reactor::waitOnce()<br/>事件就绪后 resume"]
+```
 
 ## hook 关闭时走什么路径
 
-当前没有全局 hook 开关。hook 的“关闭路径”体现在两种情况：
+透明 hook 的关闭路径由 `SetHook(false)` 控制，默认关闭：
 
-- 当前在主协程：`Coroutine::IsMainCoroutine()` 为 true，`readHook()` / `writeHook()` 直接透传 `::read()` / `::write()`。
-- `recvHook()` / `sendHook()` / `acceptHook()` 在主协程中直接透传原始 socket 系统调用。
-- `sleepHook()` / `usleepHook()` 在主协程中直接透传 `::sleep()` / `::usleep()`。
-- 系统调用已经成功或返回不可等待错误：hook 不挂协程、不注册 Reactor，直接把系统调用结果返回给上层。
+- `SetHook(false)` 时，`read/write/accept/connect/sleep/usleep` 的透明入口直接调用真实系统调用。
+- 当前在主协程时，即使 `SetHook(true)`，透明入口也直接调用真实系统调用。
+- 显式 `readHook()`、`writeHook()`、`recvHook()`、`sendHook()`、`acceptHook()`、`connectHook()`、`sleepHook()`、`usleepHook()` 在主协程中也直接透传真实系统调用。
+- 系统调用已经成功或返回不可等待错误时，hook 不挂协程、不注册 Reactor，直接把系统调用结果返回给上层。
 
-因此主协程、阻塞 fd 成功路径、真实错误路径都不会进入协程挂起逻辑。
+因此测试或排障时可以先 `SetHook(false)`，确认业务路径在无透明 hook 的情况下是否正常；再打开 `SetHook(true)` 验证协程等待路径。
 
 ## TcpConnection 读写路径
 
@@ -178,9 +194,9 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 ## 当前边界
 
 - 已实现 `readHook()`、`writeHook()`、`connectHook()`、`recvHook()`、`sendHook()`、`acceptHook()`、`sleepHook()` 和 `usleepHook()`。
+- 已实现透明 `read/write/accept/connect/sleep/usleep` 入口，默认关闭，通过 `SetHook(true)` 开启。
 - `recvHook()` / `sendHook()` / `acceptHook()` 只覆盖常见非阻塞 socket 等待语义，不覆盖所有 flags 组合。
-- 当前 hook API 需要调用方传入 `FdEvent*`，不是 libc 符号级全局替换。
-- `sleepHook()` / `usleepHook()` 需要显式传入 `Reactor*`，不是 libc 符号级全局替换。
+- `recv/send` 暂未提供 libc 同名透明入口，仍使用显式 `recvHook()` / `sendHook()`。
 - 当前 `FdEvent` 只保存非拥有的 `Coroutine*`，协程生命周期仍由调用方管理。
 - 已实现配置化 `CoroutinePool`；默认池耗尽时返回 `nullptr`，开启 `coroutine.expand_on_exhausted` 后按块扩展容量。
 - 已实现独立 `FixedMemoryPool`；`CoroutinePool` 内部协程栈已接入固定块内存池。
@@ -190,6 +206,8 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 - 协程没有恢复：检查 `FdEvent::getCoroutine()` 是否非空，`getCoroutineListenEvent()` 是否与触发事件匹配。
 - Reactor 没收到事件：检查 `FdEvent::getReactor()` 是否已设置，`isRegistered()` 是否为 true，`getListenEvents()` 是否包含目标事件。
 - hook 没有 yield：确认当前不在主协程，并且 fd 是非阻塞 fd，系统调用实际返回 `EAGAIN` / `EWOULDBLOCK`。
+- 透明 hook 没有生效：确认当前线程已经调用 `SetHook(true)`，且不是主协程路径。
+- 透明 IO hook 没有绑定 Reactor：检查 `Reactor::setCurrentReactor()` 是否已在当前线程设置，或 fd 是否已经通过 `FdEventContainer` 注册到正确 Reactor。
 - connect hook 没有按预期超时：检查 `FdEvent` 是否已设置 Reactor，且 Reactor 内部 Timer 是否存在。
 - sleep/usleep hook 没有恢复：检查传入的 `Reactor*` 是否非空，`reactor->getTimer()` 是否可用，TimerTask 是否成功加入 Timer。
 - 恢复后仍然失败：hook 恢复后只重试一次系统调用，若 fd 状态仍不可用，会把结果直接返回给上层。
@@ -205,5 +223,6 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 ./build/test_hook
 ./build/test_hook_sleep
 ./build/test_hook_socket
+./scripts/check_coroutinehook.sh
 ./scripts/check_rpc_sync.sh
 ```

@@ -1158,8 +1158,33 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_rpc_sync.sh && 
 
 - [TinyRPC 简化实现补全任务计划书](simplified-completion-task-plan.md)
 
-下一次最适合开始的任务：
+阶段 19 已完成，下一次最适合开始的任务：
 
-- **任务九十一：全局 hook 开关和透明系统调用 hook**。
+- **任务九十六：TcpClient 接入客户端 TcpConnection**。
 
-阶段 18 已完成配置、日志、启动入口和运行时上下文补全，后续可以进入阶段 19，继续补齐协程 hook、协程池和栈内存池能力。
+阶段 18 已完成配置、日志、启动入口和运行时上下文补全。阶段 19 已完成协程 hook、协程池和栈内存池补全，后续可以进入阶段 20 的 TcpClient Reactor 化和客户端连接语义补全。
+
+## 阶段 19：协程 hook、协程池和栈内存池完整化
+
+已完成能力：
+
+- 新增线程局部 `SetHook()` / `IsHookEnabled()`，透明 hook 默认关闭，测试和排障可显式启停。
+- 通过 `dlsym(RTLD_NEXT, ...)` 保存真实 `read/write/accept/connect/sleep/usleep`，透明入口关闭或主协程路径会直通真实系统调用。
+- `FdEventContainer` 支持线程内 fd 到 `FdEvent` 的稳定索引，透明 IO hook 能自动绑定当前线程 Reactor。
+- `CoroutinePool` 支持通过 `Config` 初始化初始容量、栈大小和耗尽扩展策略。
+- `Coroutine` 支持外部栈，普通协程仍保持内部 `malloc/free` 栈兼容。
+- `CoroutinePool` 内部协程栈接入 `FixedMemoryPool`，协程归还池时同步归还栈块。
+- 新增 `scripts/check_coroutinehook.sh`，集中回归协程、hook、FdEvent、Reactor、协程池和栈内存池。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./scripts/check_coroutinehook.sh"
+docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
+```
+
+当前限制：
+
+- 透明 hook 只覆盖当前阶段验证过的 `read/write/accept/connect/sleep/usleep`。
+- `recv/send` 保留显式 hook 入口，不提供 libc 同名透明入口。
+- 不支持跨线程迁移协程，不实现 work stealing。
+- 协程栈池不使用 `mmap` 和 guard page。

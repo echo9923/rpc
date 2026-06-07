@@ -16,9 +16,9 @@
 | `comm/log` | `mytinyrpc/comm/log.*` | 已复刻核心语义 | RPC/APP 双日志、独立级别过滤、`LogEvent`、pid/tid/协程 id、文件行号、函数名、reqId 自动补齐、同步/异步 flush、shutdown drain、按大小滚动。 | `./build/test_log`、`./build/test_runtime` |
 | `comm/start` | `mytinyrpc/comm/start.*` | 已复刻核心语义 | `InitConfig()`、`StartRpcServer()`、`GetConfig()`、`GetConstConfig()`、`GetServer()`、`GetIOThreadPoolSize()`、`AddTimerTask()`、TinyPB/HTTP 注册宏。 | `./build/test_start`、`scripts/check_generator_project.sh` |
 | `comm/runtime` | `mytinyrpc/comm/runtime.*` | 已复刻核心语义 | 启动期全局 runtime、codec/dispatcher/server 保存、TimerTask 投递、线程局部 request context，覆盖 reqId、interface、method、local/peer 和协议类型。 | `./build/test_runtime`、`./build/test_start` |
-| `coroutine` | `mytinyrpc/coroutine/coroutine.*`、`coroutinehook.*` | 简化复刻 | 基础协程对象、`Yield()`/`resume()`、read/write/connect/sleep/usleep/recv/send/accept hook。 | `./build/test_coroutine`、`./build/test_hook`、`./build/test_hook_sleep`、`./build/test_hook_socket` |
-| `coroutinepool` | `mytinyrpc/coroutine/coroutinepool.*` | 简化复刻 | 固定容量协程复用、耗尽返回空、归还状态检查。 | `./build/test_coroutinepool` |
-| 协程栈内存池 | `mytinyrpc/coroutine/memory.*` | 简化复刻 | 固定块内存池、归属检查、非法归还防御；暂未强制接入 `Coroutine` 栈。 | `./build/test_memory_pool` |
+| `coroutine` | `mytinyrpc/coroutine/coroutine.*`、`coroutinehook.*` | 已复刻核心语义 | 基础协程对象、外部栈、`yield()`/`resume()`、显式 IO hook、透明 `read/write/accept/connect/sleep/usleep` hook、全局 hook 开关。 | `./build/test_coroutine`、`./build/test_hook`、`./build/test_hook_sleep`、`./build/test_hook_socket`、`./scripts/check_coroutinehook.sh` |
+| `coroutinepool` | `mytinyrpc/coroutine/coroutinepool.*` | 已复刻核心语义 | 配置化初始容量、耗尽返回空或按块扩展、协程对象复用、归还状态检查、栈块归还。 | `./build/test_coroutinepool`、`./build/test_coroutine_pool` |
+| 协程栈内存池 | `mytinyrpc/coroutine/memory.*` | 已复刻核心语义 | 固定块内存池、归属检查、非法归还防御；`CoroutinePool` 内部协程栈已接入 `FixedMemoryPool`。 | `./build/test_memory_pool`、`./build/test_coroutinepool` |
 | `net/reactor` | `mytinyrpc/net/reactor.*`、`fdevent.*` | 已复刻 | epoll fd event、事件注册/删除、task queue、eventfd wakeup、stop、callback 线程归属。 | `./build/test_reactor`、`docs/reactor-event-lifecycle.md` |
 | `net/timer` | `mytinyrpc/net/timer.*` | 已复刻 | `TimerTask`、`getNowMs()`、timerfd、一次性/重复定时任务、取消和删除。 | `./build/test_timer_task`、`./build/test_timer` |
 | `net/tcp` | `mytinyrpc/net/tcp*.{h,cc}`、`netaddress.*` | 已复刻 | `TcpBuffer`、`TcpClient`、`TcpConnection`、`TcpServer`、同步超时、重连、多 Reactor server、连接空闲超时基础能力。 | `./build/test_tcp_buffer`、`./build/test_tcp_client`、`./build/test_connection_codec`、`scripts/check_rpc_sync.sh`、`scripts/check_stage11_server.sh` |

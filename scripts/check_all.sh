@@ -38,12 +38,9 @@ run_test test_runtime
 run_test test_http_define
 run_test test_http_codec
 run_test test_http_dispatcher
-run_test test_coroutine
-run_test test_coroutine_pool
-run_test test_memory_pool
-run_test test_hook
-run_test test_hook_sleep
-run_test test_hook_socket
+
+echo "[all] run coroutine hook regression"
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_coroutinehook.sh
 
 echo "[all] run sync rpc regression"
 MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh

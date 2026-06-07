@@ -45,9 +45,9 @@
 | `comm/config` | 简化复刻 | 只读取 server/protocol/iothread/timeout/log level，缺少日志、协程、timewheel、reqId、插件配置。 | 阶段 18 |
 | `comm/log` | 简化复刻 | 只有单类 Logger 和简化异步队列，缺少 RPC/App 双日志、LogEvent、周期 flush、滚动策略。 | 阶段 18 |
 | `comm/start/runtime` | 简化复刻 | 已有启动入口和线程局部 request context，但全局 config/server/timer/runtime 能力不完整。 | 阶段 18 |
-| `coroutinehook` | 简化复刻 | 主要使用显式 hook 函数，未提供原项目式 libc 符号级透明 hook。 | 阶段 19 |
-| `coroutinepool` | 简化复刻 | 固定容量池，容量耗尽返回空，不支持内存块扩展策略。 | 阶段 19 |
-| 协程栈内存池 | 简化复刻 | 固定块内存池已独立可用，但 `Coroutine` 栈仍未强制接入。 | 阶段 19 |
+| `coroutinehook` | 已补全 | 已支持全局 hook 开关、透明 `read/write/accept/connect/sleep/usleep` 和专项回归脚本。 | 阶段 19 |
+| `coroutinepool` | 已补全 | 已支持配置化初始容量、耗尽策略和按块扩展。 | 阶段 19 |
+| 协程栈内存池 | 已补全 | `CoroutinePool` 内部协程栈已接入 `FixedMemoryPool`，并验证非法归还。 | 阶段 19 |
 | `TcpClient` | 简化复刻 | 使用 `poll()` 做同步超时，未接入 Reactor、Timer、TcpConnection 响应缓存。 | 阶段 20 |
 | 异步 RPC | 简化复刻 | pending/timeout/cancel 已有，但真实网络仍复用同步 `TcpClient` 路径。 | 阶段 21 |
 | HTTP | 简化复刻 | 支持常见 GET/POST 和 Content-Length，缺少更完整 URL/query/header/连接语义。 | 阶段 22 |
@@ -389,6 +389,8 @@
 
 **类型**：简化项补全
 
+**状态**：已完成，提交 `12d1d7f`（`完成任务九十一，实现基于 dlsym 的协程钩子与开关控制`）。
+
 ### 学习目标
 
 理解原 TinyRPC 通过 `dlsym(RTLD_NEXT, ...)` 保存真实系统调用，再提供同名 `extern "C"` 函数实现透明 hook。
@@ -441,6 +443,8 @@
 ## 任务九十二：FdEventContainer 和 hook fd 归属整理
 
 **类型**：简化项补全
+
+**状态**：已完成，提交 `6aacc95`（`完成任务九十二：实现透明 hook 并集成 FdEventContainer`）。
 
 ### 学习目标
 
@@ -592,6 +596,8 @@
 ## 任务九十五：协程透明 hook 回归脚本和文档收口
 
 **类型**：必须复刻
+
+**状态**：已完成
 
 ### 学习目标
 
