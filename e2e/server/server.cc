@@ -15,8 +15,8 @@
 #include "e2e_rpc.pb.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
-#include <memory>
 #include <string>
 
 namespace {

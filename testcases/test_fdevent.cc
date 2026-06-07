@@ -1,5 +1,7 @@
 #include "coroutine/coroutine.h"
 #include "net/fdevent.h"
+#include "net/fdeventcontainer.h"
+#include "net/reactor.h"
 
 #include <sys/epoll.h>
 
@@ -125,6 +127,70 @@ int main()
     if (evt.getCoroutine() != nullptr) {
         std::cerr << "[fdevent] FAIL: getCoroutine() should be nullptr after clear" << std::endl;
         return 1;
+    }
+
+    // ────────────────────────────────────────────
+    // FdEventContainer 测试（任务九十二）
+    // ────────────────────────────────────────────
+
+    // 1) 同一 fd 多次 getOrCreate 返回同一对象
+    {
+        auto& container = tinyrpc::FdEventContainer::getInstance();
+        tinyrpc::FdEvent *e1 = container.getOrCreate(42);
+        tinyrpc::FdEvent *e2 = container.getOrCreate(42);
+        if (e1 == nullptr || e1 != e2) {
+            std::cerr << "[fdevent] FAIL: getOrCreate returned different objects" << std::endl;
+            return 1;
+        }
+        if (e1->getFd() != 42) {
+            std::cerr << "[fdevent] FAIL: getOrCreate fd mismatch" << std::endl;
+            return 1;
+        }
+
+        // 2) remove 后容器不持有悬空事件
+        container.remove(42);
+        if (container.get(42) != nullptr) {
+            std::cerr << "[fdevent] FAIL: get after remove should be nullptr" << std::endl;
+            return 1;
+        }
+
+        // 3) hook 能自动绑定当前 Reactor
+        tinyrpc::Reactor reactor;
+        tinyrpc::Reactor::setCurrentReactor(&reactor);
+        tinyrpc::FdEvent *e3 = container.getOrCreate(99);
+        if (e3 == nullptr || e3->getReactor() != &reactor) {
+            std::cerr << "[fdevent] FAIL: auto-bind reactor mismatch" << std::endl;
+            return 1;
+        }
+        container.remove(99);
+        tinyrpc::Reactor::setCurrentReactor(nullptr);
+
+        // 4) registerFdEvent 后 get 返回注册的指针
+        tinyrpc::FdEvent externalEvt(77);
+        bool registered = container.registerFdEvent(&externalEvt);
+        if (!registered) {
+            std::cerr << "[fdevent] FAIL: registerFdEvent should return true" << std::endl;
+            return 1;
+        }
+        if (container.get(77) != &externalEvt) {
+            std::cerr << "[fdevent] FAIL: get after registerFdEvent mismatch" << std::endl;
+            return 1;
+        }
+
+        // 5) 不同 Reactor 中 fd 归属不会串线：重复 registerFdEvent 同一 fd 返回 false
+        tinyrpc::FdEvent duplicateEvt(77);
+        bool dupResult = container.registerFdEvent(&duplicateEvt);
+        if (dupResult) {
+            std::cerr << "[fdevent] FAIL: duplicate registerFdEvent should return false" << std::endl;
+            return 1;
+        }
+        // 仍然是第一个注册的指针
+        if (container.get(77) != &externalEvt) {
+            std::cerr << "[fdevent] FAIL: registerFdEvent overwrote existing entry" << std::endl;
+            return 1;
+        }
+
+        container.remove(77);
     }
 
     // ────────────────────────────────────────────

@@ -2,6 +2,7 @@
 #include "comm/log.h"
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutinehook.h"
+#include "net/fdeventcontainer.h"
 #include "net/http/httprequest.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbdata.h"
@@ -74,6 +75,9 @@ void TcpConnection::startConnection()
         return;
     }
 
+    // 注册到 FdEventContainer，使透明 hook 可以按 fd 查找对应的 FdEvent。
+    FdEventContainer::getInstance().registerFdEvent(&m_fdEvent);
+
     // 启动连接协程，读写均在此协程中串行完成。
     // 协程回调持有 shared_ptr，防止协程执行期间 TcpConnection 被提前释放。
     // 例如对端关闭后 coroutineReadLoop 内调用 closeWithCallback 会触发
@@ -104,6 +108,9 @@ void TcpConnection::closeConnection()
     m_isClosed = true;
 
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
+
+    // 先从容器移除，防止透明 hook 查到即将失效的 FdEvent
+    FdEventContainer::getInstance().remove(m_fd);
 
     // 清除可能挂载在 FdEvent 上的协程指针，避免 Reactor 恢复已废弃的协程
     m_fdEvent.clearCoroutine();

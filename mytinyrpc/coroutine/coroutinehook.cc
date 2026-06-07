@@ -1,6 +1,7 @@
 #include "coroutine/coroutinehook.h"
 
 #include "coroutine/coroutine.h"
+#include "net/fdeventcontainer.h"
 #include "net/reactor.h"
 #include "net/timer.h"
 
@@ -22,14 +23,26 @@
 
 namespace {
 
-using sys_read_t    = ssize_t(*)(int, void*, size_t);
-using sys_write_t   = ssize_t(*)(int, const void*, size_t);
-using sys_recv_t    = ssize_t(*)(int, void*, size_t, int);
-using sys_send_t    = ssize_t(*)(int, const void*, size_t, int);
-using sys_accept_t  = int(*)(int, sockaddr*, socklen_t*);
-using sys_connect_t = int(*)(int, const sockaddr*, socklen_t);
-using sys_sleep_t   = unsigned int(*)(unsigned int);
-using sys_usleep_t  = int(*)(useconds_t);
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 函数指针类型别名 (using 声明)
+    // 这里定义的每个 using 都是一个"函数指针类型"，指明某个系统调用函数的签名（参数列表和返回值）。
+    // 例如 sys_read_t 表示一个函数指针，指向的函数签名为：
+    //   ssize_t (int, void*, size_t)
+    // 即：接受一个 int 文件描述符、一个 void* 缓冲区指针、一个 size_t 长度，返回 ssize_t。
+    //
+    // 这些类型别名会被用来声明全局变量（g_sys_read 等），
+    // 这些变量通过 dlsym(RTLD_NEXT, "函数名") 动态获取 libc 中真实系统调用函数的地址，
+    // 以便在 hook 函数中调用"真正的"系统调用，避免无限递归。
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    using sys_read_t    = ssize_t(*)(int, void*, size_t);          // read(fd, buf, count)
+    using sys_write_t   = ssize_t(*)(int, const void*, size_t);     // write(fd, buf, count)
+    using sys_recv_t    = ssize_t(*)(int, void*, size_t, int);      // recv(sockfd, buf, len, flags)
+    using sys_send_t    = ssize_t(*)(int, const void*, size_t, int); // send(sockfd, buf, len, flags)
+    using sys_accept_t  = int(*)(int, sockaddr*, socklen_t*);       // accept(sockfd, addr, addrlen)
+    using sys_connect_t = int(*)(int, const sockaddr*, socklen_t);   // connect(sockfd, addr, addrlen)
+    using sys_sleep_t   = unsigned int(*)(unsigned int);            // sleep(seconds)
+    using sys_usleep_t  = int(*)(useconds_t);                       // usleep(microseconds)
 
 sys_read_t    g_sys_read    = nullptr;
 sys_write_t   g_sys_write   = nullptr;
@@ -67,24 +80,28 @@ bool IsHookEnabled()        { return s_hookEnabled; }
 
 namespace {
 
-struct ConnectHookState {
-    Coroutine *m_coroutine {nullptr};
-    FdEvent *m_fdEvent {nullptr};
-    bool m_timedOut {false};
-    bool m_finished {false};
-};
+    // ConnectHookState：用于 connectHook 函数中管理非阻塞 connect 的异步等待状态。
+    struct ConnectHookState {
+        Coroutine *m_coroutine {nullptr};   // 发起 connect 操作的协程指针，用于超时或事件就绪时恢复执行
+        FdEvent *m_fdEvent {nullptr};       // 关联的文件描述符事件对象，用于监听 EPOLLOUT 事件（连接完成）
+        bool m_timedOut {false};            // 是否超时，超时时由 TimerTask 回调设为 true，返回 ETIMEDOUT
+        bool m_finished {false};            // 是否已完成（正常完成或被超时回调处理后设为 true），防止重复操作
+    };
 
-struct SleepHookState {
-    Coroutine *m_coroutine {nullptr};
-    bool m_finished {false};
-};
+    // SleepHookState：用于 sleepHook / usleepHook 函数中管理协程睡眠等待状态。
+    struct SleepHookState {
+        Coroutine *m_coroutine {nullptr};   // 发起睡眠的协程指针，定时器到期时恢复该协程
+        bool m_finished {false};            // 是否已完成（睡眠到期或被取消），防止 TimerTask 回调重复执行
+    };
 
-struct FdHookWaitState {
-    Coroutine *m_coroutine {nullptr};
-    FdEvent *m_fdEvent {nullptr};
-    bool m_timedOut {false};
-    bool m_finished {false};
-};
+    // FdHookWaitState：用于 waitFdEvent 函数中管理文件描述符 IO 事件的异步等待状态。
+    // 在 recvHook / sendHook / acceptHook 等函数中通用，等待 fd 可读/可写事件。
+    struct FdHookWaitState {
+        Coroutine *m_coroutine {nullptr};   // 挂起等待 IO 事件的协程指针，事件就绪或超时时恢复执行
+        FdEvent *m_fdEvent {nullptr};       // 关联的文件描述符事件对象，用于监听 EPOLLIN/EPOLLOUT 等事件
+        bool m_timedOut {false};            // 是否超时，超时时由 TimerTask 回调设为 true，调用方据此返回 ETIMEDOUT
+        bool m_finished {false};            // 是否已完成（事件就绪或超时处理完毕），防止回调重复执行
+    };
 
 int64_t microsecondsToMilliseconds(useconds_t usec)
 {
@@ -96,6 +113,22 @@ bool isWaitableSocketError(int error)
     return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
 }
 
+/**
+ * @brief 等待文件描述符上的特定事件（可读/可写等），支持超时。
+ *
+ * 这是 recvHook / sendHook / acceptHook 等函数的底层阻塞等待机制。
+ * 核心思路：
+ *   1. 将当前协程挂载到 FdEvent 上，注册感兴趣的事件（如 EPOLLIN）。
+ *   2. 如果提供超时，则启动一个 TimerTask，到期后恢复协程并标记超时。
+ *   3. 挂起当前协程（yield），让出 CPU 给 Reactor 线程处理 IO 事件。
+ *   4. 协程被恢复后（事件就绪 或 超时），清理定时器、取消事件监听，返回是否超时。
+ *
+ * @param fdEvent   要等待的文件描述符事件对象（内部持有 fd、Reactor 等）
+ * @param event     等待的事件类型（如 EPOLLIN、EPOLLOUT）
+ * @param timeoutMs 超时时间（毫秒）。<=0 表示不设置超时，无限等待
+ * @return true     等待超时（调用方应设 errno = ETIMEDOUT 并返回 -1）
+ * @return false    事件正常就绪（调用方可继续执行系统调用）
+ */
 bool waitFdEvent(FdEvent *fdEvent, uint32_t event, int timeoutMs)
 {
     if (fdEvent == nullptr) {
@@ -178,6 +211,26 @@ bool yieldByTimer(Reactor *reactor, int64_t intervalMs)
 
 }  // namespace
 
+/**
+ * @brief readHook - 协程化的 read 系统调用（显式 hook 版本）。
+ *
+ * 协程环境下，当 read 因无数据可读返回 EAGAIN/EWOULDBLOCK/EINTR 时，
+ * 将当前协程挂起，并在 fd 可读事件就绪后恢复协程再次 read，避免阻塞线程。
+ *
+ * 实现步骤：
+ *   1. 先尝试一次真实的 read 调用（g_sys_read）。
+ *   2. 若返回主协程中，直接返回结果（主协程不做 hook 挂起）。
+ *   3. 若 read 成功（ret >= 0），直接返回。
+ *   4. 若错误码不是 EAGAIN/EWOULDBLOCK/EINTR（即不可等待的错误），直接返回 -1。
+ *   5. 否则，将当前协程挂载到 fdEvent 上，监听 EPOLLIN 事件，
+ *      注册/更新 fdEvent 到 Reactor，然后 yield 挂起协程。
+ *   6. 协程被 Reactor 唤醒（事件就绪）后，再次调用 g_sys_read 读取数据。
+ *
+ * @param fdEvent 文件描述符事件对象（内部持有 fd、Reactor 引用）
+ * @param buf     数据缓冲区
+ * @param count   期望读取的字节数
+ * @return ssize_t 成功返回读取的字节数，失败返回 -1 并设置 errno
+ */
 ssize_t readHook(FdEvent *fdEvent, void *buf, size_t count)
 {
     int fd = fdEvent->getFd();
@@ -446,8 +499,8 @@ ssize_t read(int fd, void *buf, size_t count)
     if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
         return g_sys_read(fd, buf, count);
     }
-    // TODO(task-92): FdEventContainer::getOrCreate(fd) → readHook(fdEvent, buf, count)
-    return g_sys_read(fd, buf, count);
+    FdEvent *fdEvent = FdEventContainer::getInstance().getOrCreate(fd);
+    return readHook(fdEvent, buf, count);
 }
 
 ssize_t write(int fd, const void *buf, size_t count)
@@ -456,8 +509,8 @@ ssize_t write(int fd, const void *buf, size_t count)
     if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
         return g_sys_write(fd, buf, count);
     }
-    // TODO(task-92): FdEventContainer::getOrCreate(fd) → writeHook(fdEvent, buf, count)
-    return g_sys_write(fd, buf, count);
+    FdEvent *fdEvent = FdEventContainer::getInstance().getOrCreate(fd);
+    return writeHook(fdEvent, buf, count);
 }
 
 int accept(int fd, sockaddr *addr, socklen_t *addrLen)
@@ -466,8 +519,8 @@ int accept(int fd, sockaddr *addr, socklen_t *addrLen)
     if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
         return g_sys_accept(fd, addr, addrLen);
     }
-    // TODO(task-92): FdEventContainer::getOrCreate(fd) → acceptHook(fdEvent, addr, addrLen)
-    return g_sys_accept(fd, addr, addrLen);
+    FdEvent *fdEvent = FdEventContainer::getInstance().getOrCreate(fd);
+    return acceptHook(fdEvent, addr, addrLen);
 }
 
 int connect(int fd, const sockaddr *addr, socklen_t addrLen)
@@ -476,8 +529,8 @@ int connect(int fd, const sockaddr *addr, socklen_t addrLen)
     if (!IsHookEnabled() || Coroutine::isMainCoroutine()) {
         return g_sys_connect(fd, addr, addrLen);
     }
-    // TODO(task-92): FdEventContainer::getOrCreate(fd) → connectHook(fdEvent, addr, addrLen, -1)
-    return g_sys_connect(fd, addr, addrLen);
+    FdEvent *fdEvent = FdEventContainer::getInstance().getOrCreate(fd);
+    return connectHook(fdEvent, addr, addrLen, -1);
 }
 
 unsigned int sleep(unsigned int seconds)

@@ -37,6 +37,7 @@ set(SRC
     mytinyrpc/coroutine/coroutinepool.cc
     mytinyrpc/coroutine/memory.cc
     mytinyrpc/net/fdevent.cc
+    mytinyrpc/net/fdeventcontainer.cc
     mytinyrpc/net/fdutil.cc
     mytinyrpc/net/http/httpcodec.cc
     mytinyrpc/net/http/httpdefine.cc
