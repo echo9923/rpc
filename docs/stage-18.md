@@ -29,6 +29,7 @@
     <coroutine>
         <stack_size_kb>128</stack_size_kb>
         <pool_size>128</pool_size>
+        <expand_on_exhausted>false</expand_on_exhausted>
     </coroutine>
     <timewheel>
         <bucket_num>60</bucket_num>
@@ -47,6 +48,7 @@
 - `log.rpc_level` 和 `log.app_level` 只接受 `debug`、`info`、`warn`、`error`，大小写不敏感。
 - 数字字段使用严格解析，非数字、尾部脏字符和越界都会使 `loadFromXml()` 返回 `false`，错误信息包含分组和字段。
 - `log.max_size_mb` 保存为 bytes，`coroutine.stack_size_kb` 保存为 bytes。
+- `coroutine.expand_on_exhausted` 控制协程池初始容量耗尽后是否按块扩展，默认 `false`。
 
 ## 默认值
 
@@ -65,6 +67,7 @@
 | 日志 flush 间隔 | `getLogSyncIntervalMs()` | `1000` |
 | 协程栈大小 | `getCoroutineStackSizeBytes()` | `128 * 1024` |
 | 协程池大小 | `getCoroutinePoolSize()` | `128` |
+| 协程池耗尽扩展 | `isCoroutinePoolExpandOnExhausted()` | `false` |
 | 请求号长度 | `getReqIdLen()` | `20` |
 | 最大连接超时 | `getMaxConnectTimeoutMs()` | `5000` |
 | 时间轮桶数 | `getTimeWheelBucketNum()` | `60` |

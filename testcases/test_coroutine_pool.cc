@@ -4,12 +4,29 @@
 
 #include "coroutine/coroutine.h"
 #include "coroutine/coroutinepool.h"
+#include "comm/config.h"
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
+
+namespace {
+
+std::string writeTempConfig(const std::string& name, const std::string& content)
+{
+    std::filesystem::create_directories("build/coroutine-pool-tests");
+    std::string path = "build/coroutine-pool-tests/" + name;
+    std::ofstream output(path);
+    output << content;
+    return path;
+}
+
+}  // namespace
 
 TEST(CoroutinePoolTest, GetCoroutineRunsTask)
 {
@@ -70,6 +87,112 @@ TEST(CoroutinePoolTest, ExhaustedPoolReturnsNullptr)
     EXPECT_EQ(second, nullptr);
     EXPECT_EQ(pool.getCreatedCount(), 1u);
     EXPECT_EQ(pool.getIdleCount(), 0u);
+}
+
+TEST(CoroutinePoolTest, DefaultConfigInitializesPoolAndReturnsNullWhenExhausted)
+{
+    tinyrpc::Config config;
+    tinyrpc::CoroutinePool pool(config);
+
+    EXPECT_EQ(pool.getInitialCapacity(), 128u);
+    EXPECT_EQ(pool.getCapacity(), 128u);
+
+    std::vector<std::unique_ptr<tinyrpc::Coroutine>> coroutines;
+    coroutines.reserve(128);
+    for (int i = 0; i < 128; ++i) {
+        auto coroutine = pool.getCoroutine([]() {});
+        ASSERT_NE(coroutine, nullptr);
+        coroutines.push_back(std::move(coroutine));
+    }
+
+    auto exhausted = pool.getCoroutine([]() {});
+
+    EXPECT_EQ(exhausted, nullptr);
+    EXPECT_EQ(pool.getCreatedCount(), 128u);
+    EXPECT_EQ(pool.getCapacity(), 128u);
+}
+
+TEST(CoroutinePoolTest, ConfigCanExpandWhenInitialCapacityIsExhausted)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task93_expand.xml",
+        "<config>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25007</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <coroutine>"
+        "        <pool_size>2</pool_size>"
+        "        <stack_size_kb>64</stack_size_kb>"
+        "        <expand_on_exhausted>true</expand_on_exhausted>"
+        "    </coroutine>"
+        "</config>"
+    );
+
+    ASSERT_TRUE(config.loadFromXml(path));
+    tinyrpc::CoroutinePool pool(config);
+
+    auto first = pool.getCoroutine([]() {});
+    auto second = pool.getCoroutine([]() {});
+    auto third = pool.getCoroutine([]() {});
+
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    ASSERT_NE(third, nullptr);
+    EXPECT_EQ(pool.getInitialCapacity(), 2u);
+    EXPECT_EQ(pool.getCapacity(), 4u);
+    EXPECT_EQ(pool.getCreatedCount(), 3u);
+}
+
+TEST(CoroutinePoolTest, ExpandedCoroutineCanBeReturnedAndReused)
+{
+    tinyrpc::CoroutinePool pool(
+        1,
+        128 * 1024,
+        tinyrpc::CoroutinePoolExhaustPolicy::ExpandBlock
+    );
+
+    auto first = pool.getCoroutine([]() {});
+    auto expanded = pool.getCoroutine([]() {});
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(expanded, nullptr);
+    int expandedId = expanded->getId();
+
+    expanded->resume();
+    ASSERT_TRUE(expanded->isFinished());
+    ASSERT_TRUE(pool.returnCoroutine(std::move(expanded)));
+    EXPECT_EQ(pool.getIdleCount(), 1u);
+
+    bool ran = false;
+    auto reused = pool.getCoroutine([&]() {
+        ran = true;
+    });
+
+    ASSERT_NE(reused, nullptr);
+    EXPECT_EQ(reused->getId(), expandedId);
+    EXPECT_EQ(pool.getCreatedCount(), 2u);
+
+    reused->resume();
+    EXPECT_TRUE(ran);
+    EXPECT_TRUE(reused->isFinished());
+}
+
+TEST(CoroutinePoolTest, ExpandPolicySupportsZeroInitialCapacity)
+{
+    tinyrpc::CoroutinePool pool(
+        0,
+        128 * 1024,
+        tinyrpc::CoroutinePoolExhaustPolicy::ExpandBlock
+    );
+
+    auto coroutine = pool.getCoroutine([]() {});
+
+    ASSERT_NE(coroutine, nullptr);
+    EXPECT_EQ(pool.getInitialCapacity(), 0u);
+    EXPECT_EQ(pool.getCapacity(), 1u);
+    EXPECT_EQ(pool.getCreatedCount(), 1u);
 }
 
 TEST(CoroutinePoolTest, SuspendedCoroutineCannotBeReturned)

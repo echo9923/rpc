@@ -186,6 +186,44 @@ bool parseOptionalInt64Field(
     return true;
 }
 
+bool parseBoolValue(const std::string& value, bool& result, std::string& error)
+{
+    std::string parsed = toLower(value);
+    if (parsed == "true" || parsed == "1" || parsed == "yes" || parsed == "on") {
+        result = true;
+        return true;
+    }
+    if (parsed == "false" || parsed == "0" || parsed == "no" || parsed == "off") {
+        result = false;
+        return true;
+    }
+
+    error = "invalid bool value: " + value;
+    return false;
+}
+
+bool parseOptionalBoolField(
+    const std::optional<std::string>& section,
+    const std::string& sectionName,
+    const std::string& fieldName,
+    bool& result,
+    std::string& error
+)
+{
+    if (!section.has_value()) {
+        return true;
+    }
+    auto value = findTagValue(*section, fieldName);
+    if (!value.has_value()) {
+        return true;
+    }
+    if (!parseBoolValue(*value, result, error)) {
+        error = "invalid " + sectionName + "." + fieldName + ": " + *value;
+        return false;
+    }
+    return true;
+}
+
 bool parseOptionalLogLevelField(
     const std::optional<std::string>& section,
     const std::string& sectionName,
@@ -236,6 +274,7 @@ bool Config::loadFromXml(const std::string& path)
     int logSyncIntervalMs = m_logSyncIntervalMs;
     int coroutineStackSizeBytes = m_coroutineStackSizeBytes;
     int coroutinePoolSize = m_coroutinePoolSize;
+    bool coroutinePoolExpandOnExhausted = m_coroutinePoolExpandOnExhausted;
     int reqIdLen = m_reqIdLen;
     int maxConnectTimeoutMs = m_maxConnectTimeoutMs;
     int timeWheelBucketNum = m_timeWheelBucketNum;
@@ -314,7 +353,13 @@ bool Config::loadFromXml(const std::string& path)
     auto coroutineSection = findSection(xml, "coroutine");
     int coroutineStackSizeKb = coroutineStackSizeBytes / 1024;
     if (!parseOptionalIntField(coroutineSection, "coroutine", "stack_size_kb", 1, 1024 * 1024, coroutineStackSizeKb, error)
-        || !parseOptionalIntField(coroutineSection, "coroutine", "pool_size", 0, 1024 * 1024, coroutinePoolSize, error)) {
+        || !parseOptionalIntField(coroutineSection, "coroutine", "pool_size", 0, 1024 * 1024, coroutinePoolSize, error)
+        || !parseOptionalBoolField(
+            coroutineSection,
+            "coroutine",
+            "expand_on_exhausted",
+            coroutinePoolExpandOnExhausted,
+            error)) {
         m_lastError = error;
         return false;
     }
@@ -346,6 +391,7 @@ bool Config::loadFromXml(const std::string& path)
     m_logSyncIntervalMs = logSyncIntervalMs;
     m_coroutineStackSizeBytes = coroutineStackSizeBytes;
     m_coroutinePoolSize = coroutinePoolSize;
+    m_coroutinePoolExpandOnExhausted = coroutinePoolExpandOnExhausted;
     m_reqIdLen = reqIdLen;
     m_maxConnectTimeoutMs = maxConnectTimeoutMs;
     m_timeWheelBucketNum = timeWheelBucketNum;
@@ -422,6 +468,11 @@ int Config::getCoroutineStackSizeBytes() const
 int Config::getCoroutinePoolSize() const
 {
     return m_coroutinePoolSize;
+}
+
+bool Config::isCoroutinePoolExpandOnExhausted() const
+{
+    return m_coroutinePoolExpandOnExhausted;
 }
 
 int Config::getReqIdLen() const

@@ -5,7 +5,7 @@
 ## 当前组成
 
 - `Coroutine`：用户态协程对象，拥有独立栈和 `coctx` 寄存器上下文。
-- `CoroutinePool`：固定容量协程对象池，复用 `Coroutine` 对象及其栈空间，不负责调度。
+- `CoroutinePool`：可由 `Config` 初始化的协程对象池，复用 `Coroutine` 对象及其栈空间，不负责调度。
 - `FixedMemoryPool`：固定大小 block 内存池，可作为协程栈池的基础能力。
 - `coctxswap.s`：x86-64 汇编上下文切换原语，负责保存当前寄存器并恢复目标协程寄存器。
 - `readHook()` / `writeHook()`：协程感知的读写封装，只在非主协程且非阻塞 fd 返回 `EAGAIN`、`EWOULDBLOCK` 或 `EINTR` 时挂起。
@@ -62,10 +62,13 @@ flowchart LR
 - reset 不会释放或重新分配栈空间。
 - `Running` 和 `Suspended` 状态仍保存着有效执行现场，reset 会返回 false。
 
-`CoroutinePool` 是固定容量池：
+`CoroutinePool` 保留固定初始容量，并支持配置化耗尽策略：
 
 - `getCoroutine(cb)` 优先复用空闲协程，没有空闲协程时按容量创建新协程。
-- 如果已创建数量达到容量上限，`getCoroutine(cb)` 返回 `nullptr`，不隐式扩容。
+- `CoroutinePool(const Config&)` 使用 `coroutine.pool_size` 作为初始容量，使用 `coroutine.stack_size_kb` 作为新协程栈大小。
+- `coroutine.expand_on_exhausted` 默认关闭；关闭时已创建数量达到容量上限后，`getCoroutine(cb)` 返回 `nullptr`。
+- `coroutine.expand_on_exhausted` 开启后，初始容量耗尽时按扩展块增加容量；扩展块大小默认等于初始容量，初始容量为 `0` 时按 `1` 扩展。
+- 空闲协程按最近归还优先复用，尽量减少反复触碰冷栈内存造成的 page fault。
 - `returnCoroutine(co)` 只接受 `Ready` 或 `Finished` 状态的协程。
 - 归还成功时池会把协程 reset 成空任务，避免旧回调捕获继续留在池中。
 - 当前池不做调度、不做 work stealing，也不跨线程迁移协程。
@@ -176,7 +179,7 @@ hook 不做全局查找，也不从线程局部对象推断 Reactor。当前模�
 - 当前 hook API 需要调用方传入 `FdEvent*`，不是 libc 符号级全局替换。
 - `sleepHook()` / `usleepHook()` 需要显式传入 `Reactor*`，不是 libc 符号级全局替换。
 - 当前 `FdEvent` 只保存非拥有的 `Coroutine*`，协程生命周期仍由调用方管理。
-- 已实现固定容量 `CoroutinePool`；池耗尽时返回 `nullptr`，不隐式新建超过容量的协程。
+- 已实现配置化 `CoroutinePool`；默认池耗尽时返回 `nullptr`，开启 `coroutine.expand_on_exhausted` 后按块扩展容量。
 - 已实现独立 `FixedMemoryPool`；暂未接入 `Coroutine` 栈分配策略。
 
 ## 调试清单

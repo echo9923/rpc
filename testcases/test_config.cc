@@ -45,6 +45,7 @@ TEST(ConfigTest, DefaultsAreExplicit)
     EXPECT_EQ(config.getLogSyncIntervalMs(), 1000);
     EXPECT_EQ(config.getCoroutineStackSizeBytes(), 128 * 1024);
     EXPECT_EQ(config.getCoroutinePoolSize(), 128);
+    EXPECT_FALSE(config.isCoroutinePoolExpandOnExhausted());
     EXPECT_EQ(config.getReqIdLen(), 20);
     EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
     EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
@@ -87,6 +88,7 @@ TEST(ConfigTest, LoadTinyPbXml)
     EXPECT_EQ(config.getLogSyncIntervalMs(), 1000);
     EXPECT_EQ(config.getCoroutineStackSizeBytes(), 128 * 1024);
     EXPECT_EQ(config.getCoroutinePoolSize(), 128);
+    EXPECT_FALSE(config.isCoroutinePoolExpandOnExhausted());
     EXPECT_EQ(config.getReqIdLen(), 20);
     EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
     EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
@@ -168,6 +170,7 @@ TEST(ConfigTest, ExtendedFieldsUseDefaultsWhenMissing)
     EXPECT_EQ(config.getAppLogLevel(), tinyrpc::LogLevel::Debug);
     EXPECT_EQ(config.getCoroutineStackSizeBytes(), 128 * 1024);
     EXPECT_EQ(config.getCoroutinePoolSize(), 128);
+    EXPECT_FALSE(config.isCoroutinePoolExpandOnExhausted());
     EXPECT_EQ(config.getReqIdLen(), 20);
     EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
     EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
@@ -193,6 +196,52 @@ TEST(ConfigTest, InvalidExtendedIntegerReturnsFalse)
 
     EXPECT_FALSE(config.loadFromXml(path));
     EXPECT_FALSE(config.getLastError().empty());
+}
+
+TEST(ConfigTest, ParseCoroutinePoolExpandStrategy)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task93_coroutine_expand.xml",
+        "<config>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25005</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <coroutine>"
+        "        <pool_size>2</pool_size>"
+        "        <stack_size_kb>64</stack_size_kb>"
+        "        <expand_on_exhausted>true</expand_on_exhausted>"
+        "    </coroutine>"
+        "</config>"
+    );
+
+    ASSERT_TRUE(config.loadFromXml(path));
+    EXPECT_EQ(config.getCoroutinePoolSize(), 2);
+    EXPECT_EQ(config.getCoroutineStackSizeBytes(), 64 * 1024);
+    EXPECT_TRUE(config.isCoroutinePoolExpandOnExhausted());
+}
+
+TEST(ConfigTest, InvalidCoroutinePoolExpandStrategyReturnsFalse)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task93_invalid_coroutine_expand.xml",
+        "<config>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25006</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <coroutine>"
+        "        <expand_on_exhausted>maybe</expand_on_exhausted>"
+        "    </coroutine>"
+        "</config>"
+    );
+
+    EXPECT_FALSE(config.loadFromXml(path));
+    EXPECT_NE(config.getLastError().find("coroutine.expand_on_exhausted"), std::string::npos);
 }
 
 TEST(ConfigTest, ParseRpcAndAppLogLevels)

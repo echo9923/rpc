@@ -26,6 +26,7 @@ class Config {
     int getLogSyncIntervalMs() const;
     int getCoroutineStackSizeBytes() const;
     int getCoroutinePoolSize() const;
+    bool isCoroutinePoolExpandOnExhausted() const;
     int getReqIdLen() const;
     int getMaxConnectTimeoutMs() const;
     int getTimeWheelBucketNum() const;
@@ -46,6 +47,7 @@ class Config {
     int m_logSyncIntervalMs {1000};
     int m_coroutineStackSizeBytes {128 * 1024};
     int m_coroutinePoolSize {128};
+    bool m_coroutinePoolExpandOnExhausted {false};
     int m_reqIdLen {20};
     int m_maxConnectTimeoutMs {5000};
     int m_timeWheelBucketNum {60};

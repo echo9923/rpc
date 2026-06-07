@@ -123,6 +123,12 @@ add_executable(test_coroutine_pool
 )
 target_link_libraries(test_coroutine_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
+add_executable(test_coroutinepool
+    testcases/test_coroutine_pool.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_coroutinepool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
 add_executable(test_memory_pool
     testcases/test_memory_pool.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
