@@ -987,6 +987,219 @@ TEST_F(TcpClientTest, SendAndRecvReconnectsAfterExplicitClose)
     EXPECT_EQ(client.getErrorCode(), 0);
 }
 
+TEST_F(TcpClientTest, SendAndRecvReusesConnectionByDefault)
+{
+    bool serverOk = false;
+    std::string serverError;
+    int acceptedCount = 0;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+        ++acceptedCount;
+
+        for (int i = 0; i < 2; ++i) {
+            tinyrpc::TinyPbStruct decodedRequest;
+            if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            tinyrpc::TinyPbStruct response;
+            response.m_reqId = decodedRequest.m_reqId;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            response.m_errCode = 0;
+            response.m_pbData = "reuse-response-" + std::to_string(i + 1);
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "encode reuse response failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+        }
+
+        serverOk = true;
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    EXPECT_TRUE(client.isReuseConnection());
+
+    tinyrpc::TinyPbStruct request1;
+    request1.m_reqId = "reuse-1";
+    request1.m_serviceFullName = "QueryService.query_name";
+    request1.m_pbData = "request-1";
+
+    tinyrpc::TinyPbStruct response1;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request1, &response1)) << client.getErrorInfo();
+    tinyrpc::Socket firstFd = client.getFd();
+    EXPECT_TRUE(client.isConnected());
+
+    tinyrpc::TinyPbStruct request2;
+    request2.m_reqId = "reuse-2";
+    request2.m_serviceFullName = "QueryService.query_name";
+    request2.m_pbData = "request-2";
+
+    tinyrpc::TinyPbStruct response2;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request2, &response2)) << client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_EQ(acceptedCount, 1);
+    EXPECT_EQ(client.getFd(), firstFd);
+    EXPECT_EQ(response1.m_pbData, "reuse-response-1");
+    EXPECT_EQ(response2.m_pbData, "reuse-response-2");
+}
+
+TEST_F(TcpClientTest, DisableReuseClosesAfterEachRoundTrip)
+{
+    bool serverOk = false;
+    std::string serverError;
+    int acceptedCount = 0;
+
+    std::thread serverThread([&]() {
+        for (int i = 0; i < 2; ++i) {
+            int clientFd = accept(m_listenFd, nullptr, nullptr);
+            if (clientFd < 0) {
+                serverError = std::strerror(errno);
+                return;
+            }
+            ++acceptedCount;
+
+            tinyrpc::TinyPbStruct decodedRequest;
+            if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            tinyrpc::TinyPbStruct response;
+            response.m_reqId = decodedRequest.m_reqId;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            response.m_errCode = 0;
+            response.m_pbData = "no-reuse-response-" + std::to_string(i + 1);
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "encode no-reuse response failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+            closeIfValid(&clientFd);
+        }
+        serverOk = true;
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    client.setReuseConnection(false);
+    EXPECT_FALSE(client.isReuseConnection());
+
+    tinyrpc::TinyPbStruct request1;
+    request1.m_reqId = "no-reuse-1";
+    request1.m_serviceFullName = "QueryService.query_name";
+    request1.m_pbData = "request-1";
+    tinyrpc::TinyPbStruct response1;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request1, &response1)) << client.getErrorInfo();
+    EXPECT_FALSE(client.isConnected());
+
+    tinyrpc::TinyPbStruct request2;
+    request2.m_reqId = "no-reuse-2";
+    request2.m_serviceFullName = "QueryService.query_name";
+    request2.m_pbData = "request-2";
+    tinyrpc::TinyPbStruct response2;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request2, &response2)) << client.getErrorInfo();
+    EXPECT_FALSE(client.isConnected());
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_EQ(acceptedCount, 2);
+    EXPECT_EQ(response1.m_pbData, "no-reuse-response-1");
+    EXPECT_EQ(response2.m_pbData, "no-reuse-response-2");
+}
+
+TEST_F(TcpClientTest, FailureClosesAndNextRoundTripReconnects)
+{
+    bool serverOk = false;
+    std::string serverError;
+    int acceptedCount = 0;
+
+    std::thread serverThread([&]() {
+        int firstFd = accept(m_listenFd, nullptr, nullptr);
+        if (firstFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+        ++acceptedCount;
+        closeIfValid(&firstFd);
+
+        int secondFd = accept(m_listenFd, nullptr, nullptr);
+        if (secondFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+        ++acceptedCount;
+
+        tinyrpc::TinyPbStruct decodedRequest;
+        if (!readTinyPbFromFd(secondFd, &decodedRequest, &serverError)) {
+            closeIfValid(&secondFd);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct response;
+        response.m_reqId = decodedRequest.m_reqId;
+        response.m_serviceFullName = decodedRequest.m_serviceFullName;
+        response.m_errCode = 0;
+        response.m_pbData = "reconnected-response";
+
+        std::string frame;
+        if (!encodeTinyPbToString(&response, &frame)) {
+            serverError = "encode reconnect response failed";
+            closeIfValid(&secondFd);
+            return;
+        }
+
+        serverOk = writeAllToFd(secondFd, frame.data(), frame.size(), &serverError);
+        closeIfValid(&secondFd);
+    });
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    client.setTimeout(200);
+
+    tinyrpc::TinyPbStruct request1;
+    request1.m_reqId = "will-fail";
+    request1.m_serviceFullName = "QueryService.query_name";
+    request1.m_pbData = "request-1";
+    tinyrpc::TinyPbStruct response1;
+    EXPECT_FALSE(client.sendAndRecvTinyPb(&request1, &response1));
+    EXPECT_FALSE(client.isConnected());
+    EXPECT_FALSE(client.getErrorInfo().empty());
+
+    tinyrpc::TinyPbStruct request2;
+    request2.m_reqId = "after-failure";
+    request2.m_serviceFullName = "QueryService.query_name";
+    request2.m_pbData = "request-2";
+    tinyrpc::TinyPbStruct response2;
+    ASSERT_TRUE(client.sendAndRecvTinyPb(&request2, &response2)) << client.getErrorInfo();
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_EQ(acceptedCount, 2);
+    EXPECT_EQ(response2.m_pbData, "reconnected-response");
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

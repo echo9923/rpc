@@ -21,8 +21,7 @@ namespace tinyrpc {
 //   5. 发送/接收一个 TinyPB 请求/响应帧
 // 析构时自动释放资源。
 //
-// 不包含：RpcChannel、超时、重试、连接池、
-// 异步回调、协程 hook 或 Reactor 集成。
+// 不包含：连接池、异步回调或负载均衡。
 class TcpClient {
  public:
     // 保存对端地址，此时不创建 socket，m_fd 保持 kInvalidSocket。
@@ -46,7 +45,7 @@ class TcpClient {
     int getErrorCode() const;
 
     // 设置同步 connect/read/write 超时时间，单位毫秒。
-    // timeoutMs <= 0 表示使用阻塞等待，不启用 poll 超时。
+    // timeoutMs <= 0 表示使用阻塞等待，不启用 Reactor Timer 超时。
     void setTimeout(int timeoutMs);
 
     // 返回当前同步网络操作超时时间，单位毫秒。
@@ -55,6 +54,11 @@ class TcpClient {
     // 设置连接失败后的有限重试次数和重试间隔。
     // retryCount 表示失败后额外重试次数，0 表示不重试。
     void setConnectRetry(int retryCount, int retryIntervalMs);
+
+    // 设置同步调用是否复用已连接 fd。
+    // 默认复用；关闭后 sendAndRecvTinyPb() 在一次请求完成后主动关闭连接。
+    void setReuseConnection(bool enabled);
+    bool isReuseConnection() const;
 
     // 创建 socket 并调用阻塞式 connect() 连接对端。
     // 成功返回 true，m_isConnected 置为 true。
@@ -74,9 +78,8 @@ class TcpClient {
     // 当前方法要求调用前已经连接，不会单独发起 connect()。
     bool recvTinyPbResponse(TinyPbStruct *response);
 
-    // 最小同步请求/响应闭环：先发送 TinyPB 请求，再读取一个 TinyPB 响应。
-    // TcpClient 只负责字节收发，不维护 reqId -> response 缓存。
-    // reqId 匹配由上层 TinyPbRpcChannel 判断；异步 pending map 留到异步 RPC 阶段。
+    // 同步请求/响应闭环：先发送 TinyPB 请求，再按 reqId 读取匹配响应。
+    // 默认复用连接；关闭复用开关后，本方法成功或失败都会关闭当前连接。
     bool sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response);
 
  private:
@@ -89,6 +92,7 @@ class TcpClient {
 
     bool connectOnce();
     void resetConnectionState();
+    void closeAfterFailure();
     Reactor* getOrCreateReactor();
     bool prepareFdEvent();
     bool waitFdEvent(uint32_t event, const std::string& operation, int timeoutErrorCode);
@@ -102,6 +106,7 @@ class TcpClient {
     int m_timeoutMs {0};
     int m_connectRetryCount {0};
     int m_connectRetryIntervalMs {0};
+    bool m_reuseConnection {true};
     std::string m_errorInfo;
     std::shared_ptr<TcpConnection> m_connection;
     FdEvent m_fdEvent;

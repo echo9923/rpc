@@ -75,6 +75,19 @@ void TcpClient::setConnectRetry(int retryCount, int retryIntervalMs)
     m_connectRetryIntervalMs = retryIntervalMs > 0 ? retryIntervalMs : 0;
 }
 
+void TcpClient::setReuseConnection(bool enabled)
+{
+    m_reuseConnection = enabled;
+    if (!m_reuseConnection) {
+        closeConnection();
+    }
+}
+
+bool TcpClient::isReuseConnection() const
+{
+    return m_reuseConnection;
+}
+
 bool TcpClient::connectServer()
 {
     // 已经连接则直接返回成功
@@ -218,6 +231,15 @@ void TcpClient::resetConnectionState()
     m_fdEvent.setFd(kInvalidSocket);
 }
 
+void TcpClient::closeAfterFailure()
+{
+    std::string errorInfo = m_errorInfo;
+    int errorCode = m_errorCode;
+    closeConnection();
+    m_errorInfo = errorInfo;
+    m_errorCode = errorCode;
+}
+
 Reactor* TcpClient::getOrCreateReactor()
 {
     if (m_reactor != nullptr) {
@@ -270,12 +292,15 @@ bool TcpClient::sendTinyPbRequest(TinyPbStruct *request)
     if (!request->m_encodeSucc) {
         m_errorCode = 0;
         m_errorInfo = "TinyPB request encode failed";
+        closeAfterFailure();
         return false;
     }
 
     bool ok = writeAll(outBuffer->getReadPtr(), outBuffer->getReadableBytes());
     if (ok) {
         outBuffer->retrieveAll();
+    } else {
+        closeAfterFailure();
     }
     return ok;
 }
@@ -325,12 +350,14 @@ bool TcpClient::recvTinyPbResponse(TinyPbStruct *response)
         }
 
         if (!readSomeToBuffer(m_connection->getInputBuffer())) {
+            closeAfterFailure();
             return false;
         }
 
         if (m_connection->getInputBuffer()->getReadableBytes() > static_cast<size_t>(kTinyPbMaxPackageLength)) {
             m_errorCode = 0;
             m_errorInfo = "TinyPB response exceeds max package length";
+            closeAfterFailure();
             return false;
         }
     }
@@ -345,11 +372,22 @@ bool TcpClient::sendAndRecvTinyPb(TinyPbStruct *request, TinyPbStruct *response)
     }
 
     if (!sendTinyPbRequest(request)) {
+        if (!m_reuseConnection) {
+            closeConnection();
+        }
         return false;
     }
 
     response->m_reqId = request->m_reqId;
-    return recvTinyPbResponse(response);
+    bool ok = recvTinyPbResponse(response);
+    if (!m_reuseConnection) {
+        std::string errorInfo = m_errorInfo;
+        int errorCode = m_errorCode;
+        closeConnection();
+        m_errorInfo = errorInfo;
+        m_errorCode = errorCode;
+    }
+    return ok;
 }
 
 bool TcpClient::writeAll(const char *data, size_t len)
