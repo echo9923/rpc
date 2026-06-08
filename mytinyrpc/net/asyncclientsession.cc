@@ -3,9 +3,13 @@
 #include "comm/errorcode.h"
 #include "comm/log.h"
 #include "net/fdutil.h"
+#include "net/fdevent.h"
+#include "net/reactor.h"
+#include "net/timer.h"
 
 #include <cerrno>
 #include <cstring>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -74,7 +78,9 @@ bool AsyncClientSession::connect()
         return false;
     }
 
-    // 连接建立后，创建客户端 TcpConnection，用于编码请求和解析响应。
+    // 连接建立后，获取当前线程 Reactor 并创建客户端 TcpConnection。
+    m_reactor = Reactor::getCurrentReactor();
+
     m_connection = std::make_shared<TcpConnection>(
         m_fd,
         nullptr,
@@ -90,6 +96,8 @@ bool AsyncClientSession::connect()
 
 void AsyncClientSession::disconnect()
 {
+    unregisterFdEvent();
+
     if (m_connection != nullptr) {
         m_connection->closeConnection();
         m_connection.reset();
@@ -99,6 +107,7 @@ void AsyncClientSession::disconnect()
 
     m_fd = kInvalidSocket;
     m_isConnected = false;
+    m_reactor = nullptr;
 }
 
 bool AsyncClientSession::sendRequest(TinyPbStruct *request)
@@ -109,7 +118,7 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         return false;
     }
 
-    // 清空上一次残留的输出数据，然后编码当前请求。
+    // 清空上一次残留的输出数据，然后编码当前请求到输出缓冲区。
     m_connection->getOutputBuffer()->retrieveAll();
     m_connection->encodeClientRequest(request);
     if (!request->m_encodeSucc) {
@@ -119,13 +128,13 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         return false;
     }
 
+    // Sync fallback 路径：阻塞循环直到全部数据写出。
+    // 后续任务（103+）升级为 Reactor 异步模型时会改为 flushOutput + EPOLLOUT。
     TcpBuffer *outBuffer = m_connection->getOutputBuffer();
     size_t written = 0;
     size_t total = outBuffer->getReadableBytes();
 
     while (written < total) {
-        // send(2) 参数依次为：socket fd、待写缓冲区、待写字节数、标志位。
-        // MSG_NOSIGNAL 防止对端关闭时产生 SIGPIPE。
         ssize_t n = ::send(m_fd, outBuffer->getReadPtr() + written,
                            total - written, MSG_NOSIGNAL);
         if (n > 0) {
@@ -149,6 +158,80 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
 
     outBuffer->retrieveAll();
     return true;
+}
+
+bool AsyncClientSession::flushOutput()
+{
+    if (!m_isConnected || m_connection == nullptr) {
+        return false;
+    }
+
+    TcpBuffer *outBuffer = m_connection->getOutputBuffer();
+
+    while (outBuffer->getReadableBytes() > 0) {
+        // send(2) 参数依次为：socket fd、待写缓冲区、待写字节数、标志位。
+        // MSG_NOSIGNAL 防止对端关闭时产生 SIGPIPE。
+        ssize_t n = ::send(m_fd, outBuffer->getReadPtr(),
+                           outBuffer->getReadableBytes(), MSG_NOSIGNAL);
+        if (n > 0) {
+            outBuffer->retrieve(static_cast<size_t>(n));
+            continue;
+        }
+
+        if (n == 0) {
+            m_errorCode = ERROR_TCP_SEND_FAILED;
+            m_errorInfo = "send returned zero";
+            disconnect();
+            return false;
+        }
+
+        if (errno == EINTR) {
+            continue;
+        }
+
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // 发送缓冲区暂满，返回 false 让调用方注册 EPOLLOUT。
+            return false;
+        }
+
+        m_errorCode = ERROR_TCP_SEND_FAILED;
+        m_errorInfo = "send failed: " + std::string(std::strerror(errno));
+        disconnect();
+        return false;
+    }
+
+    // 输出缓冲区已全部写空，取消 EPOLLOUT 监听。
+    unregisterFdEvent();
+    return true;
+}
+
+void AsyncClientSession::registerFdEvent()
+{
+    if (m_reactor == nullptr || m_fd == kInvalidSocket) {
+        return;
+    }
+
+    m_fdEvent.setFd(m_fd);
+    m_fdEvent.setReactor(m_reactor);
+    m_fdEvent.setWriteCallback([this]() {
+        flushOutput();
+    });
+    m_fdEvent.addListenEvent(EPOLLOUT);
+
+    if (!m_fdEvent.isRegistered()) {
+        m_fdEvent.registerToReactor();
+    } else {
+        m_fdEvent.updateToReactor();
+    }
+}
+
+void AsyncClientSession::unregisterFdEvent()
+{
+    if (m_fdEvent.isRegistered()) {
+        m_fdEvent.delListenEvent(EPOLLOUT);
+        m_fdEvent.unregisterFromReactor();
+    }
+    m_fdEvent.setFd(kInvalidSocket);
 }
 
 bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *response)

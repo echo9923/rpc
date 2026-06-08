@@ -30,3 +30,20 @@
 - 不实现真正异步发送队列和 Reactor 写事件。
 - 不实现异步读取循环。
 - 不做连接池。
+
+## 任务一百零二：异步发送队列和 Reactor 写事件基础设施
+
+已完成能力：
+
+- `AsyncClientSession` 新增 `flushOutput()`、`registerFdEvent()`、`unregisterFdEvent()` 方法。
+- Session 新增 `m_reactor`（从 `Reactor::getCurrentReactor()` 获取）和 `m_fdEvent` 成员。
+- `connect()` 成功后自动获取当前线程 Reactor。
+- `disconnect()` 先注销 FdEvent 再关闭连接，防止悬空 epoll 条目。
+- `flushOutput()` 循环 send 直到缓冲区清空或遇到 EAGAIN，EAGAIN 时返回 false 供调用方注册 EPOLLOUT。
+- `registerFdEvent()` 向 Reactor 注册 EPOLLOUT，回调为 `flushOutput()`。
+- sync fallback 路径的 `sendRequest()` 仍保持阻塞 send 循环，确保当前行为不变。
+
+当前限制：
+
+- `sendRequest()` 尚未切换到 `flushOutput()` + EPOLLOUT 异步模型，留到任务 103 统一升级。
+- 不做异步读取循环、乱序响应匹配。

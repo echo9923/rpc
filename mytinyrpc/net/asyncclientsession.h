@@ -39,8 +39,13 @@ class AsyncClientSession {
 
     bool sendRequest(TinyPbStruct *request);
     bool recvResponse(const std::string& reqId, TinyPbStruct *response);
+    bool flushOutput();
+
 
  private:
+    void registerFdEvent();
+    void unregisterFdEvent();
+
     IPAddress m_peerAddr;
     Socket m_fd {kInvalidSocket};
     bool m_isConnected {false};
@@ -48,6 +53,8 @@ class AsyncClientSession {
     std::string m_errorInfo;
     std::shared_ptr<TcpConnection> m_connection;
     TinyPbCodec::Ptr m_codec;
+    Reactor *m_reactor {nullptr};
+    FdEvent m_fdEvent;
 };
 
 }

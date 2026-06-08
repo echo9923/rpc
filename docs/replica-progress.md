@@ -1240,3 +1240,26 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
 
 - Session 的 connect/send/recv 仍为阻塞式 IOThread 同步执行，后续任务升级为 Reactor 异步模型。
 - 不做连接池、负载均衡或异步发送队列。
+
+### 任务一百零二：异步发送队列和 Reactor 写事件基础设施
+
+已完成能力：
+
+- `AsyncClientSession` 新增 `flushOutput()`、`registerFdEvent()`、`unregisterFdEvent()` 三个方法，作为 Reactor 异步写的基础设施。
+- Session 新增 `m_reactor` 和 `m_fdEvent` 成员；`connect()` 获取当前线程 Reactor，`disconnect()` 先注销 FdEvent。
+- `flushOutput()` 循环 send，遇到 EAGAIN 返回 false 供调用方注册 EPOLLOUT；写空后自动取消 EPOLLOUT。
+- `registerFdEvent()` 注册 EPOLLOUT 到 Reactor，回调为 `flushOutput()`。
+- sync fallback 的 `sendRequest()` 保持阻塞 send 循环，当前行为不受影响。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_tinypb_async_client
+```
+
+当前限制：
+
+- `sendRequest()` 未切换到异步 flush，留到任务 103 与读取循环一起升级。
+- 不做异步读取循环、乱序匹配、timeout 打断。
+
