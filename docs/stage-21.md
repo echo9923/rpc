@@ -63,3 +63,16 @@ Current limitations:
 
 - Sync fallback still blocks IOThread task on recvResponse; full EPOLLIN-driven delivery deferred to task 104+.
 - Rapid multi-request EPOLLIN delivery has a timing issue under investigation.
+
+## Task 104: Timeout/cancel interrupting network state
+
+Capabilities added:
+
+- stop() now calls failAllPending() to fail all remaining pending requests with ERROR_RPC_CHANNEL_NETWORK.
+- failAllPending drains the pending map, cancels timeout tasks, sets error, and runs done callbacks.
+- IOThread task checks IsCanceled() before sendRequest, skipping network I/O for pre-canceled requests.
+- New tests: StopFailsAllPendingRequests, CancelBeforeSendSkipsNetwork.
+
+Verification:
+./build/test_tinypb_rpc_async_channel  (12 tests)
+./build/test_tinypb_async_client

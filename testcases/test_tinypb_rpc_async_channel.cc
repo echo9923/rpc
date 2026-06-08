@@ -702,6 +702,68 @@ TEST_F(TinyPbRpcAsyncChannelTest, ControllerCancelClearsPendingAndRunsClosureOnc
     EXPECT_EQ(doneCount.load(), 1);
 }
 
+
+TEST_F(TinyPbRpcAsyncChannelTest, StopFailsAllPendingRequests)
+{
+    tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    channel.setSyncFallbackEnabled(false);
+    int nextId = 0;
+    channel.setReqIdGenerator([&]() {
+        return "stop-pending-" + std::to_string(nextId++);
+    });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq req1, req2;
+    req1.set_req_no(601); req1.set_id(1301); req1.set_type(1);
+    req2.set_req_no(602); req2.set_id(1302); req2.set_type(1);
+
+    queryNameRes res1, res2;
+    tinyrpc::TinyPbRpcController ctrl1, ctrl2;
+    std::atomic<int> doneCount{0};
+    CountClosure done1(&doneCount);
+    CountClosure done2(&doneCount);
+
+    stub.query_name(&ctrl1, &req1, &res1, &done1);
+    stub.query_name(&ctrl2, &req2, &res2, &done2);
+    ASSERT_EQ(channel.getPendingCount(), 2u);
+
+    channel.stop();
+
+    EXPECT_EQ(doneCount.load(), 2);
+    EXPECT_TRUE(ctrl1.Failed());
+    EXPECT_TRUE(ctrl2.Failed());
+    EXPECT_EQ(ctrl1.getErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_NETWORK);
+    EXPECT_EQ(ctrl2.getErrorCode(), tinyrpc::ERROR_RPC_CHANNEL_NETWORK);
+    EXPECT_EQ(channel.getPendingCount(), 0u);
+}
+
+TEST_F(TinyPbRpcAsyncChannelTest, CancelBeforeSendSkipsNetwork)
+{
+    tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    channel.setReqIdGenerator([]() { return "cancel-before-send"; });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq request;
+    request.set_req_no(701);
+    request.set_id(1401);
+    request.set_type(1);
+
+    queryNameRes response;
+    tinyrpc::TinyPbRpcController controller;
+    controller.StartCancel();
+
+    std::atomic<int> doneCount{0};
+    CountClosure done(&doneCount);
+
+    stub.query_name(&controller, &request, &response, &done);
+
+    ASSERT_TRUE(waitUntil([&]() { return doneCount.load() == 1; }, 1000));
+    EXPECT_TRUE(controller.IsCanceled());
+    EXPECT_TRUE(controller.Failed());
+    EXPECT_EQ(controller.getErrorCode(), tinyrpc::ERROR_RPC_ASYNC_CANCELED);
+    EXPECT_EQ(channel.getPendingCount(), 0u);
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

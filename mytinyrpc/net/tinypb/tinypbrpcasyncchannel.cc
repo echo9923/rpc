@@ -118,6 +118,14 @@ void TinyPbRpcAsyncChannel::CallMethod(
             }
         }
 
+        // Check if canceled before sending.
+        {
+            auto *tinyCtrl = dynamic_cast<TinyPbRpcController *>(context->m_controller);
+            if (tinyCtrl != nullptr && tinyCtrl->IsCanceled()) {
+                return;
+            }
+        }
+
         if (!m_session->sendRequest(&context->m_tinyRequest)) {
             std::string errorInfo = m_session->getErrorInfo();
             if (errorInfo.empty()) {
@@ -234,6 +242,36 @@ void TinyPbRpcAsyncChannel::stop()
     }
     if (m_ioThread != nullptr) {
         m_ioThread->stop();
+    }
+    failAllPending(ERROR_RPC_CHANNEL_NETWORK, "async channel stopped");
+}
+
+void TinyPbRpcAsyncChannel::failAllPending(int errorCode, const std::string& errorInfo)
+{
+    std::vector<std::shared_ptr<AsyncCallContext>> contexts;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        for (auto& pair : m_pendingContexts) {
+            contexts.push_back(pair.second);
+        }
+        m_pendingContexts.clear();
+    }
+    for (auto& ctx : contexts) {
+        if (ctx == nullptr) continue;
+        if (ctx->m_timeoutTask != nullptr) {
+            ctx->m_timeoutTask->cancel();
+        }
+        if (ctx->m_controller != nullptr) {
+            auto *tc = dynamic_cast<TinyPbRpcController *>(ctx->m_controller);
+            if (tc != nullptr) {
+                tc->setError(errorCode, errorInfo);
+            } else {
+                ctx->m_controller->SetFailed(errorInfo);
+            }
+        }
+        if (ctx->m_done != nullptr) {
+            ctx->m_done->Run();
+        }
     }
 }
 

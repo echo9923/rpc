@@ -71,6 +71,7 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
         const std::string& reqId,
         int errorCode,
         const std::string& errorInfo);
+    void failAllPending(int errorCode, const std::string& errorInfo);
     static int getControllerTimeout(google::protobuf::RpcController *controller);
     static void setControllerError(
         google::protobuf::RpcController *controller,
