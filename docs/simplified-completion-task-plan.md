@@ -48,7 +48,7 @@
 | `coroutinehook` | 已补全 | 已支持全局 hook 开关、透明 `read/write/accept/connect/sleep/usleep` 和专项回归脚本。 | 阶段 19 |
 | `coroutinepool` | 已补全 | 已支持配置化初始容量、耗尽策略和按块扩展。 | 阶段 19 |
 | 协程栈内存池 | 已补全 | `CoroutinePool` 内部协程栈已接入 `FixedMemoryPool`，并验证非法归还。 | 阶段 19 |
-| `TcpClient` | 简化复刻 | 使用 `poll()` 做同步超时，未接入 Reactor、Timer、TcpConnection 响应缓存。 | 阶段 20 |
+| `TcpClient` | 已补全 | 已接入客户端 `TcpConnection`、Reactor/Timer 同步超时、按 reqId 响应缓存和连接复用/失败重建策略。 | 阶段 20 |
 | 异步 RPC | 简化复刻 | pending/timeout/cancel 已有，但真实网络仍复用同步 `TcpClient` 路径。 | 阶段 21 |
 | HTTP | 简化复刻 | 支持常见 GET/POST 和 Content-Length，缺少更完整 URL/query/header/连接语义。 | 阶段 22 |
 | `generator` | 简化复刻 | 支持简单 proto service/method 和生成工程，未复刻原项目完整目录、`protoc` 流程和 interface/test_client 体系。 | 阶段 23 |
@@ -2016,13 +2016,13 @@ git status --short
 
 ## 2.1 最推荐的下一步
 
-**任务九十一：全局 hook 开关和透明系统调用 hook。**
+**任务一百零一：抽出长生命周期 AsyncClientSession。**
 
 理由：
 
-- 阶段 18 已经补齐配置、日志、启动入口和 request context。
-- 阶段 19 会继续把当前显式 hook 推进为更接近原 TinyRPC 的透明系统调用 hook。
-- 任务九十一是阶段 19 的第一个任务，范围集中在 hook 开关和系统调用入口。
+- 阶段 20 已经补齐同步 `TcpClient` 的 Reactor/Timer 等待模型、客户端连接缓存和失败重建策略。
+- 阶段 21 可以在这个稳定同步客户端地基上，把异步 RPC 从“复用同步路径”推进为真实网络异步路径。
+- 任务一百零一范围集中在抽出长生命周期客户端会话，适合作为阶段 21 的第一步。
 
 ## 2.2 阶段依赖
 
@@ -2055,7 +2055,7 @@ git status --short
 最合理的起点是：
 
 ```text
-任务九十一：全局 hook 开关和透明系统调用 hook
+任务一百零一：抽出长生命周期 AsyncClientSession
 ```
 
-阶段 18 已完成，配置、日志、启动入口和运行时已经成为后续透明 hook、客户端 Reactor 化、真正异步 RPC 和生成器完整化的共同地基。下一步可以进入阶段 19。
+阶段 20 已完成，`TcpClient` 已经具备 Reactor/Timer 同步等待、客户端 `TcpConnection`、响应缓存和连接复用策略。下一步可以进入阶段 21，补齐真正异步 RPC 网络路径。

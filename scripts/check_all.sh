@@ -45,6 +45,9 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_coroutinehook.sh
 echo "[all] run sync rpc regression"
 MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh
 
+echo "[all] run client Reactor rpc regression"
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_client_reactor.sh
+
 echo "[all] run multi-reactor server regression"
 ./scripts/check_stage11_server.sh
 

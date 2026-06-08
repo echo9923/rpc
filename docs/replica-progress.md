@@ -1158,11 +1158,35 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_rpc_sync.sh && 
 
 - [TinyRPC 简化实现补全任务计划书](simplified-completion-task-plan.md)
 
-阶段 19 已完成，下一次最适合开始的任务：
+阶段 20 已完成，下一次最适合开始的任务：
 
-- **任务九十六：TcpClient 接入客户端 TcpConnection**。
+- **任务一百零一：抽出长生命周期 AsyncClientSession**。
 
-阶段 18 已完成配置、日志、启动入口和运行时上下文补全。阶段 19 已完成协程 hook、协程池和栈内存池补全，后续可以进入阶段 20 的 TcpClient Reactor 化和客户端连接语义补全。
+阶段 18 已完成配置、日志、启动入口和运行时上下文补全。阶段 19 已完成协程 hook、协程池和栈内存池补全。阶段 20 已完成 TcpClient Reactor 化、客户端 TcpConnection 语义、响应缓存和连接复用策略补全，后续可以进入阶段 21 的真实异步 RPC 网络路径。
+
+## 阶段 20：TcpClient Reactor 化和客户端连接语义补全
+
+已完成能力：
+
+- `TcpConnection` 增加 `ServerConnection` / `ClientConnection` 类型区分，客户端连接持有 input buffer、output buffer、TinyPB codec、peer address 和按 reqId 索引的 response map。
+- `TcpClient` 同步 TinyPB 请求复用客户端 `TcpConnection` 完成编码、缓冲区管理、响应解析和响应缓存读取。
+- `TcpClient` 的 connect / write / read 等待路径改为当前线程 `Reactor`、`FdEvent` 和 `TimerTask` 驱动，不再把 `poll()` 作为同步超时核心。
+- 客户端按当前 request reqId 等待匹配 response，错误 reqId 或未知 reqId 响应会记录并丢弃，不污染当前同步调用。
+- `TcpClient` 默认复用已连接 fd，并提供 `setReuseConnection(false)` 与 `closeConnection()` 控制连接生命周期。
+- 网络失败、超时、协议错误或对端关闭后会关闭当前连接，下一次请求自动重建，避免复用脏 buffer 或半关闭 fd。
+- 新增 `scripts/check_rpc_client_reactor.sh`，集中回归同步客户端 Reactor 化、连接编解码、Timer/Reactor 依赖和同步 RPC 安全网。
+
+验证命令：
+```bash
+docker exec rpc-ubuntu bash -c "cd /workspace && rm -rf build && bash build.sh && ./scripts/check_rpc_client_reactor.sh && ./scripts/check_rpc_sync.sh && ./scripts/check_all.sh"
+wsl --cd "D:\codeproject\cpp\rpc" bash -lc "rm -rf build && bash build.sh && bash scripts/check_rpc_client_reactor.sh && MYTINYRPC_SKIP_BUILD=1 bash scripts/check_rpc_sync.sh && bash scripts/check_all.sh"
+```
+
+当前限制：
+
+- 同步客户端仍保持单 in-flight 调用，不实现多个并发 pending request。
+- 不实现连接池、负载均衡或异步 channel 的真实网络派发路径。
+- 迟到或未知 reqId 响应默认丢弃，不提供跨调用业务级暂存策略。
 
 ## 阶段 19：协程 hook、协程池和栈内存池完整化
 
