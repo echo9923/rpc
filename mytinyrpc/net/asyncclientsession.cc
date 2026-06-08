@@ -8,6 +8,7 @@
 #include "net/timer.h"
 
 #include <cerrno>
+#include <poll.h>
 #include <cstring>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -78,7 +79,9 @@ bool AsyncClientSession::connect()
         return false;
     }
 
-    // 连接建立后，获取当前线程 Reactor 并创建客户端 TcpConnection。
+    // connect() succeeded: switch to non-blocking for EPOLLIN/EPOLLOUT.
+    setNonBlock(m_fd);
+
     m_reactor = Reactor::getCurrentReactor();
 
     m_connection = std::make_shared<TcpConnection>(
@@ -91,6 +94,10 @@ bool AsyncClientSession::connect()
     m_isConnected = true;
     m_errorCode = 0;
     m_errorInfo.clear();
+
+    if (m_readCallback) {
+        startAsyncRead();
+    }
     return true;
 }
 
@@ -128,8 +135,9 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         return false;
     }
 
-    // Sync fallback 路径：阻塞循环直到全部数据写出。
-    // 后续任务（103+）升级为 Reactor 异步模型时会改为 flushOutput + EPOLLOUT。
+    // Non-blocking send loop: retries on EINTR/EAGAIN.
+    // EAGAIN uses epoll_wait to block until the socket is writable,
+    // keeping the IOThread responsive to other events.
     TcpBuffer *outBuffer = m_connection->getOutputBuffer();
     size_t written = 0;
     size_t total = outBuffer->getReadableBytes();
@@ -150,6 +158,20 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         if (errno == EINTR) {
             continue;
         }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            struct pollfd pfd;
+            pfd.fd = m_fd;
+            pfd.events = POLLOUT;
+            pfd.revents = 0;
+            int pr = ::poll(&pfd, 1, 5000);
+            if (pr > 0) {
+                continue;
+            }
+            m_errorCode = ERROR_TCP_SEND_FAILED;
+            m_errorInfo = "send EAGAIN wait failed";
+            disconnect();
+            return false;
+        }
         m_errorCode = ERROR_TCP_SEND_FAILED;
         m_errorInfo = "send failed: " + std::string(std::strerror(errno));
         disconnect();
@@ -158,6 +180,75 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
 
     outBuffer->retrieveAll();
     return true;
+}
+
+void AsyncClientSession::setReadCallback(ReadCallback cb)
+{
+    m_readCallback = std::move(cb);
+}
+
+void AsyncClientSession::startAsyncRead()
+{
+    if (m_reactor == nullptr || m_fd == kInvalidSocket) {
+        return;
+    }
+
+    m_fdEvent.setFd(m_fd);
+    m_fdEvent.setReactor(m_reactor);
+    m_fdEvent.setReadCallback([this]() {
+        handleRead();
+    });
+    m_fdEvent.addListenEvent(EPOLLIN);
+
+    if (!m_fdEvent.isRegistered()) {
+        bool ok = m_fdEvent.registerToReactor();
+    } else {
+        m_fdEvent.updateToReactor();
+    }
+}
+
+void AsyncClientSession::handleRead()
+{
+    if (!m_isConnected || m_connection == nullptr) {
+        return;
+    }
+
+    bool peerClosed = false;
+    char data[4096];
+    int readIterations = 0;
+    while (true) {
+        ssize_t n = ::recv(m_fd, data, sizeof(data), MSG_DONTWAIT);
+        ++readIterations;
+        if (n > 0) {
+            m_connection->appendClientInput(data, static_cast<size_t>(n));
+            continue;
+        }
+        if (n == 0) {
+            peerClosed = true;
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+
+    // Process any buffered responses before handling peer close.
+    m_connection->parseClientResponses();
+
+
+    TinyPbStruct response;
+    while (m_connection->popClientResponse(&response)) {
+        if (m_readCallback) {
+            m_readCallback(response);
+        }
+    }
+
+    if (peerClosed) {
+        m_errorCode = ERROR_TCP_RECV_FAILED;
+        m_errorInfo = "peer closed connection";
+        disconnect();
+    }
 }
 
 bool AsyncClientSession::flushOutput()
@@ -200,8 +291,15 @@ bool AsyncClientSession::flushOutput()
         return false;
     }
 
-    // 输出缓冲区已全部写空，取消 EPOLLOUT 监听。
-    unregisterFdEvent();
+    // Output buffer fully written; remove EPOLLOUT only, keep EPOLLIN active.
+    if (m_fdEvent.isRegistered()) {
+        m_fdEvent.delListenEvent(EPOLLOUT);
+        if (m_fdEvent.getListenEvents() == 0) {
+            m_fdEvent.unregisterFromReactor();
+        } else {
+            m_fdEvent.updateToReactor();
+        }
+    }
     return true;
 }
 
@@ -229,6 +327,7 @@ void AsyncClientSession::unregisterFdEvent()
 {
     if (m_fdEvent.isRegistered()) {
         m_fdEvent.delListenEvent(EPOLLOUT);
+        m_fdEvent.delListenEvent(EPOLLIN);
         m_fdEvent.unregisterFromReactor();
     }
     m_fdEvent.setFd(kInvalidSocket);
@@ -258,7 +357,7 @@ bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *re
 
         // 从 socket 读取一批字节到 input buffer。
         char data[1024];
-        ssize_t n = ::read(m_fd, data, sizeof(data));
+        ssize_t n = ::recv(m_fd, data, sizeof(data), MSG_DONTWAIT);
         if (n > 0) {
             m_connection->appendClientInput(data, static_cast<size_t>(n));
             continue;
@@ -271,6 +370,20 @@ bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *re
         }
         if (errno == EINTR) {
             continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            struct pollfd pfd;
+            pfd.fd = m_fd;
+            pfd.events = POLLIN;
+            pfd.revents = 0;
+            int pr = ::poll(&pfd, 1, 5000);
+            if (pr > 0) {
+                continue;
+            }
+            m_errorCode = ERROR_TCP_RECV_FAILED;
+            m_errorInfo = "recvResponse EAGAIN wait failed";
+            disconnect();
+            return false;
         }
         m_errorCode = ERROR_TCP_RECV_FAILED;
         m_errorInfo = "read failed: " + std::string(std::strerror(errno));

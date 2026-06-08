@@ -41,8 +41,13 @@ class AsyncClientSession {
     bool recvResponse(const std::string& reqId, TinyPbStruct *response);
     bool flushOutput();
 
+    using ReadCallback = std::function<void(const TinyPbStruct&)>;
+    void setReadCallback(ReadCallback cb);
+    void startAsyncRead();
+
 
  private:
+    void handleRead();
     void registerFdEvent();
     void unregisterFdEvent();
 
@@ -55,6 +60,7 @@ class AsyncClientSession {
     TinyPbCodec::Ptr m_codec;
     Reactor *m_reactor {nullptr};
     FdEvent m_fdEvent;
+    ReadCallback m_readCallback;
 };
 
 }

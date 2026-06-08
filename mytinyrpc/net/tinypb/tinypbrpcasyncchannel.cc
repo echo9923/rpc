@@ -100,6 +100,10 @@ void TinyPbRpcAsyncChannel::CallMethod(
     }
 
     m_ioThread->addTask([this, context]() {
+        m_session->setReadCallback([this](const TinyPbStruct& resp) {
+            handleTinyPbResponse(resp);
+        });
+
         if (!m_session->isConnected()) {
             if (!m_session->connect()) {
                 std::string errorInfo = m_session->getErrorInfo();

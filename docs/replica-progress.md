@@ -1263,3 +1263,25 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
 - `sendRequest()` 未切换到异步 flush，留到任务 103 与读取循环一起升级。
 - 不做异步读取循环、乱序匹配、timeout 打断。
 
+### Task 103: Async read loop infrastructure and non-blocking socket
+
+Capabilities added:
+
+- AsyncClientSession socket switched to non-blocking after connect, enabling EPOLLIN/EPOLLOUT events.
+- handleRead: reads from non-blocking socket, appends input buffer, decodes TinyPB frames, routes each response through readCallback.
+- setReadCallback/startAsyncRead API: channel sets response handler before connect; EPOLLIN registered automatically.
+- sendRequest and recvResponse updated for non-blocking socket: EAGAIN triggers poll-based wait.
+- flushOutput removes only EPOLLOUT, preserving EPOLLIN state; unregisterFdEvent cleans both.
+- Sync fallback still uses poll-based recvResponse per IOThread task to ensure correctness.
+
+Verification:
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_tinypb_async_client
+```
+
+Current limitations:
+
+- Full EPOLLIN-driven delivery blocked by timing issue with rapid multi-request sends; task 104 will address.
+

@@ -47,3 +47,19 @@
 
 - `sendRequest()` 尚未切换到 `flushOutput()` + EPOLLOUT 异步模型，留到任务 103 统一升级。
 - 不做异步读取循环、乱序响应匹配。
+
+## Task 103: Async read loop infrastructure and non-blocking socket
+
+Capabilities added:
+
+- Session socket switched to non-blocking after connect for EPOLLIN/EPOLLOUT support.
+- EPOLLIN read loop: handleRead reads socket data, decodes TinyPB frames, routes responses through readCallback.
+- setReadCallback/startAsyncRead API for async response delivery.
+- sendRequest and recvResponse handle EAGAIN via poll-based wait on non-blocking socket.
+- Channel sets readCallback before connect; sync fallback still uses poll-based recvResponse per request.
+- flushOutput and EPOLLOUT registration preserve EPOLLIN state correctly.
+
+Current limitations:
+
+- Sync fallback still blocks IOThread task on recvResponse; full EPOLLIN-driven delivery deferred to task 104+.
+- Rapid multi-request EPOLLIN delivery has a timing issue under investigation.
