@@ -1212,3 +1212,31 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
 - `recv/send` 保留显式 hook 入口，不提供 libc 同名透明入口。
 - 不支持跨线程迁移协程，不实现 work stealing。
 - 协程栈池不使用 `mmap` 和 guard page。
+
+## 阶段 21：真正异步 RPC 网络路径
+
+### 任务一百零一：异步 Channel 网络会话对象
+
+已完成能力：
+
+- 新增 `mytinyrpc/net/asyncclientsession.h` 和 `asyncclientsession.cc`，管理异步 Channel 的长生命周期客户端连接。
+- `AsyncClientSession` 保存 peer addr、fd、客户端 `TcpConnection` 和 `TinyPbCodec`，负责 connect/sendRequest/recvResponse/disconnect。
+- `TinyPbRpcAsyncChannel` 构造时持有 `AsyncClientSession`，替代每次 IOThread 任务中创建临时 `TcpClient`。
+- sync fallback 路径改为 session 在 IOThread 上执行 connect → sendRequest → recvResponse，多次调用复用同一 session。
+- `stop()` 先断开 session 再停止 IOThread，防止 fd 泄漏。
+- `test_tinypb_rpc_async_channel` 和 `test_tinypb_async_client` 的测试服务器更新为 accept 一次后在同一连接上处理多个请求，验证 session 连接复用。
+- `CMakeLists.txt` 新增 `asyncclientsession.cc` 编译目标。
+
+验证命令：
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
+./build/test_tinypb_async_client
+./scripts/check_rpc_async.sh
+./scripts/check_rpc_sync.sh
+```
+
+当前限制：
+
+- Session 的 connect/send/recv 仍为阻塞式 IOThread 同步执行，后续任务升级为 Reactor 异步模型。
+- 不做连接池、负载均衡或异步发送队列。

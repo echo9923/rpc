@@ -36,6 +36,7 @@ set(SRC
     mytinyrpc/coroutine/coroutinehook.cc
     mytinyrpc/coroutine/coroutinepool.cc
     mytinyrpc/coroutine/memory.cc
+    mytinyrpc/net/asyncclientsession.cc
     mytinyrpc/net/fdevent.cc
     mytinyrpc/net/fdeventcontainer.cc
     mytinyrpc/net/fdutil.cc

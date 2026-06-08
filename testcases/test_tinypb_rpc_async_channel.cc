@@ -363,13 +363,13 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
     std::string serverError;
 
     std::thread serverThread([&]() {
-        for (int i = 0; i < kRequestCount; ++i) {
-            int clientFd = accept(m_listenFd, nullptr, nullptr);
-            if (clientFd < 0) {
-                serverError = std::strerror(errno);
-                return;
-            }
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
 
+        for (int i = 0; i < kRequestCount; ++i) {
             tinyrpc::TinyPbStruct decodedRequest;
             if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
                 closeIfValid(&clientFd);
@@ -410,9 +410,9 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
                 closeIfValid(&clientFd);
                 return;
             }
-            closeIfValid(&clientFd);
             serverHandled.fetch_add(1);
         }
+        closeIfValid(&clientFd);
     });
 
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));

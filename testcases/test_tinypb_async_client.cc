@@ -183,13 +183,13 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
     }
 
     std::thread serverThread([&]() {
-        for (int i = 0; i < kRequestCount; ++i) {
-            int clientFd = accept(listenFd, nullptr, nullptr);
-            if (clientFd < 0) {
-                *errorInfo = std::strerror(errno);
-                return;
-            }
+        int clientFd = accept(listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            *errorInfo = std::strerror(errno);
+            return;
+        }
 
+        for (int i = 0; i < kRequestCount; ++i) {
             tinyrpc::TinyPbStruct decodedRequest;
             if (!readTinyPbFromFd(clientFd, &decodedRequest, errorInfo)) {
                 closeIfValid(&clientFd);
@@ -233,8 +233,8 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
                 closeIfValid(&clientFd);
                 return;
             }
-            closeIfValid(&clientFd);
         }
+        closeIfValid(&clientFd);
     });
 
     tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", port));

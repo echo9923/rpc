@@ -2,7 +2,7 @@
 
 #include "comm/errorcode.h"
 #include "comm/reqid.h"
-#include "net/tcpclient.h"
+#include "net/timer.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbrpccontroller.h"
 
@@ -16,7 +16,8 @@ namespace tinyrpc {
 
 TinyPbRpcAsyncChannel::TinyPbRpcAsyncChannel(const IPAddress& peerAddr)
     : m_peerAddr(peerAddr),
-      m_ioThread(std::make_unique<IOThread>())
+      m_ioThread(std::make_unique<IOThread>()),
+      m_session(std::make_unique<AsyncClientSession>(peerAddr))
 {
 }
 
@@ -99,23 +100,41 @@ void TinyPbRpcAsyncChannel::CallMethod(
     }
 
     m_ioThread->addTask([this, context]() {
-        TinyPbStruct tinyResponse;
-        TcpClient client(m_peerAddr);
-        int timeoutMs = getControllerTimeout(context->m_controller);
-        if (timeoutMs > 0) {
-            client.setTimeout(timeoutMs);
+        if (!m_session->isConnected()) {
+            if (!m_session->connect()) {
+                std::string errorInfo = m_session->getErrorInfo();
+                if (errorInfo.empty()) {
+                    errorInfo = "async session connect failed";
+                }
+                int errorCode = m_session->getErrorCode() == 0
+                    ? ERROR_RPC_CHANNEL_NETWORK
+                    : m_session->getErrorCode();
+                finishPendingWithError(context->m_reqId, errorCode, errorInfo);
+                return;
+            }
         }
 
-        if (!client.sendAndRecvTinyPb(&context->m_tinyRequest, &tinyResponse)) {
-            std::string errorInfo = client.getErrorInfo();
+        if (!m_session->sendRequest(&context->m_tinyRequest)) {
+            std::string errorInfo = m_session->getErrorInfo();
             if (errorInfo.empty()) {
-                errorInfo = "TinyPB async network request failed";
+                errorInfo = "async session sendRequest failed";
             }
-            int errorCode = client.getErrorCode() == 0 ? ERROR_RPC_CHANNEL_NETWORK : client.getErrorCode();
-            if (errorCode == ERROR_TCP_TIMEOUT) {
-                errorCode = ERROR_RPC_ASYNC_TIMEOUT;
-                errorInfo = "async rpc request timeout, reqId = " + context->m_reqId;
+            int errorCode = m_session->getErrorCode() == 0
+                ? ERROR_RPC_CHANNEL_NETWORK
+                : m_session->getErrorCode();
+            finishPendingWithError(context->m_reqId, errorCode, errorInfo);
+            return;
+        }
+
+        TinyPbStruct tinyResponse;
+        if (!m_session->recvResponse(context->m_reqId, &tinyResponse)) {
+            std::string errorInfo = m_session->getErrorInfo();
+            if (errorInfo.empty()) {
+                errorInfo = "async session recvResponse failed";
             }
+            int errorCode = m_session->getErrorCode() == 0
+                ? ERROR_RPC_CHANNEL_NETWORK
+                : m_session->getErrorCode();
             finishPendingWithError(context->m_reqId, errorCode, errorInfo);
             return;
         }
@@ -206,6 +225,9 @@ bool TinyPbRpcAsyncChannel::cancel(const std::string& reqId)
 
 void TinyPbRpcAsyncChannel::stop()
 {
+    if (m_session != nullptr) {
+        m_session->disconnect();
+    }
     if (m_ioThread != nullptr) {
         m_ioThread->stop();
     }

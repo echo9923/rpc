@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net/asyncclientsession.h"
 #include "net/netaddress.h"
 #include "net/iothread.h"
 #include "net/tinypb/tinypbdata.h"
@@ -17,11 +18,6 @@ namespace tinyrpc {
 
 class TimerTask;
 
-// AsyncCallContext — 异步 RPC 调用上下文。
-//
-// 当前任务只建立生命周期外壳，因此上下文保存非拥有指针：
-// request/response/controller/closure 仍由 Protobuf Stub 调用方持有。
-// 后续任务会把上下文放入 pending map 并延长跨事件生命周期。
 struct AsyncCallContext {
     std::string m_reqId;
     std::string m_methodFullName;
@@ -35,10 +31,10 @@ struct AsyncCallContext {
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
 //
-// 当前已支持 reqId -> AsyncCallContext pending 表和 response 匹配。
-// 默认仍临时复用同步 TinyPbRpcChannel 完成网络请求；禁用同步 fallback 后，
-// CallMethod() 只注册 pending，等待 handleTinyPbResponse() 完成上下文。
-// 不包含并发异步 IO、连接池、异步超时和取消。
+// 当前已支持 reqId -> AsyncCallContext pending 表、response 匹配、
+// 超时和取消。内部持有一个 IOThread 和一个长生命周期 AsyncClientSession。
+// 默认仍通过 IOThread 同步执行网络请求（sync fallback），但连接由 session 管理，
+// 不再每次创建临时 TcpClient。
 class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  public:
     explicit TinyPbRpcAsyncChannel(const IPAddress& peerAddr);
@@ -87,6 +83,7 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     std::unordered_map<std::string, std::shared_ptr<AsyncCallContext>> m_pendingContexts;
     mutable std::mutex m_pendingMutex;
     std::unique_ptr<IOThread> m_ioThread;
+    std::unique_ptr<AsyncClientSession> m_session;
     bool m_syncFallbackEnabled {true};
 };
 

@@ -1,6 +1,5 @@
 #include "net/iothreadpool.h"
 
-#include <algorithm>
 #include <utility>
 
 namespace tinyrpc {
