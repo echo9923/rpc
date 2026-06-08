@@ -36,9 +36,10 @@ class AsyncClientSession {
 
     bool connect();
     void disconnect();
+    void shutdownSocket();
 
     bool sendRequest(TinyPbStruct *request);
-    bool recvResponse(const std::string& reqId, TinyPbStruct *response);
+    bool recvResponse(const std::string& reqId, TinyPbStruct *response, int timeoutMs = -1);
     bool flushOutput();
 
     using ReadCallback = std::function<void(const TinyPbStruct&)>;

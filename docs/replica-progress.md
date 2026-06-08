@@ -1303,3 +1303,18 @@ Current limitations:
 
 - Cancel after send but before response still waits for recvResponse in sync fallback; task 105 will address.
 
+### Task 105: Real TcpServer async RPC end-to-end verification
+
+Capabilities added:
+
+- test_tinypb_server_client --async-client mode: real TcpServer + TinyPbRpcAsyncChannel E2E test with success and cancel scenarios.
+- check_rpc_async.sh orchestrates real server lifecycle (start, probe, async-client, kill).
+- Thread-based TimeoutEntry with condition_variable wait/cancel, enabling future timeout interruption of blocking poll.
+- AsyncClientSession.shutdownSocket() and recvResponse timeoutMs parameter with elapsed-time tracking.
+- IOThread task detects m_timedOut after recvResponse failure for ERROR_RPC_ASYNC_TIMEOUT reporting.
+
+Verification:
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+# [rpc-async] PASS (includes sync safety net)
+
+Stage 21 complete: all 5 tasks done. Async Channel has session-based connection management, non-blocking socket infrastructure, EPOLLIN/EPOLLOUT, timeout/cancel/stop lifecycle, and real TcpServer E2E verification.

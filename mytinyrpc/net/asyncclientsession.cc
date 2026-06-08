@@ -8,6 +8,7 @@
 #include "net/timer.h"
 
 #include <cerrno>
+#include <chrono>
 #include <poll.h>
 #include <cstring>
 #include <sys/epoll.h>
@@ -99,6 +100,13 @@ bool AsyncClientSession::connect()
         startAsyncRead();
     }
     return true;
+}
+
+void AsyncClientSession::shutdownSocket()
+{
+    if (m_fd != kInvalidSocket) {
+        ::shutdown(m_fd, SHUT_RDWR);
+    }
 }
 
 void AsyncClientSession::disconnect()
@@ -333,7 +341,7 @@ void AsyncClientSession::unregisterFdEvent()
     m_fdEvent.setFd(kInvalidSocket);
 }
 
-bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *response)
+bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *response, int timeoutMs)
 {
     if (!m_isConnected || m_connection == nullptr || response == nullptr) {
         m_errorCode = ERROR_TCP_RECV_FAILED;
@@ -347,6 +355,9 @@ bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *re
     if (m_connection->getClientResponse(reqId, response)) {
         return true;
     }
+
+    auto startTime = std::chrono::steady_clock::now();
+    int defaultPollMs = (timeoutMs > 0) ? timeoutMs : 5000;
 
     // 循环读取 socket 数据，解码并匹配 reqId。
     while (true) {
@@ -372,17 +383,30 @@ bool AsyncClientSession::recvResponse(const std::string& reqId, TinyPbStruct *re
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // 计算剩余超时时间，避免快速响应场景下 poll 超过总超时。
+            int pollMs = defaultPollMs;
+            if (timeoutMs > 0) {
+                auto elapsed = std::chrono::steady_clock::now() - startTime;
+                int elapsedMs = static_cast<int>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+                pollMs = defaultPollMs - elapsedMs;
+                if (pollMs <= 0) {
+                    m_errorCode = ERROR_TCP_RECV_FAILED;
+                    m_errorInfo = "recvResponse timeout";
+                    return false;
+                }
+            }
+
             struct pollfd pfd;
             pfd.fd = m_fd;
             pfd.events = POLLIN;
             pfd.revents = 0;
-            int pr = ::poll(&pfd, 1, 5000);
+            int pr = ::poll(&pfd, 1, pollMs);
             if (pr > 0) {
                 continue;
             }
             m_errorCode = ERROR_TCP_RECV_FAILED;
             m_errorInfo = "recvResponse EAGAIN wait failed";
-            disconnect();
             return false;
         }
         m_errorCode = ERROR_TCP_RECV_FAILED;

@@ -8,17 +8,20 @@
  *   --probe <port>                  ：尝试建立 TCP 连接，用于脚本等待端口就绪。
  */
 
+#include "comm/errorcode.h"
 #include "net/netaddress.h"
 #include "net/tcpclient.h"
 #include "net/tcpserver.h"
 #include "net/tinypb/tinypbcodec.h"
 #include "net/tinypb/tinypbdispatcher.h"
 #include "net/tinypb/tinypbrpcchannel.h"
+#include "net/tinypb/tinypbrpcasyncchannel.h"
 #include "net/tinypb/tinypbrpccontroller.h"
 #include "test_tinypb_server.pb.h"
 
 #include <google/protobuf/service.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -152,10 +155,82 @@ int runProbe(uint16_t port)
     return 0;
 }
 
+int runAsyncClient(uint16_t port)
+{
+    tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress(kHost, port));
+    QueryService_Stub stub(&channel);
+
+    // Test 1: successful RPC
+    queryNameReq request;
+    request.set_req_no(10501);
+    request.set_id(20001);
+    request.set_type(1);
+
+    queryNameRes response;
+    tinyrpc::TinyPbRpcController controller;
+    std::atomic<int> doneCount{0};
+    class CountDone : public google::protobuf::Closure {
+     public:
+        CountDone(std::atomic<int> *c) : m_c(c) {}
+        void Run() override { m_c->fetch_add(1); delete this; }
+     private:
+        std::atomic<int> *m_c;
+    };
+    auto *done = new CountDone(&doneCount);
+
+    stub.query_name(&controller, &request, &response, done);
+
+    for (int i = 0; i < 100 && doneCount.load() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    if (doneCount.load() != 1) {
+        std::cerr << "[async-e2e] FAIL: done not called" << std::endl;
+        return 1;
+    }
+    if (controller.Failed()) {
+        std::cerr << "[async-e2e] FAIL: " << controller.ErrorText() << std::endl;
+        return 1;
+    }
+    if (response.name() != "Alice") {
+        std::cerr << "[async-e2e] FAIL: unexpected name=" << response.name() << std::endl;
+        return 1;
+    }
+
+    // Test 2: cancel before send (pre-cancelled controller)
+    queryNameReq req2;
+    req2.set_req_no(10502);
+    req2.set_id(20002);
+    req2.set_type(1);
+    queryNameRes res2;
+    tinyrpc::TinyPbRpcController ctrl2;
+    std::atomic<int> done2Count{0};
+    auto *done2 = new CountDone(&done2Count);
+
+    ctrl2.StartCancel();
+    stub.query_name(&ctrl2, &req2, &res2, done2);
+
+    for (int i = 0; i < 100 && done2Count.load() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    if (done2Count.load() != 1 || !ctrl2.Failed()
+        || ctrl2.getErrorCode() != tinyrpc::ERROR_RPC_ASYNC_CANCELED) {
+        std::cerr << "[async-e2e] FAIL: cancel not handled"
+                  << " done2Count=" << done2Count.load()
+                  << " failed=" << ctrl2.Failed()
+                  << " errorCode=" << ctrl2.getErrorCode() << std::endl;
+        return 1;
+    }
+
+    std::cout << "[async-e2e] PASS" << std::endl;
+    return 0;
+}
+
 void printUsage(const char *program)
 {
     std::cerr << "usage: " << program
-              << " --server|--client|--probe <port> | --server-multi <port> <threads>"
+              << " --server|--client|--async-client|--probe <port> | --server-multi <port> <threads>"
               << std::endl;
 }
 
@@ -201,6 +276,10 @@ int main(int argc, char **argv)
             return 1;
         }
         return runClient(port);
+    } else if (std::string(argv[1]) == "--async-client") {
+        if (argc < 3) { printUsage(argv[0]); return 1; }
+        uint16_t port = static_cast<uint16_t>(std::stoi(argv[2]));
+        return runAsyncClient(port);
     }
     if (mode == "--probe") {
         if (argc != 3) {

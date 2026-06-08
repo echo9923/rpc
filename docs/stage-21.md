@@ -76,3 +76,24 @@ Capabilities added:
 Verification:
 ./build/test_tinypb_rpc_async_channel  (12 tests)
 ./build/test_tinypb_async_client
+
+## Task 105: Real TcpServer async RPC end-to-end verification
+
+Capabilities added:
+
+- test_tinypb_server_client gains --async-client mode: creates TinyPbRpcAsyncChannel, runs success and cancel tests against a real TcpServer.
+- check_rpc_async.sh starts a real TcpServer, probes port readiness, runs async-client, then tears down the server.
+- Thread-based TimeoutEntry added alongside reactor TimerTask: enables future timeout interruption of blocking poll via socket shutdown.
+- AsyncClientSession gains shutdownSocket() and recvResponse timeoutMs parameter with elapsed-time tracking.
+- IOThread task checks m_timedOut flag after recvResponse failure to report ERROR_RPC_ASYNC_TIMEOUT.
+
+Verification:
+
+    MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+    # Output: [rpc-async] PASS
+
+Current limitations:
+
+- E2E test covers success and cancel; timeout with real server is impractical because local server responds faster than thread creation. Timeout is covered by unit tests (mock server) instead.
+- Sync fallback (IOThread blocking recvResponse) remains the default network path.
+- Rapid multi-request EPOLLIN delivery limitation from task 103 still applies.

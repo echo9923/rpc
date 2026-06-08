@@ -99,7 +99,9 @@ void TinyPbRpcAsyncChannel::CallMethod(
         return;
     }
 
-    m_ioThread->addTask([this, context]() {
+    int rpcTimeout = getControllerTimeout(context->m_controller);
+
+    m_ioThread->addTask([this, context, rpcTimeout]() {
         m_session->setReadCallback([this](const TinyPbStruct& resp) {
             handleTinyPbResponse(resp);
         });
@@ -139,7 +141,17 @@ void TinyPbRpcAsyncChannel::CallMethod(
         }
 
         TinyPbStruct tinyResponse;
-        if (!m_session->recvResponse(context->m_reqId, &tinyResponse)) {
+        if (!m_session->recvResponse(context->m_reqId, &tinyResponse, rpcTimeout)) {
+            // Check if the timeout thread already handled this request.
+            if (!hasPending(context->m_reqId)) {
+                return;
+            }
+            // If the timeout thread fired, report timeout error.
+            if (context->m_timedOut.load()) {
+                finishPendingWithError(context->m_reqId, ERROR_RPC_ASYNC_TIMEOUT,
+                    "async rpc request timeout, reqId = " + context->m_reqId);
+                return;
+            }
             std::string errorInfo = m_session->getErrorInfo();
             if (errorInfo.empty()) {
                 errorInfo = "async session recvResponse failed";
@@ -258,6 +270,9 @@ void TinyPbRpcAsyncChannel::failAllPending(int errorCode, const std::string& err
     }
     for (auto& ctx : contexts) {
         if (ctx == nullptr) continue;
+        if (ctx->m_timeoutEntry != nullptr) {
+            ctx->m_timeoutEntry->cancel();
+        }
         if (ctx->m_timeoutTask != nullptr) {
             ctx->m_timeoutTask->cancel();
         }
@@ -310,25 +325,25 @@ void TinyPbRpcAsyncChannel::registerPending(const std::shared_ptr<AsyncCallConte
 void TinyPbRpcAsyncChannel::registerTimeoutTask(const std::shared_ptr<AsyncCallContext>& context)
 {
     int timeoutMs = getControllerTimeout(context == nullptr ? nullptr : context->m_controller);
-    if (context == nullptr || context->m_reqId.empty() || timeoutMs <= 0 || m_ioThread == nullptr) {
+    if (context == nullptr || context->m_reqId.empty() || timeoutMs <= 0) {
         return;
     }
 
-    context->m_timeoutTask = std::make_shared<TimerTask>(timeoutMs, false, [this, reqId = context->m_reqId]() {
-        handleTimeout(reqId);
-    });
+    auto entry = std::make_shared<TimeoutEntry>();
+    context->m_timeoutEntry = entry;
+    std::string reqId = context->m_reqId;
+    auto ctx = context;
 
-    auto task = context->m_timeoutTask;
-    m_ioThread->addTask([this, task]() {
-        if (task == nullptr || task->isCanceled() || m_ioThread == nullptr) {
-            return;
+    std::thread([this, entry, reqId, ctx, timeoutMs]() {
+        if (entry->waitFor(std::chrono::milliseconds(timeoutMs))) {
+            ctx->m_timedOut.store(true);
+            // Shutdown the session socket to interrupt the blocking poll in recvResponse.
+            if (m_session != nullptr && m_session->isConnected()) {
+                m_session->shutdownSocket();
+            }
+            handleTimeout(reqId);
         }
-        auto *reactor = m_ioThread->getReactor();
-        if (reactor == nullptr || reactor->getTimer() == nullptr) {
-            return;
-        }
-        reactor->getTimer()->addTimerTask(task);
-    });
+    }).detach();
 }
 
 std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::string& reqId)
@@ -347,6 +362,9 @@ std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::
 
 void TinyPbRpcAsyncChannel::cancelTimeoutTask(const std::shared_ptr<AsyncCallContext>& context)
 {
+    if (context != nullptr && context->m_timeoutEntry != nullptr) {
+        context->m_timeoutEntry->cancel();
+    }
     if (context != nullptr && context->m_timeoutTask != nullptr) {
         context->m_timeoutTask->cancel();
     }

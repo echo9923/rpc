@@ -7,6 +7,9 @@
 
 #include <google/protobuf/service.h>
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -18,6 +21,27 @@ namespace tinyrpc {
 
 class TimerTask;
 
+struct TimeoutEntry {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool fired = false;
+    bool canceled = false;
+
+    void cancel() {
+        std::lock_guard<std::mutex> lock(mutex);
+        canceled = true;
+        cv.notify_all();
+    }
+
+    bool waitFor(std::chrono::milliseconds ms) {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait_for(lock, ms, [this] { return canceled; });
+        if (canceled) return false;
+        fired = true;
+        return true;
+    }
+};
+
 struct AsyncCallContext {
     std::string m_reqId;
     std::string m_methodFullName;
@@ -27,6 +51,8 @@ struct AsyncCallContext {
     google::protobuf::Message *m_response {nullptr};
     google::protobuf::Closure *m_done {nullptr};
     std::shared_ptr<TimerTask> m_timeoutTask;
+    std::shared_ptr<TimeoutEntry> m_timeoutEntry;
+    std::atomic<bool> m_timedOut {false};
 };
 
 // TinyPbRpcAsyncChannel 是 Protobuf Stub 的异步 RPC 外壳。
