@@ -31,6 +31,7 @@ set(SRC
     mytinyrpc/comm/reqid.cc
     mytinyrpc/comm/runtime.cc
     mytinyrpc/comm/start.cc
+    mytinyrpc/comm/thread_pool.cc
     mytinyrpc/coroutine/coctxswap.s
     mytinyrpc/coroutine/coroutine.cc
     mytinyrpc/coroutine/coroutinehook.cc
@@ -243,6 +244,12 @@ add_executable(test_iothread_pool
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(test_iothread_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
+add_executable(test_thread_pool
+    testcases/test_thread_pool.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_thread_pool ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
 add_executable(test_http_define
     testcases/test_http_define.cc
