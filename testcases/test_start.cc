@@ -38,12 +38,13 @@ class QueryServiceImpl : public QueryService {
 
 class StartHelloServlet : public tinyrpc::HttpServlet {
  public:
-    void handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
+    bool handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
     {
         (void)request;
         response->setStatusCode(tinyrpc::HttpStatusCode::OK);
         response->setHeader("Content-Type", "text/plain");
         response->setBody("start hello");
+        return true;
     }
 };
 

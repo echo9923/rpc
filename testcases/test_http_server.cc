@@ -24,13 +24,14 @@ constexpr const char *kHost = "127.0.0.1";
 
 class HelloServlet : public tinyrpc::HttpServlet {
  public:
-    void handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
+    bool handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
     {
         // request 当前只用于确认路由命中，响应内容保持固定便于脚本验收。
         (void)request;
         response->setStatusCode(tinyrpc::HttpStatusCode::OK);
         response->setHeader("Content-Type", "text/plain");
         response->setBody("hello http");
+        return true;
     }
 };
 

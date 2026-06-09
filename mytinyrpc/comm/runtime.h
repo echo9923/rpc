@@ -18,6 +18,7 @@ class RequestContext {
     const std::string& getReqId() const;
     const std::string& getInterfaceName() const;
     const std::string& getMethodName() const;
+    const std::string& getPath() const;
     const std::string& getLocalAddr() const;
     const std::string& getPeerAddr() const;
     ProtocolType getProtocolType() const;
@@ -28,7 +29,8 @@ class RequestContext {
         const std::string& methodName,
         const std::string& localAddr,
         const std::string& peerAddr,
-        ProtocolType protocolType
+        ProtocolType protocolType,
+        const std::string& path = ""
     );
     void clear();
 
@@ -36,6 +38,7 @@ class RequestContext {
     std::string m_reqId;
     std::string m_interfaceName;
     std::string m_methodName;
+    std::string m_path;
     std::string m_localAddr;
     std::string m_peerAddr;
     ProtocolType m_protocolType {ProtocolType::TinyPb};
@@ -67,7 +70,8 @@ class Runtime {
         const std::string& methodName,
         const std::string& localAddr,
         const std::string& peerAddr,
-        ProtocolType protocolType
+        ProtocolType protocolType,
+        const std::string& path = ""
     );
     void clearCurrentRequestContext();
 

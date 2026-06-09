@@ -4,6 +4,8 @@
 #include "net/http/httpresponse.h"
 #include "net/tcpconnection.h"
 
+#include <exception>
+
 namespace tinyrpc {
 
 namespace {
@@ -13,18 +15,21 @@ class RequestContextGuard {
     explicit RequestContextGuard(HttpRequest *request)
     {
         std::string reqId;
+        std::string method;
         std::string path;
         if (request != nullptr) {
             reqId = request->getHeader("X-Req-Id");
+            method = httpMethodToString(request->getMethod());
             path = request->getPath();
         }
         getRuntime().setCurrentRequestContext(
             reqId,
             "http",
-            path,
+            method,
             "local",
             "peer",
-            ProtocolType::Http
+            ProtocolType::Http,
+            path
         );
     }
 
@@ -43,7 +48,7 @@ HttpDispatcher::HttpDispatcher()
 
 bool HttpDispatcher::registerServlet(const std::string& path, HttpServlet::Ptr servlet)
 {
-    if (path.empty() || servlet == nullptr) {
+    if (path.empty() || path[0] != '/' || servlet == nullptr) {
         return false;
     }
 
@@ -76,7 +81,19 @@ void HttpDispatcher::dispatch(HttpRequest *request, HttpResponse *response)
     if (servlet == nullptr) {
         return;
     }
-    servlet->handle(request, response);
+
+    bool ok = false;
+    try {
+        ok = servlet->handle(request, response);
+    } catch (const std::exception&) {
+        ok = false;
+    } catch (...) {
+        ok = false;
+    }
+
+    if (!ok) {
+        response->setErrorResponse(HttpStatusCode::InternalServerError);
+    }
 }
 
 void HttpDispatcher::dispatch(AbstractData *data, TcpConnection *conn)

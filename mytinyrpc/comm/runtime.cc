@@ -27,6 +27,11 @@ const std::string& RequestContext::getMethodName() const
     return m_methodName;
 }
 
+const std::string& RequestContext::getPath() const
+{
+    return m_path;
+}
+
 const std::string& RequestContext::getLocalAddr() const
 {
     return m_localAddr;
@@ -48,12 +53,14 @@ void RequestContext::set(
     const std::string& methodName,
     const std::string& localAddr,
     const std::string& peerAddr,
-    ProtocolType protocolType
+    ProtocolType protocolType,
+    const std::string& path
 )
 {
     m_reqId = reqId;
     m_interfaceName = interfaceName;
     m_methodName = methodName;
+    m_path = path;
     m_localAddr = localAddr;
     m_peerAddr = peerAddr;
     m_protocolType = protocolType;
@@ -64,6 +71,7 @@ void RequestContext::clear()
     m_reqId.clear();
     m_interfaceName.clear();
     m_methodName.clear();
+    m_path.clear();
     m_localAddr.clear();
     m_peerAddr.clear();
     m_protocolType = ProtocolType::TinyPb;
@@ -171,10 +179,11 @@ void Runtime::setCurrentRequestContext(
     const std::string& methodName,
     const std::string& localAddr,
     const std::string& peerAddr,
-    ProtocolType protocolType
+    ProtocolType protocolType,
+    const std::string& path
 )
 {
-    t_requestContext.set(reqId, interfaceName, methodName, localAddr, peerAddr, protocolType);
+    t_requestContext.set(reqId, interfaceName, methodName, localAddr, peerAddr, protocolType, path);
 }
 
 void Runtime::clearCurrentRequestContext()

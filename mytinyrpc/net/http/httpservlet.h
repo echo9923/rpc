@@ -15,13 +15,13 @@ class HttpServlet {
 
     virtual ~HttpServlet() = default;
 
-    virtual void handle(HttpRequest *request, HttpResponse *response) = 0;
+    virtual bool handle(HttpRequest *request, HttpResponse *response) = 0;
 };
 
 // NotFoundHttpServlet 是默认兜底路由，统一生成 404 响应。
 class NotFoundHttpServlet : public HttpServlet {
  public:
-    void handle(HttpRequest *request, HttpResponse *response) override;
+    bool handle(HttpRequest *request, HttpResponse *response) override;
 };
 
 }

@@ -1392,3 +1392,28 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 不支持 gzip。
 - 不支持 streaming response。
 - 当前阶段统一关闭 HTTP 连接，不实现 keep-alive。
+
+### 任务一百零九：HTTP Servlet 分发补全
+
+已完成能力：
+
+- `HttpServlet::handle()` 改为返回 `bool`，成功返回 `true`，失败返回 `false`。
+- `HttpDispatcher` 支持注册 `/` root servlet。
+- 未注册 path 继续由默认 `NotFoundHttpServlet` 返回 404。
+- 重复注册返回 `false`，并保留旧 servlet。
+- servlet 返回 `false` 或抛出异常时，dispatcher 统一生成 500 响应。
+- HTTP request context 中 `interfaceName` 固定为 `http`，`methodName` 保存 HTTP method 文本，新增 `path` 字段保存 request path。
+- TinyPB request context 的 path 保持为空，原有接口调用点无需传入 path。
+
+验证命令：
+```bash
+./build/test_http_dispatcher
+./build/test_runtime
+./build/test_start
+```
+
+当前限制：
+
+- 不实现正则路由。
+- 不实现 path parameter。
+- servlet 异常只统一转成 500，不透出异常细节。
