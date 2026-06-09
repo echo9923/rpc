@@ -1,11 +1,6 @@
 #pragma once
 
-#include "interface.h"
+{{SERVER_HEADER_INCLUDES}}
 
-class {{SERVICE_NAME}}Server {
- public:
-    void start();
-
- private:
-    {{SERVICE_NAME}}Impl m_service;
-};
+{{PACKAGE_NAMESPACE_OPEN}}{{SERVER_HEADER_BODY}}
+{{PACKAGE_NAMESPACE_CLOSE}}

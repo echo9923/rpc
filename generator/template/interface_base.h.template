@@ -1,0 +1,7 @@
+#pragma once
+
+{{PACKAGE_NAMESPACE_OPEN}}class InterfaceBase {
+ public:
+    virtual ~InterfaceBase() = default;
+};
+{{PACKAGE_NAMESPACE_CLOSE}}

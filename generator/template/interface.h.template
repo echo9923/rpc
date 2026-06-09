@@ -1,10 +1,6 @@
 #pragma once
 
-#include "{{PROTO_HEADER}}"
+{{INTERFACE_HEADER_INCLUDES}}
 
-#include <google/protobuf/service.h>
-
-class {{SERVICE_NAME}}Impl : public {{SERVICE_NAME}} {
- public:
-{{RPC_METHOD_DECLARATIONS}}
-};
+{{PACKAGE_NAMESPACE_OPEN}}{{INTERFACE_HEADER_BODY}}
+{{PACKAGE_NAMESPACE_CLOSE}}

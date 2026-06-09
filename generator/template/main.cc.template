@@ -3,7 +3,7 @@
  */
 
 #include "comm/start.h"
-#include "server.h"
+#include "{{SERVICE_HEADER_INCLUDE}}"
 
 #include <iostream>
 #include <string>
@@ -23,7 +23,7 @@ int main(int argc, char **argv)
         std::cerr << "[{{SERVICE_NAME}}] start rpc server failed" << std::endl;
         return 1;
     }
-    if (!REGISTER_SERVICE({{SERVICE_NAME}}Impl)) {
+    if (!REGISTER_SERVICE({{QUALIFIED_SERVICE_IMPL}})) {
         std::cerr << "[{{SERVICE_NAME}}] register service failed" << std::endl;
         return 1;
     }

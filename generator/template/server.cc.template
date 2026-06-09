@@ -1,8 +1,6 @@
-#include "server.h"
+#include "{{SERVICE_HEADER_INCLUDE}}"
 
-#include <iostream>
+{{SERVER_SOURCE_INCLUDES}}
 
-void {{SERVICE_NAME}}Server::start()
-{
-    std::cout << "[{{SERVICE_NAME}}] start placeholder from generated server" << std::endl;
-}
+{{PACKAGE_NAMESPACE_OPEN}}{{SERVER_SOURCE_BODY}}
+{{PACKAGE_NAMESPACE_CLOSE}}

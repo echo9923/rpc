@@ -1,0 +1,22 @@
+#pragma once
+
+#include <stdexcept>
+#include <string>
+
+{{PACKAGE_NAMESPACE_OPEN}}class BusinessException : public std::runtime_error {
+ public:
+    BusinessException(int code, const std::string& message)
+        : std::runtime_error(message),
+          m_code(code)
+    {
+    }
+
+    int getCode() const
+    {
+        return m_code;
+    }
+
+ private:
+    int m_code;
+};
+{{PACKAGE_NAMESPACE_CLOSE}}

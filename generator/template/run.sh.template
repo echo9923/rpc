@@ -2,11 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${ROOT_DIR}/build"
-SERVER_BIN="${BUILD_DIR}/{{SERVICE_NAME}}_server"
-CLIENT_BIN="${BUILD_DIR}/{{SERVICE_NAME}}_client"
+SERVER_BIN="${ROOT_DIR}/{{SERVER_BIN_REL}}"
+CLIENT_BIN="${ROOT_DIR}/{{CLIENT_BIN_REL}}"
 PID_FILE="${ROOT_DIR}/.{{SERVICE_NAME}}.pid"
-LOG_FILE="${ROOT_DIR}/{{SERVICE_NAME}}.log"
+LOG_FILE="${ROOT_DIR}/{{LOG_FILE_REL}}"
 PORT="{{SERVER_PORT}}"
 SERVER_PID=""
 
@@ -36,7 +35,7 @@ fi
 
 trap stop_started_server ERR
 
-"${SERVER_BIN}" "${ROOT_DIR}/conf.xml" >"${LOG_FILE}" 2>&1 &
+"${SERVER_BIN}" "${ROOT_DIR}/{{CONFIG_FILE_REL}}" >"${LOG_FILE}" 2>&1 &
 SERVER_PID="$!"
 echo "${SERVER_PID}" >"${PID_FILE}"
 

@@ -19,9 +19,7 @@ include_directories(${MYTINYRPC_ROOT})
 include_directories(${MYTINYRPC_ROOT}/mytinyrpc)
 include_directories(${Protobuf_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
-
-protobuf_generate_cpp(GENERATED_PROTO_SRCS GENERATED_PROTO_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/{{PROTO_FILE}})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/{{PROJECT_NAME}}/pb)
 
 set(MYTINYRPC_SRC
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/config.cc
@@ -59,7 +57,7 @@ set(MYTINYRPC_SRC
     ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpcasyncchannel.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpcchannel.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/net/tinypb/tinypbrpccontroller.cc
-    ${GENERATED_PROTO_SRCS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/{{PROTO_SOURCE_REL}}
 )
 
 add_library(mytinyrpc_generated_core STATIC ${MYTINYRPC_SRC})
@@ -69,9 +67,7 @@ target_link_libraries(mytinyrpc_generated_core
 )
 
 add_executable({{SERVICE_NAME}}_server
-    main.cc
-    server.cc
-    interface.cc
+{{GENERATED_APP_SOURCES}}
 )
 target_link_libraries({{SERVICE_NAME}}_server
     mytinyrpc_generated_core
@@ -80,10 +76,12 @@ target_link_libraries({{SERVICE_NAME}}_server
 )
 
 add_executable({{SERVICE_NAME}}_client
-    client.cc
+    {{CLIENT_SOURCE_REL}}
 )
 target_link_libraries({{SERVICE_NAME}}_client
     mytinyrpc_generated_core
     ${Protobuf_LIBRARIES}
     Threads::Threads
 )
+
+{{CMAKE_OUTPUT_PROPERTIES}}

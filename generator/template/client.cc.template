@@ -2,11 +2,11 @@
  * Generated TinyRPC client placeholder for {{SERVICE_NAME}}.
  */
 
+#include "{{PROTO_INCLUDE}}"
 #include "net/netaddress.h"
 #include "net/tcpclient.h"
 #include "net/tinypb/tinypbrpcchannel.h"
 #include "net/tinypb/tinypbrpccontroller.h"
-#include "{{PROTO_HEADER}}"
 
 #include <google/protobuf/service.h>
 
@@ -35,7 +35,7 @@ bool parsePort(const char *text, uint16_t *port)
     return true;
 }
 
-bool call{{SERVICE_NAME}}({{SERVICE_NAME}}_Stub *stub, google::protobuf::RpcController *controller)
+bool call{{SERVICE_NAME}}({{QUALIFIED_STUB_TYPE}} *stub, tinyrpc::TinyPbRpcController *controller)
 {
     if (stub == nullptr || controller == nullptr) {
         std::cerr << "[{{SERVICE_NAME}}] invalid stub or controller" << std::endl;
@@ -49,7 +49,7 @@ bool call{{SERVICE_NAME}}({{SERVICE_NAME}}_Stub *stub, google::protobuf::RpcCont
 int runClient(uint16_t port)
 {
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress(kHost, port));
-    {{SERVICE_NAME}}_Stub stub(&channel);
+    {{QUALIFIED_STUB_TYPE}} stub(&channel);
     tinyrpc::TinyPbRpcController controller;
 
     if (!call{{SERVICE_NAME}}(&stub, &controller)) {

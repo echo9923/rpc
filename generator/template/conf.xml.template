@@ -10,7 +10,7 @@
         <max_connect_timeout_ms>5000</max_connect_timeout_ms>
     </network>
     <log>
-        <path>logs</path>
+        <path>{{LOG_DIR}}</path>
         <prefix>{{SERVICE_NAME}}</prefix>
         <max_size_mb>64</max_size_mb>
         <rpc_level>info</rpc_level>

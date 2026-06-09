@@ -1,0 +1,3 @@
+#include "{{PROJECT_NAME}}/interface/interface_base.h"
+
+{{PACKAGE_NAMESPACE_OPEN}}{{PACKAGE_NAMESPACE_CLOSE}}
