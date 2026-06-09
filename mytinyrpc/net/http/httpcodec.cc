@@ -13,6 +13,7 @@ namespace {
 
 constexpr const char *kHttpHeaderEnd = "\r\n\r\n";
 constexpr size_t kHttpHeaderEndLength = 4;
+constexpr const char *kHttpSchemePrefix = "http://";
 
 }
 
@@ -127,14 +128,14 @@ bool HttpCodec::parseRequestLine(const std::string& line, HttpRequest *request)
 {
     std::istringstream stream(line);
     std::string method;
-    std::string path;
+    std::string target;
     std::string version;
     std::string extra;
 
-    if (!(stream >> method >> path >> version) || (stream >> extra)) {
+    if (!(stream >> method >> target >> version) || (stream >> extra)) {
         return false;
     }
-    if (version.rfind("HTTP/", 0) != 0) {
+    if (version != "HTTP/1.0" && version != "HTTP/1.1") {
         return false;
     }
 
@@ -143,9 +144,77 @@ bool HttpCodec::parseRequestLine(const std::string& line, HttpRequest *request)
         return false;
     }
 
+    if (!parseRequestTarget(target, request)) {
+        return false;
+    }
+
     request->setMethod(parsedMethod);
-    request->setPath(path);
     request->setVersion(version);
+    return true;
+}
+
+bool HttpCodec::parseRequestTarget(const std::string& target, HttpRequest *request)
+{
+    if (target.empty() || request == nullptr) {
+        return false;
+    }
+
+    std::string pathAndQuery = target;
+    if (target.rfind(kHttpSchemePrefix, 0) == 0) {
+        size_t pathBegin = target.find('/', std::string(kHttpSchemePrefix).size());
+        if (pathBegin == std::string::npos) {
+            pathAndQuery = "/";
+        } else {
+            pathAndQuery = target.substr(pathBegin);
+        }
+    } else if (target[0] != '/') {
+        return false;
+    }
+
+    size_t queryBegin = pathAndQuery.find('?');
+    std::string path = queryBegin == std::string::npos ? pathAndQuery : pathAndQuery.substr(0, queryBegin);
+    std::string queryString = queryBegin == std::string::npos ? "" : pathAndQuery.substr(queryBegin + 1);
+    if (path.empty()) {
+        path = "/";
+    }
+    if (path[0] != '/') {
+        return false;
+    }
+
+    request->setRequestTarget(target);
+    request->setPath(path);
+    request->setQueryString(queryString);
+    request->clearQueryParams();
+    return parseQueryString(queryString, request);
+}
+
+bool HttpCodec::parseQueryString(const std::string& queryString, HttpRequest *request)
+{
+    if (request == nullptr || queryString.empty()) {
+        return true;
+    }
+
+    size_t begin = 0;
+    while (begin <= queryString.size()) {
+        size_t end = queryString.find('&', begin);
+        std::string pair = queryString.substr(
+            begin,
+            end == std::string::npos ? std::string::npos : end - begin
+        );
+
+        if (!pair.empty()) {
+            size_t equal = pair.find('=');
+            std::string key = equal == std::string::npos ? pair : pair.substr(0, equal);
+            std::string value = equal == std::string::npos ? "" : pair.substr(equal + 1);
+            request->setQueryParam(key, value);
+        }
+
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+
     return true;
 }
 

@@ -22,6 +22,60 @@ void HttpRequest::setPath(const std::string& path)
     m_path = path;
 }
 
+const std::string& HttpRequest::getRequestTarget() const
+{
+    return m_requestTarget;
+}
+
+void HttpRequest::setRequestTarget(const std::string& requestTarget)
+{
+    m_requestTarget = requestTarget;
+}
+
+const std::string& HttpRequest::getQueryString() const
+{
+    return m_queryString;
+}
+
+void HttpRequest::setQueryString(const std::string& queryString)
+{
+    m_queryString = queryString;
+}
+
+void HttpRequest::setQueryParam(const std::string& key, const std::string& value)
+{
+    if (key.empty()) {
+        return;
+    }
+
+    // 重复 query key 以后写覆盖先写，给上层业务稳定的确定语义。
+    m_queryParams[key] = value;
+}
+
+bool HttpRequest::hasQueryParam(const std::string& key) const
+{
+    return m_queryParams.find(key) != m_queryParams.end();
+}
+
+std::string HttpRequest::getQueryParam(const std::string& key) const
+{
+    auto it = m_queryParams.find(key);
+    if (it == m_queryParams.end()) {
+        return "";
+    }
+    return it->second;
+}
+
+const std::map<std::string, std::string>& HttpRequest::getQueryParams() const
+{
+    return m_queryParams;
+}
+
+void HttpRequest::clearQueryParams()
+{
+    m_queryParams.clear();
+}
+
 const std::string& HttpRequest::getVersion() const
 {
     return m_version;

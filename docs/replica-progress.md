@@ -1318,3 +1318,29 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 # [rpc-async] PASS (includes sync safety net)
 
 Stage 21 complete: all 5 tasks done. Async Channel has session-based connection management, non-blocking socket infrastructure, EPOLLIN/EPOLLOUT default delivery, pending reqId matching, timeout/cancel/stop lifecycle, and real TcpServer E2E verification.
+
+## 阶段 22：HTTP 协议栈补全
+
+### 任务一百零六：HTTP request line、URL 和 query 解析补全
+
+已完成能力：
+
+- `HttpRequest` 新增 request target、query string 和 query map 字段。
+- `HttpCodec` 支持解析 origin-form request target，例如 `/hello?name=alice`。
+- `HttpCodec` 支持解析 absolute-form request target，例如 `http://example.com/api?q=rpc`。
+- root path `/` 和空 query 可稳定解析。
+- query 参数重复 key 采用后值覆盖先值的确定策略。
+- request version 明确只接受 `HTTP/1.0` 和 `HTTP/1.1`。
+- 非法 method、非法 version 或非法 request target 会解析失败并消费当前坏包头部，避免重复解析同一坏包。
+
+验证命令：
+```bash
+./build.sh
+./build/test_http_codec
+```
+
+当前限制：
+
+- 不支持 CONNECT authority-form。
+- 不支持 HTTP/2 pseudo header。
+- query 参数当前不做 URL decode。

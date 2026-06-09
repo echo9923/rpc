@@ -26,6 +26,60 @@ TEST(HttpCodecTest, DecodeGetRequest)
     EXPECT_EQ(buffer.getReadableBytes(), 0u);
 }
 
+TEST(HttpCodecTest, DecodeOriginFormTargetWithQuery)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("GET /hello?name=alice&empty=&name=bob HTTP/1.1\r\nHost: local\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_EQ(request.getRequestTarget(), "/hello?name=alice&empty=&name=bob");
+    EXPECT_EQ(request.getPath(), "/hello");
+    EXPECT_EQ(request.getQueryString(), "name=alice&empty=&name=bob");
+    EXPECT_TRUE(request.hasQueryParam("name"));
+    EXPECT_EQ(request.getQueryParam("name"), "bob");
+    EXPECT_EQ(request.getQueryParam("empty"), "");
+    EXPECT_FALSE(request.hasQueryParam("missing"));
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeAbsoluteFormTargetWithQuery)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("GET http://example.com:8080/api/search?q=rpc HTTP/1.0\r\nHost: example.com\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_EQ(request.getRequestTarget(), "http://example.com:8080/api/search?q=rpc");
+    EXPECT_EQ(request.getPath(), "/api/search");
+    EXPECT_EQ(request.getQueryString(), "q=rpc");
+    EXPECT_EQ(request.getQueryParam("q"), "rpc");
+    EXPECT_EQ(request.getVersion(), "HTTP/1.0");
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeRootPathAndEmptyQuery)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("GET /? HTTP/1.1\r\nHost: local\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_EQ(request.getPath(), "/");
+    EXPECT_EQ(request.getQueryString(), "");
+    EXPECT_TRUE(request.getQueryParams().empty());
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
 TEST(HttpCodecTest, DecodePostRequestWithContentLength)
 {
     tinyrpc::TcpBuffer buffer;
@@ -68,6 +122,32 @@ TEST(HttpCodecTest, DecodeInvalidRequestLineFailsAndConsumesBadPacket)
 {
     tinyrpc::TcpBuffer buffer;
     buffer.append("GET_ONLY_TWO_PARTS /bad\r\nHost: local\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_FALSE(request.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeInvalidMethodFailsAndConsumesBadPacket)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("PUT /hello HTTP/1.1\r\nHost: local\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_FALSE(request.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeInvalidVersionFailsAndConsumesBadPacket)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("GET /hello HTTP/2.0\r\nHost: local\r\n\r\n");
 
     tinyrpc::HttpCodec codec;
     tinyrpc::HttpRequest request;

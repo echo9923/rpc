@@ -24,6 +24,8 @@ class HttpCodec : public AbstractCodec {
 
  private:
     static bool parseRequestLine(const std::string& line, HttpRequest *request);
+    static bool parseRequestTarget(const std::string& target, HttpRequest *request);
+    static bool parseQueryString(const std::string& queryString, HttpRequest *request);
     static bool parseHeaderLine(const std::string& line, HttpRequest *request);
     static bool parseContentLength(const HttpRequest& request, size_t *contentLength);
     static std::string trim(const std::string& text);
