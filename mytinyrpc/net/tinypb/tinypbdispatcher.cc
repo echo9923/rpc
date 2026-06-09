@@ -220,9 +220,10 @@ bool TinyPbDispatcher::parseServiceFullName(
         return false;
     }
 
-    // 以第一个 '.' 为分隔，左侧为服务名，右侧为方法名。
+    // 以最后一个 '.' 为分隔，左侧为服务全名，右侧为方法名。
     // 例如 "QueryService.query_name" → serviceName="QueryService", methodName="query_name"。
-    auto dotPos = fullName.find('.');
+    // 例如 "demo.QueryService.query_name" → serviceName="demo.QueryService", methodName="query_name"。
+    auto dotPos = fullName.rfind('.');
     if (dotPos == std::string::npos) {
         return false;
     }
