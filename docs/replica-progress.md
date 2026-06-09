@@ -1344,3 +1344,28 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 不支持 CONNECT authority-form。
 - 不支持 HTTP/2 pseudo header。
 - query 参数当前不做 URL decode。
+
+### 任务一百零七：HTTP header 和 body 解析增强
+
+已完成能力：
+
+- `HttpRequest` 的 header name 按小写规范化保存。
+- `hasHeader()` 和 `getHeader()` 支持大小写不敏感查询。
+- 同名 header 采用后值覆盖先值的确定策略。
+- header value 在 codec 解析阶段去除首尾空白。
+- `Content-Length` 支持大小写不敏感读取。
+- `Content-Length` 非数字、负数、尾部脏字符或超过 `1 MiB` 时解析失败。
+- POST 没有 body 时可按空 body 成功解析。
+- body 半包仍保持不消费 buffer，等待后续字节补齐。
+
+验证命令：
+```bash
+./build/test_http_codec
+./scripts/check_stage12_http.sh
+```
+
+当前限制：
+
+- 不支持 chunked body。
+- 不支持 multipart。
+- HTTP body 上限固定为 `1 MiB`，暂未接入配置项。

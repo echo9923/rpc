@@ -44,6 +44,8 @@ class HttpRequest : public AbstractData {
     void setBody(const std::string& body);
 
  private:
+    static std::string normalizeHeaderKey(const std::string& key);
+
     HttpMethod m_method {HttpMethod::UNKNOWN};
     std::string m_requestTarget {"/"};
     std::string m_path {"/"};

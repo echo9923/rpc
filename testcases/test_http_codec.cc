@@ -97,6 +97,54 @@ TEST(HttpCodecTest, DecodePostRequestWithContentLength)
     EXPECT_EQ(buffer.getReadableBytes(), 0u);
 }
 
+TEST(HttpCodecTest, DecodeHeaderLookupIsCaseInsensitive)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("POST /submit HTTP/1.1\r\nHOST: local\r\ncontent-length: 5\r\n\r\nhello");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_TRUE(request.hasHeader("host"));
+    EXPECT_TRUE(request.hasHeader("HOST"));
+    EXPECT_EQ(request.getHeader("Host"), "local");
+    EXPECT_EQ(request.getHeader("Content-Length"), "5");
+    EXPECT_EQ(request.getHeader("content-length"), "5");
+    EXPECT_EQ(request.getBody(), "hello");
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeDuplicateHeaderKeepsLastValue)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("GET /hello HTTP/1.1\r\nHost: first\r\nhost: second\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_EQ(request.getHeader("Host"), "second");
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodePostWithoutBodySucceeds)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("POST /submit HTTP/1.1\r\nHost: local\r\n\r\n");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_TRUE(request.m_decodeSucc);
+    EXPECT_EQ(request.getMethod(), tinyrpc::HttpMethod::POST);
+    EXPECT_TRUE(request.getBody().empty());
+    EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
 TEST(HttpCodecTest, DecodeHalfPacketKeepsBufferUntilComplete)
 {
     tinyrpc::TcpBuffer buffer;
@@ -116,6 +164,45 @@ TEST(HttpCodecTest, DecodeHalfPacketKeepsBufferUntilComplete)
     EXPECT_TRUE(second.m_decodeSucc);
     EXPECT_EQ(second.getBody(), "hello world");
     EXPECT_EQ(buffer.getReadableBytes(), 0u);
+}
+
+TEST(HttpCodecTest, DecodeInvalidContentLengthFailsAndConsumesBadPacket)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("POST /submit HTTP/1.1\r\nContent-Length: 1x\r\n\r\nhello");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_FALSE(request.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), 5u);
+}
+
+TEST(HttpCodecTest, DecodeNegativeContentLengthFailsAndConsumesBadPacket)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("POST /submit HTTP/1.1\r\nContent-Length: -1\r\n\r\nhello");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_FALSE(request.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), 5u);
+}
+
+TEST(HttpCodecTest, DecodeTooLargeContentLengthFailsAndConsumesBadPacket)
+{
+    tinyrpc::TcpBuffer buffer;
+    buffer.append("POST /submit HTTP/1.1\r\nContent-Length: 1048577\r\n\r\nhello");
+
+    tinyrpc::HttpCodec codec;
+    tinyrpc::HttpRequest request;
+    codec.decode(&buffer, &request);
+
+    EXPECT_FALSE(request.m_decodeSucc);
+    EXPECT_EQ(buffer.getReadableBytes(), 5u);
 }
 
 TEST(HttpCodecTest, DecodeInvalidRequestLineFailsAndConsumesBadPacket)

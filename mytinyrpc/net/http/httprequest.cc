@@ -1,5 +1,7 @@
 #include "net/http/httprequest.h"
 
+#include <cctype>
+
 namespace tinyrpc {
 
 HttpMethod HttpRequest::getMethod() const
@@ -89,17 +91,21 @@ void HttpRequest::setVersion(const std::string& version)
 void HttpRequest::setHeader(const std::string& key, const std::string& value)
 {
     // 同名 header 后写覆盖先写，保持最小数据结构语义。
-    m_headers[key] = value;
+    std::string normalizedKey = normalizeHeaderKey(key);
+    if (normalizedKey.empty()) {
+        return;
+    }
+    m_headers[normalizedKey] = value;
 }
 
 bool HttpRequest::hasHeader(const std::string& key) const
 {
-    return m_headers.find(key) != m_headers.end();
+    return m_headers.find(normalizeHeaderKey(key)) != m_headers.end();
 }
 
 std::string HttpRequest::getHeader(const std::string& key) const
 {
-    auto it = m_headers.find(key);
+    auto it = m_headers.find(normalizeHeaderKey(key));
     if (it == m_headers.end()) {
         return "";
     }
@@ -119,6 +125,16 @@ const std::string& HttpRequest::getBody() const
 void HttpRequest::setBody(const std::string& body)
 {
     m_body = body;
+}
+
+std::string HttpRequest::normalizeHeaderKey(const std::string& key)
+{
+    std::string result;
+    result.reserve(key.size());
+    for (char ch : key) {
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    return result;
 }
 
 }

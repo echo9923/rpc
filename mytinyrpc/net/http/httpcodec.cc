@@ -4,6 +4,8 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <cerrno>
+#include <climits>
 #include <sstream>
 #include <string>
 
@@ -14,6 +16,7 @@ namespace {
 constexpr const char *kHttpHeaderEnd = "\r\n\r\n";
 constexpr size_t kHttpHeaderEndLength = 4;
 constexpr const char *kHttpSchemePrefix = "http://";
+constexpr size_t kMaxHttpBodySize = 1024 * 1024;
 
 }
 
@@ -248,8 +251,12 @@ bool HttpCodec::parseContentLength(const HttpRequest& request, size_t *contentLe
     }
 
     char *end = nullptr;
-    unsigned long parsed = std::strtoul(value.c_str(), &end, 10);
-    if (end == value.c_str() || *end != '\0') {
+    errno = 0;
+    long long parsed = std::strtoll(value.c_str(), &end, 10);
+    if (end == value.c_str() || *end != '\0' || errno == ERANGE || parsed < 0) {
+        return false;
+    }
+    if (static_cast<unsigned long long>(parsed) > kMaxHttpBodySize) {
         return false;
     }
 
