@@ -26,12 +26,35 @@ class HelloServlet : public tinyrpc::HttpServlet {
  public:
     bool handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
     {
-        // request 当前只用于确认路由命中，响应内容保持固定便于脚本验收。
-        (void)request;
         response->setStatusCode(tinyrpc::HttpStatusCode::OK);
         response->setHeader("Content-Type", "text/plain");
-        response->setBody("hello http");
+        if (request != nullptr && request->hasQueryParam("name")) {
+            response->setBody("hello " + request->getQueryParam("name"));
+        } else {
+            response->setBody("hello http");
+        }
         return true;
+    }
+};
+
+class SubmitServlet : public tinyrpc::HttpServlet {
+ public:
+    bool handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
+    {
+        response->setStatusCode(tinyrpc::HttpStatusCode::OK);
+        response->setHeader("Content-Type", "text/plain");
+        response->setBody(request == nullptr ? "" : request->getBody());
+        return true;
+    }
+};
+
+class ErrorServlet : public tinyrpc::HttpServlet {
+ public:
+    bool handle(tinyrpc::HttpRequest *request, tinyrpc::HttpResponse *response) override
+    {
+        (void)request;
+        (void)response;
+        return false;
     }
 };
 
@@ -57,6 +80,14 @@ int runServer(uint16_t port)
     auto dispatcher = std::make_shared<tinyrpc::HttpDispatcher>();
     if (!dispatcher->registerServlet("/hello", std::make_shared<HelloServlet>())) {
         std::cerr << "[stage12-server] register /hello failed" << std::endl;
+        return 1;
+    }
+    if (!dispatcher->registerServlet("/submit", std::make_shared<SubmitServlet>())) {
+        std::cerr << "[stage12-server] register /submit failed" << std::endl;
+        return 1;
+    }
+    if (!dispatcher->registerServlet("/error", std::make_shared<ErrorServlet>())) {
+        std::cerr << "[stage12-server] register /error failed" << std::endl;
         return 1;
     }
 

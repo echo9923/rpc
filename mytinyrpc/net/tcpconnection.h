@@ -67,6 +67,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     void coroutineReadLoop();
     bool input();
     void output();
+    bool shouldCloseAfterOutput() const;
     std::unique_ptr<AbstractData> createProtocolData() const;
 
  private:

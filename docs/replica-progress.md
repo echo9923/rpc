@@ -1417,3 +1417,30 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 不实现正则路由。
 - 不实现 path parameter。
 - servlet 异常只统一转成 500，不透出异常细节。
+
+### 任务一百一十：HTTP 连接语义和脚本收口
+
+已完成能力：
+
+- `TcpConnection` 在服务端 HTTP 响应写完后主动关闭连接。
+- TinyPB 服务端、TcpClient 客户端连接和无 codec Echo 路径保持原有连接语义。
+- `test_http_server` 增加 `/hello?name=alice` query 验收路由。
+- `test_http_server` 增加 `/submit` POST body 回显路由。
+- `test_http_server` 增加 `/error` 500 错误响应路由。
+- `scripts/check_stage12_http.sh` 覆盖 `/hello`、query、404、500、POST body、`Connection: close` 和 `Content-Length`。
+- 新增 `docs/stage-22.md`，汇总 HTTP 当前支持矩阵和不支持范围。
+- `docs/original-coverage-matrix.md` 将 HTTP 更新为已复刻核心语义。
+
+验证命令：
+```bash
+./scripts/check_stage12_http.sh
+./scripts/check_all.sh
+```
+
+当前限制：
+
+- 不支持 HTTPS / HTTP2 / chunked / multipart。
+- 不支持 streaming response。
+- 不支持 keep-alive。
+
+阶段 22 已完成。HTTP 协议栈已经具备 HTTP/1.0/1.1 GET/POST、origin-form/absolute-form request target、query map、大小写无关 header、Content-Length body、默认 response header、精确路径/root servlet、错误响应和统一关闭连接语义。下一步可以进入阶段 23，补齐生成器完整化。

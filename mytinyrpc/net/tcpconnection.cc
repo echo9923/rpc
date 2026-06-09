@@ -407,6 +407,19 @@ void TcpConnection::output()
         m_fdEvent.delListenEvent(EPOLLOUT);
         m_fdEvent.updateToReactor();
     }
+
+    if (!m_isClosed && m_outputBuffer.getReadableBytes() == 0 && shouldCloseAfterOutput()) {
+        closeWithCallback();
+    }
+}
+
+bool TcpConnection::shouldCloseAfterOutput() const
+{
+    // 阶段 22 明确不实现 HTTP keep-alive；HTTP 响应写完后主动关闭连接。
+    // TinyPB 服务端、TcpClient 客户端连接和无 codec 的 Echo 路径保持原有长连接语义。
+    return m_connectionType == TcpConnectionType::ServerConnection
+        && m_codec != nullptr
+        && m_codec->getProtocolType() == ProtocolType::Http;
 }
 
 }

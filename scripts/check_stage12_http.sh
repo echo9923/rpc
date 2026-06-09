@@ -18,7 +18,7 @@ trap cleanup EXIT
 cd "${ROOT_DIR}"
 
 if [[ ! -x "${SERVER_BIN}" ]]; then
-    echo "[stage12] missing executable: ${SERVER_BIN}"
+    echo "[stage12-http] missing executable: ${SERVER_BIN}"
     exit 1
 fi
 
@@ -33,17 +33,29 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 
-http_get() {
-    local path="$1"
-    local response
-    response="$(
-        printf "GET %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" "${path}" \
-            | nc -w 3 127.0.0.1 "${PORT}"
-    )"
+http_request() {
+    local method="$1"
+    local path="$2"
+    local body="${3:-}"
+    local length="${#body}"
 
-    printf "%s" "${response}" | awk '
+    if [[ "${method}" == "POST" ]]; then
+        printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s" \
+            "${method}" "${path}" "${length}" "${body}" \
+            | nc -w 3 127.0.0.1 "${PORT}"
+    else
+        printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" "${method}" "${path}" \
+            | nc -w 3 127.0.0.1 "${PORT}"
+    fi
+}
+
+http_status() {
+    printf "%s" "$1" | awk 'NR == 1 { print $2 }'
+}
+
+http_body() {
+    printf "%s" "$1" | awk '
         NR == 1 {
-            print $2
             next
         }
         body_started {
@@ -56,30 +68,96 @@ http_get() {
     ' | tr -d '\r'
 }
 
-hello_response="$(http_get "/hello")"
-hello_status="$(printf "%s" "${hello_response}" | sed -n '1p')"
-hello_body="$(printf "%s" "${hello_response}" | sed -n '2,$p')"
+http_header() {
+    local response="$1"
+    local header_name="$2"
+
+    printf "%s" "${response}" | awk -v target="${header_name}" '
+        BEGIN {
+            lower_target = tolower(target)
+        }
+        NR == 1 {
+            next
+        }
+        $0 == "\r" || $0 == "" {
+            exit
+        }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            colon = index(line, ":")
+            if (colon == 0) {
+                next
+            }
+            name = tolower(substr(line, 1, colon - 1))
+            value = substr(line, colon + 1)
+            sub(/^[ ]+/, "", value)
+            if (name == lower_target) {
+                print value
+                exit
+            }
+        }
+    '
+}
+
+assert_response() {
+    local label="$1"
+    local response="$2"
+    local expected_status="$3"
+    local expected_body="$4"
+
+    local status
+    local body
+    local connection
+    local content_length
+
+    status="$(http_status "${response}")"
+    body="$(http_body "${response}")"
+    connection="$(http_header "${response}" "Connection")"
+    content_length="$(http_header "${response}" "Content-Length")"
+
+    if [[ "${status}" != "${expected_status}" ]]; then
+        echo "[stage12-http] unexpected ${label} status: ${status}"
+        exit 1
+    fi
+    if [[ "${body}" != "${expected_body}" ]]; then
+        echo "[stage12-http] unexpected ${label} body: ${body}"
+        exit 1
+    fi
+    if [[ "${connection}" != "close" ]]; then
+        echo "[stage12-http] unexpected ${label} connection: ${connection}"
+        exit 1
+    fi
+    if [[ "${content_length}" != "${#expected_body}" ]]; then
+        echo "[stage12-http] unexpected ${label} content-length: ${content_length}"
+        exit 1
+    fi
+}
+
+hello_response="$(http_request "GET" "/hello")"
+hello_status="$(http_status "${hello_response}")"
+hello_body="$(http_body "${hello_response}")"
 if [[ "${hello_status}" != "200" ]]; then
-    echo "[stage12] unexpected /hello status: ${hello_status}"
+    echo "[stage12-http] unexpected /hello status: ${hello_status}"
     exit 1
 fi
 if [[ "${hello_body}" != "hello http" ]]; then
-    echo "[stage12] unexpected /hello body: ${hello_body}"
+    echo "[stage12-http] unexpected /hello body: ${hello_body}"
     exit 1
 fi
 
-missing_response="$(http_get "/missing")"
-missing_status="$(printf "%s" "${missing_response}" | sed -n '1p')"
-missing_body="$(printf "%s" "${missing_response}" | sed -n '2,$p')"
+assert_response "/hello header" "${hello_response}" "200" "hello http"
 
-if [[ "${missing_status}" != "404" ]]; then
-    echo "[stage12] unexpected /missing status: ${missing_status}"
-    exit 1
-fi
+query_response="$(http_request "GET" "/hello?name=alice")"
+assert_response "/hello query" "${query_response}" "200" "hello alice"
 
-if [[ "${missing_body}" != "404 Not Found" ]]; then
-    echo "[stage12] unexpected /missing body: ${missing_body}"
-    exit 1
-fi
+missing_response="$(http_request "GET" "/missing")"
+assert_response "/missing" "${missing_response}" "404" "Not Found"
 
-echo "[stage12] PASS"
+error_response="$(http_request "GET" "/error")"
+assert_response "/error" "${error_response}" "500" "Internal Server Error"
+
+post_response="$(http_request "POST" "/submit" "posted body")"
+assert_response "/submit" "${post_response}" "200" "posted body"
+
+echo "[stage12-http] PASS"
