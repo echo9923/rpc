@@ -53,8 +53,8 @@
     - 关键收获：成功响应、网络失败、超时和取消都必须通过同一个 pending 仲裁入口，避免二次回调。
 
 13. 生成器与示例工程
-    - 从简单 proto 生成 service 实现占位、client 调用、CMake 工程和 run/shutdown 脚本。
-    - 关键收获：生成器先服务于可理解、可运行，不急于完整解析 Protobuf。
+    - 从 proto 生成 simple/full 两种业务工程，包含 Protobuf 产物、service/interface/test client、CMake 工程和 run/shutdown 脚本。
+    - 关键收获：descriptor-set 比直接解析 `.pb.h` 更稳定，生成器要同时保证目录完整和生成工程可运行。
 
 14. 工程收口
     - 补齐目录说明、覆盖矩阵、一键全量回归、examples 和学习总结。
@@ -87,7 +87,7 @@
 - 不做完整连接池和负载均衡。
 - 不做 HTTPS、HTTP/2、chunked 或 streaming response。
 - 不做完整 tracing 系统。
-- 不做完整 Protobuf parser。
+- 不做 streaming RPC、proto2 特殊语义或多语言生成。
 - 不做性能压测报告。
 
 更详细的覆盖状态见 [原 TinyRPC 功能覆盖矩阵](original-coverage-matrix.md)。
@@ -97,5 +97,5 @@
 1. 给 `TcpServer` 增加框架层 `stop()`，替代脚本杀进程。
 2. 把异步 RPC 的网络路径从“IOThread 内同步 TcpClient”继续推进到真正非阻塞连接。
 3. 为 HTTP 增加大小写无关 header、keep-alive 边界和更多错误响应。
-4. 让生成器理解 package / namespace，并生成更真实的业务字段填充样例。
+4. 为生成器补充更真实的业务字段填充样例和发布级工程打包。
 5. 根据需要再规划连接池、负载均衡和 tracing，而不是提前塞入主链路。

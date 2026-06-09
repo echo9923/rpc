@@ -1,6 +1,6 @@
 # Generated Project Example
 
-This example verifies the generator can create a project that builds, starts a TinyPB server, runs a generated client, and shuts down.
+This example verifies the generator can create simple and full layout projects that build, start a TinyPB server, run a generated client, and shut down.
 
 ## Run
 
@@ -15,7 +15,7 @@ Expected final output:
 [generator] PASS
 ```
 
-The generated project is written under `build/generated_task81_project/`.
+The script writes generated projects under `build/generated_task115_simple_project/` and `build/generated_task115_full_project/`.
 
 ## Manual Generator Command
 
@@ -23,6 +23,7 @@ The generated project is written under `build/generated_task81_project/`.
 python3 generator/tinyrpc_generator.py \
   --proto testcases/test_tinypb_server.proto \
   --service QueryService \
+  --layout full \
   --out build/generated_manual_project
 
 cmake -S build/generated_manual_project \
@@ -30,9 +31,11 @@ cmake -S build/generated_manual_project \
   -DMYTINYRPC_ROOT="$(pwd)"
 cmake --build build/generated_manual_project/build
 bash build/generated_manual_project/run.sh
-./build/generated_manual_project/build/QueryService_client --client 39999
+./build/generated_manual_project/bin/QueryService_client --client 39999
 bash build/generated_manual_project/shutdown.sh
 ```
+
+Omit `--layout full` to keep the backward-compatible simple layout. The simple layout stores generated files in the output root and places binaries under `build/`.
 
 ## Source Pointers
 
@@ -43,4 +46,4 @@ bash build/generated_manual_project/shutdown.sh
 
 ## Boundary
 
-The generator intentionally supports a small proto subset: a service block with unary rpc methods in the same file. It does not implement a complete Protobuf parser or IDE project generation.
+The generator uses `protoc` to generate C++ Protobuf files and descriptor-set metadata, then generates method interface classes, a service adapter, a test client, and run/shutdown scripts. It currently supports unary RPC only; streaming RPC, proto2-specific behavior, multi-language generation, and IDE project generation are outside this example.

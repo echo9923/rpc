@@ -2,6 +2,8 @@
 
 阶段 16 的目标是让 MyTinyRPC 具备生成最小业务工程骨架的能力。当前已经支持模板复制、简单 proto service/method 识别、业务接口骨架生成，以及生成工程的构建、启动、调用和关闭验收。
 
+> 后续状态：阶段 23 已在本阶段最小生成器基础上补齐 `full` layout、`protoc` 产物生成、descriptor-set 解析、method interface 和 test client。本文保留阶段 16 当时的设计边界，用于理解演进过程；当前生成器能力以 [阶段 23：生成器完整化](stage-23.md) 为准。
+
 ## 任务七十九：生成器 CLI 和模板复制
 
 已完成能力：

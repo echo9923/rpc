@@ -1,6 +1,6 @@
 # MyTinyRPC
 
-MyTinyRPC is a staged TinyRPC learning project. It now covers the main learning path from a blocking TCP Echo Server to Reactor/Timer, multi-Reactor TCP server, TinyPB synchronous and asynchronous RPC, HTTP server support, runtime startup helpers, coroutine hooks, a generated-project workflow, and final regression scripts.
+MyTinyRPC is a staged TinyRPC learning project. It now covers the main learning path from a blocking TCP Echo Server to Reactor/Timer, multi-Reactor TCP server, TinyPB synchronous and asynchronous RPC, HTTP server support, runtime startup helpers, coroutine hooks, a full generated-project workflow, and final regression scripts.
 
 ## Quick Start
 
@@ -44,7 +44,7 @@ Core directories:
 - `mytinyrpc/comm`: config, log, runtime, startup, error code, and request id.
 - `mytinyrpc/net`: Reactor, Timer, TCP client/server, IOThread, HTTP, and TinyPB.
 - `mytinyrpc/coroutine`: coroutine, hook, pool, and fixed memory pool.
-- `generator`: TinyRPC generated-project CLI and templates.
+- `generator`: TinyRPC generated-project CLI and templates, including simple/full layouts and protoc integration.
 - `testcases`: unit tests and script-driven acceptance programs.
 - `scripts`: stage checks and regression scripts.
 - `examples`: runnable example notes for sync RPC, async RPC, HTTP server, and generated projects.
@@ -113,12 +113,13 @@ int main()
 - [TcpConnection 生命周期](docs/tcpconnection-lifetime.md)
 - [协程模型](docs/coroutine-model.md)
 - [代码生成器与示例工程](docs/stage-16.md)
+- [生成器完整化](docs/stage-23.md)
 
 ## Current Boundaries
 
 - This is a learning implementation, not a production RPC distribution.
 - HTTP is a minimal request/response server path; HTTPS, HTTP/2, chunked, and streaming are out of scope.
-- The generated project depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`.
+- The generated project depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`; full layout also generates `bin`、`conf`、`log`、`lib`、`obj`、`service`、`interface`、`pb` and `test_client` structure.
 - `TcpServer::start()` is blocking; script-driven examples stop servers by process management.
 - Connection pools, load balancing, MySQL plugins, full tracing, and performance reports are intentionally not part of the current scope.
 

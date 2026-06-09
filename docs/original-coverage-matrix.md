@@ -22,9 +22,9 @@
 | `net/reactor` | `mytinyrpc/net/reactor.*`、`fdevent.*` | 已复刻 | epoll fd event、事件注册/删除、task queue、eventfd wakeup、stop、callback 线程归属。 | `./build/test_reactor`、`docs/reactor-event-lifecycle.md` |
 | `net/timer` | `mytinyrpc/net/timer.*` | 已复刻 | `TimerTask`、`getNowMs()`、timerfd、一次性/重复定时任务、取消和删除。 | `./build/test_timer_task`、`./build/test_timer` |
 | `net/tcp` | `mytinyrpc/net/tcp*.{h,cc}`、`netaddress.*` | 已复刻 | `TcpBuffer`、`TcpClient`、`TcpConnection`、`TcpServer`、同步超时、重连、多 Reactor server、连接空闲超时基础能力。 | `./build/test_tcp_buffer`、`./build/test_tcp_client`、`./build/test_connection_codec`、`scripts/check_rpc_sync.sh`、`scripts/check_stage11_server.sh` |
-| `net/http` | `mytinyrpc/net/http/*` | 已复刻核心语义 | HTTP/1.0/1.1 GET/POST、origin-form/absolute-form request target、query map、大小写无关 header、Content-Length body、默认 response header、精确路径/root servlet、错误响应和统一关闭连接。 | `./build/test_httpdefine`、`./build/test_http_codec`、`./build/test_http_dispatcher`、`scripts/check_stage12_http.sh` |
+| `net/http` | `mytinyrpc/net/http/*` | 已复刻核心语义 | HTTP/1.0/1.1 GET/POST、origin-form/absolute-form request target、query map、大小写无关 header、Content-Length body、默认 response header、精确路径/root servlet、错误响应和统一关闭连接。 | `./build/test_http_define`、`./build/test_http_codec`、`./build/test_http_dispatcher`、`scripts/check_stage12_http.sh` |
 | `net/tinypb` | `mytinyrpc/net/tinypb/*` | 已复刻 | TinyPB data/codec/dispatcher、Protobuf service 分发、同步 `TinyPbRpcChannel`、controller、reqId、异步 Channel pending/timeout/cancel。 | `./build/test_tinypb_codec`、`./build/test_tinypb_dispatcher`、`./build/test_tinypb_rpc_channel`、`./build/test_tinypb_rpc_async_channel`、`scripts/check_rpc_sync.sh`、`scripts/check_rpc_async.sh` |
-| `generator` | `generator/tinyrpc_generator.py`、`generator/template/*` | 简化复刻 | CLI、模板复制、简单 service/method 解析、接口骨架、生成工程 CMake、启动/调用/关闭脚本。 | `scripts/check_generator.sh`、`scripts/check_generator_project.sh` |
+| `generator` | `generator/tinyrpc_generator.py`、`generator/template/*` | 已复刻核心工程语义 | CLI、simple/full layout、`protoc` 生成 `.pb.h/.pb.cc` 和 descriptor-set、descriptor service/method 解析、多 service 选择、method interface、service 适配、test client、生成工程 CMake、启动/调用/关闭脚本。 | `scripts/check_generator.sh`、`scripts/check_generator_project.sh` |
 
 ## 暂不复刻或后续再评估
 
@@ -35,7 +35,7 @@
 | HTTPS / HTTP/2 / chunked / streaming response | 暂不复刻 | 当前 HTTP 目标是理解 codec/dispatcher/server 闭环。 |
 | 完整 tracing 系统 | 暂不复刻 | 当前仅提供 request context 和日志 reqId。 |
 | 高性能压测与复杂内存池 | 暂不复刻 | 当前是学习型复刻，先保证行为可解释和脚本可回归。 |
-| 生成器完整 Protobuf parser | 暂不复刻 | 当前只支持简单 service block 和一元 rpc method，足够生成示例工程。 |
+| 生成器高级 proto 语义 | 暂不复刻 | 已使用 descriptor-set 获取 package/service/method/request/response，但不支持 streaming RPC、proto2 特殊语义或多语言生成。 |
 
 ## 回归建议
 
@@ -52,4 +52,4 @@
 
 ## 结论
 
-当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。阶段 18 后，`comm/config`、`comm/log`、`comm/start` 和 `comm/runtime` 已推进到“已复刻核心语义”。主要简化点集中在生产级工程能力：透明协程 hook 完整化、完整 HTTP 协议、连接池、tracing、插件系统、性能优化和完整代码生成器。
+当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。阶段 23 后，生成器已经具备原项目风格目录、`protoc` 流程、descriptor 解析、interface/service/test_client 模板和端到端生成工程验收。主要简化点集中在生产级扩展能力：连接池、tracing、插件系统、性能优化、高级 proto 语义和发布级独立工程打包。

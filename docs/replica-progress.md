@@ -1444,3 +1444,112 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 不支持 keep-alive。
 
 阶段 22 已完成。HTTP 协议栈已经具备 HTTP/1.0/1.1 GET/POST、origin-form/absolute-form request target、query map、大小写无关 header、Content-Length body、默认 response header、精确路径/root servlet、错误响应和统一关闭连接语义。下一步可以进入阶段 23，补齐生成器完整化。
+
+## 阶段 23：生成器完整化
+
+### 任务一百一十一：生成原项目风格工程目录
+
+已完成能力：
+
+- `tinyrpc_generator.py` 新增 `--layout` 参数，默认 `simple`，新增 `full`。
+- `simple` layout 保留阶段 16 的平铺生成方式，兼容旧脚本和示例。
+- `full` layout 生成 `bin/`、`conf/`、`log/`、`lib/`、`obj/`、`<project>/service/`、`<project>/interface/`、`<project>/pb/`、`<project>/comm/` 和 `test_client/`。
+- `<project>` 默认由 service 名转为 snake_case，也可通过 `--project` 指定。
+- 生成脚本的覆盖策略保持明确：重复生成时模板文件和 Protobuf 产物按当前模板覆盖写入。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+```
+
+当前限制：
+
+- `full` layout 仍依赖本地 MyTinyRPC 源码路径，不是发布级独立源码包。
+
+### 任务一百一十二：生成器集成 protoc
+
+已完成能力：
+
+- 生成器检查当前 Linux 环境中的 `protoc`。
+- 生成时复制输入 proto 到目标 pb 目录。
+- 生成时调用 `protoc --cpp_out` 产出 `.pb.h` 和 `.pb.cc`。
+- 同时生成 descriptor-set 文件。
+- `protoc` 不存在、proto 文件不存在和 proto 语法错误都会输出明确 `[generator] FAIL: ...` 并返回非零。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+```
+
+当前限制：
+
+- 当前只生成 C++ Protobuf 代码，不支持多语言生成。
+
+### 任务一百一十三：用 descriptor-set 解析 service/method
+
+已完成能力：
+
+- 生成器优先读取 descriptor-set，提取 package、service、method、request type 和 response type。
+- 支持一个 proto 多个 service。
+- `--service` 支持 `ServiceName` 和 `package.ServiceName` 两种写法。
+- descriptor 解析失败时保留文本 parser fallback，用于简单一元 RPC 声明的保底解析。
+- TinyPB dispatcher 的 `serviceFullName` 解析改为按最后一个 `.` 拆分，支持带 package 的 service 名。
+- `scripts/check_generator.sh` 构造带 package 和双 service 的 proto，验证 descriptor service 选择、命名空间和多 method 生成。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+```
+
+当前限制：
+
+- 不支持 streaming RPC。
+- 不支持 proto2 特殊语义。
+
+### 任务一百一十四：生成 interface/service/business exception 模板
+
+已完成能力：
+
+- 新增 `business_exception.h.template`。
+- 新增 `interface_base.h.template` 和 `interface_base.cc.template`。
+- 每个 rpc method 生成独立 `<method>_interface.h/.cc`。
+- service 实现类统一持有并调用对应 interface。
+- service 层捕获 `BusinessException` 和标准异常，并写入 `RpcController`。
+- 生成代码包含 request/response 参数用途注释。
+- 生成代码支持 proto package 对应的 C++ namespace。
+
+验证命令：
+```bash
+./scripts/check_generator.sh
+```
+
+当前限制：
+
+- interface 默认实现只清空 response，不生成真实业务逻辑。
+
+### 任务一百一十五：完整生成工程端到端验收
+
+已完成能力：
+
+- `CMakeLists.txt.template` 支持 simple/full 两种 layout。
+- `full` layout 将 server/client 输出到 `bin/`，静态库输出到 `lib/`。
+- `run.sh.template` 和 `shutdown.sh.template` 支持不同 layout 的二进制、配置和日志路径。
+- 生成 `test_client/test_tinyrpc_client.cc`。
+- `scripts/check_generator_project.sh` 同时验收 simple 和 full layout。
+- 生成工程可构建、启动、调用和关闭。
+- 新增 `docs/stage-23.md`，并更新 README、示例和覆盖矩阵。
+
+验证命令：
+```bash
+./scripts/check_generator_project.sh
+./scripts/check_generator.sh
+./scripts/check_all.sh
+```
+
+当前限制：
+
+- 不生成 IDE 工程。
+- 不做交互式项目向导。
+- 生成 server 的关闭仍由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。
+
+阶段 23 已完成。生成器已经具备 simple/full layout、`protoc` 产物生成、descriptor-set 元数据解析、package/service/method 识别、method interface、service 适配、test client 和生成工程端到端验收。下一步可以进入阶段 24，补齐可选插件、观测和性能边界。
