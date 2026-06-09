@@ -1,7 +1,8 @@
 # 阶段 21：真正异步 RPC 网络路径
 
-阶段 21 的目标是把当前"异步接口 + IOThread 中执行同步 TcpClient"的实现，
-升级为真正由 Reactor 驱动的异步请求发送、响应读取、pending 匹配、timeout 和 cancel。
+阶段 21 的目标是把“异步接口 + IOThread 中执行同步 TcpClient”的实现，
+升级为由 IOThread Reactor 驱动的异步请求发送、响应读取、pending 匹配、
+timeout、cancel 和真实 TcpServer 端到端验证。
 
 ## 任务一百零一：异步 Channel 网络会话对象
 
@@ -9,11 +10,10 @@
 
 - 新增 `AsyncClientSession`，管理异步 Channel 的长生命周期客户端连接。
 - Session 保存 peer addr、fd、客户端 `TcpConnection` 和 `TinyPbCodec`。
-- Session 负责连接建立（`connect()`）、请求发送（`sendRequest()`）、响应接收（`recvResponse()`）和连接关闭（`disconnect()`）。
-- `TinyPbRpcAsyncChannel` 构造时持有 `AsyncClientSession`，替代每次创建临时 `TcpClient`。
-- 默认 sync fallback 路径通过 session 在 IOThread 上执行 connect/send/recv，多次调用复用同一 session。
-- `stop()` 时先断开 session 再停止 IOThread。
-- 测试服务器更新为 accept 一次后在同一连接上处理多个请求，验证 session 连接复用。
+- Session 负责连接建立、请求发送、响应读取回调和连接关闭。
+- `TinyPbRpcAsyncChannel` 构造时持有 `AsyncClientSession`，不再每次异步调用创建临时 `TcpClient`。
+- `stop()` 先断开 session、停止 IOThread，再失败剩余 pending。
+- 测试服务器更新为单连接多请求，验证 session 连接复用。
 
 验证命令：
 
@@ -24,76 +24,71 @@
 ./scripts/check_rpc_async.sh
 ```
 
-当前限制：
-
-- Session 的 connect/send/recv 仍在 IOThread 上以阻塞方式执行。
-- 不实现真正异步发送队列和 Reactor 写事件。
-- 不实现异步读取循环。
-- 不做连接池。
-
 ## 任务一百零二：异步发送队列和 Reactor 写事件基础设施
 
 已完成能力：
 
 - `AsyncClientSession` 新增 `flushOutput()`、`registerFdEvent()`、`unregisterFdEvent()` 方法。
-- Session 新增 `m_reactor`（从 `Reactor::getCurrentReactor()` 获取）和 `m_fdEvent` 成员。
-- `connect()` 成功后自动获取当前线程 Reactor。
-- `disconnect()` 先注销 FdEvent 再关闭连接，防止悬空 epoll 条目。
-- `flushOutput()` 循环 send 直到缓冲区清空或遇到 EAGAIN，EAGAIN 时返回 false 供调用方注册 EPOLLOUT。
-- `registerFdEvent()` 向 Reactor 注册 EPOLLOUT，回调为 `flushOutput()`。
-- sync fallback 路径的 `sendRequest()` 仍保持阻塞 send 循环，确保当前行为不变。
+- Session 新增 `m_reactor` 和 `m_fdEvent` 成员；`connect()` 成功后获取当前 IOThread Reactor。
+- `disconnect()` 先注销 FdEvent 再关闭连接，避免悬空 epoll 条目。
+- `flushOutput()` 循环 `send()`，遇到 EAGAIN 时保留 output buffer 并等待 EPOLLOUT。
+- EPOLLOUT 写事件回调继续调用 `flushOutput()`，写空后只移除 EPOLLOUT，保留 EPOLLIN。
 
-当前限制：
+## 任务一百零三：异步读取循环和乱序响应匹配
 
-- `sendRequest()` 尚未切换到 `flushOutput()` + EPOLLOUT 异步模型，留到任务 103 统一升级。
-- 不做异步读取循环、乱序响应匹配。
+已完成能力：
 
-## Task 103: Async read loop infrastructure and non-blocking socket
+- Session socket 在 connect 成功后切换为 non-blocking。
+- `startAsyncRead()` 注册 EPOLLIN 到 IOThread Reactor。
+- `handleRead()` 持续读取 socket 数据，追加到客户端 `TcpConnection` input buffer。
+- 客户端 `TcpConnection` 循环解码 TinyPB response，多帧粘包会逐帧写入 response map。
+- Session 通过 read callback 把每个 response 交给 `TinyPbRpcAsyncChannel::handleTinyPbResponse()`。
+- Channel 通过 reqId 匹配 pending，支持乱序响应；未知 reqId 响应会被忽略。
 
-Capabilities added:
+## 任务一百零四：异步 timeout / cancel 打断网络状态
 
-- Session socket switched to non-blocking after connect for EPOLLIN/EPOLLOUT support.
-- EPOLLIN read loop: handleRead reads socket data, decodes TinyPB frames, routes responses through readCallback.
-- setReadCallback/startAsyncRead API for async response delivery.
-- sendRequest and recvResponse handle EAGAIN via poll-based wait on non-blocking socket.
-- Channel sets readCallback before connect; sync fallback still uses poll-based recvResponse per request.
-- flushOutput and EPOLLOUT registration preserve EPOLLIN state correctly.
+已完成能力：
 
-Current limitations:
+- 所有完成路径通过 `takePending()` 做一次性仲裁，避免 timeout、cancel、response、stop 二次回调。
+- timeout 触发后删除 pending、设置 `ERROR_RPC_ASYNC_TIMEOUT` 并运行 done。
+- cancel 会删除 pending、设置 `ERROR_RPC_ASYNC_CANCELED` 并运行 done；迟到响应不会再次回调。
+- `stop()` 调用 `failAllPending()`，统一失败剩余 pending。
+- Session 读写错误通过 error callback 通知 Channel，Channel 会失败未完成 pending。
 
-- Sync fallback still blocks IOThread task on recvResponse; full EPOLLIN-driven delivery deferred to task 104+.
-- Rapid multi-request EPOLLIN delivery has a timing issue under investigation.
+## 任务一百零五：真实 TcpServer 异步 RPC 端到端验收
 
-## Task 104: Timeout/cancel interrupting network state
+已完成能力：
 
-Capabilities added:
+- `test_tinypb_server_client` 增加 `--async-client` 模式，用真实 `TcpServer` + `TinyPbDispatcher` + Protobuf Service 验证异步客户端。
+- `scripts/check_rpc_async.sh` 启动真实服务端、探测端口、运行异步客户端，再清理服务端。
+- `test_tinypb_rpc_async_channel` 增加流水线发送测试：服务端在首个响应前必须能读到多个请求，防止默认路径退回阻塞 `recvResponse()`。
+- `test_tinypb_async_client` 的脚本 mock server 支持单次 read 中解析多个 TinyPB 帧，适配异步流水线发送。
 
-- stop() now calls failAllPending() to fail all remaining pending requests with ERROR_RPC_CHANNEL_NETWORK.
-- failAllPending drains the pending map, cancels timeout tasks, sets error, and runs done callbacks.
-- IOThread task checks IsCanceled() before sendRequest, skipping network I/O for pre-canceled requests.
-- New tests: StopFailsAllPendingRequests, CancelBeforeSendSkipsNetwork.
+验证命令：
 
-Verification:
-./build/test_tinypb_rpc_async_channel  (12 tests)
+```bash
+./build.sh
+./build/test_tinypb_rpc_async_channel
 ./build/test_tinypb_async_client
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+./scripts/check_all.sh
+```
 
-## Task 105: Real TcpServer async RPC end-to-end verification
+## 当前默认网络路径
 
-Capabilities added:
+1. `TinyPbRpcAsyncChannel::CallMethod()` 构造 TinyPB request，注册 pending 和 timeout。
+2. Channel 把发送任务投递到 IOThread。
+3. IOThread 中的 `AsyncClientSession` 建立或复用 non-blocking socket。
+4. `sendRequest()` 将请求追加到 output buffer，并通过 `flushOutput()` / EPOLLOUT 推进写出。
+5. EPOLLIN 到来后，`handleRead()` 解码 response 并回调 Channel。
+6. Channel 按 reqId 取出 pending，反序列化业务 response，运行 done。
 
-- test_tinypb_server_client gains --async-client mode: creates TinyPbRpcAsyncChannel, runs success and cancel tests against a real TcpServer.
-- check_rpc_async.sh starts a real TcpServer, probes port readiness, runs async-client, then tears down the server.
-- Thread-based TimeoutEntry added alongside reactor TimerTask: enables future timeout interruption of blocking poll via socket shutdown.
-- AsyncClientSession gains shutdownSocket() and recvResponse timeoutMs parameter with elapsed-time tracking.
-- IOThread task checks m_timedOut flag after recvResponse failure to report ERROR_RPC_ASYNC_TIMEOUT.
+阶段 21 不再把 `TcpClient::sendAndRecvTinyPb()` 或 `AsyncClientSession::recvResponse()` 作为异步 Channel 的默认网络路径。`recvResponse()` 仅保留为兼容/调试辅助接口。
 
-Verification:
+## 当前限制
 
-    MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
-    # Output: [rpc-async] PASS
+- 不实现连接池、负载均衡、重试策略或业务级取消传播协议。
+- timeout 当前使用独立等待线程驱动 pending 清理，尚未统一迁入 IOThread Reactor Timer。
+- 不实现发送队列优先级、背压策略或应用层流控。
 
-Current limitations:
-
-- E2E test covers success and cancel; timeout with real server is impractical because local server responds faster than thread creation. Timeout is covered by unit tests (mock server) instead.
-- Sync fallback (IOThread blocking recvResponse) remains the default network path.
-- Rapid multi-request EPOLLIN delivery limitation from task 103 still applies.
+阶段 21 已完成：异步 Channel 具备长生命周期 session、non-blocking socket、EPOLLIN/EPOLLOUT、pending map、乱序响应匹配、timeout/cancel/stop 生命周期和真实 TcpServer E2E 验证。

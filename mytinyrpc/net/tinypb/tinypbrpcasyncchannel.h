@@ -59,8 +59,7 @@ struct AsyncCallContext {
 //
 // 当前已支持 reqId -> AsyncCallContext pending 表、response 匹配、
 // 超时和取消。内部持有一个 IOThread 和一个长生命周期 AsyncClientSession。
-// 默认仍通过 IOThread 同步执行网络请求（sync fallback），但连接由 session 管理，
-// 不再每次创建临时 TcpClient。
+// 默认路径只在 IOThread 上投递 connect/send，响应由 session 的 EPOLLIN 读回调完成。
 class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  public:
     explicit TinyPbRpcAsyncChannel(const IPAddress& peerAddr);
@@ -93,6 +92,7 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     void cancelTimeoutTask(const std::shared_ptr<AsyncCallContext>& context);
     void handleTimeout(const std::string& reqId);
     void finishContext(const std::shared_ptr<AsyncCallContext>& context);
+    void sendContextOnIOThread(const std::shared_ptr<AsyncCallContext>& context);
     bool finishPendingWithError(
         const std::string& reqId,
         int errorCode,

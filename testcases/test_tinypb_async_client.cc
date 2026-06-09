@@ -75,14 +75,27 @@ bool writeAllToFd(int fd, const char *data, size_t len, std::string *errorInfo)
     return true;
 }
 
-bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
+bool readTinyPbFromFd(
+    int fd,
+    tinyrpc::TcpBuffer *buffer,
+    tinyrpc::TinyPbStruct *pb,
+    std::string *errorInfo);
+
+bool readTinyPbFromFd(
+    int fd,
+    tinyrpc::TcpBuffer *buffer,
+    tinyrpc::TinyPbStruct *pb,
+    std::string *errorInfo)
 {
+    if (buffer == nullptr || pb == nullptr || errorInfo == nullptr) {
+        return false;
+    }
+
     tinyrpc::TinyPbCodec codec;
-    tinyrpc::TcpBuffer buffer(256);
     char data[1024];
 
     while (true) {
-        codec.decode(&buffer, pb);
+        codec.decode(buffer, pb);
         if (pb->m_decodeSucc) {
             return true;
         }
@@ -90,7 +103,7 @@ bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
         // read(2) 参数依次为 socket fd、接收缓冲区、最多读取字节数。
         ssize_t n = read(fd, data, sizeof(data));
         if (n > 0) {
-            buffer.append(data, static_cast<size_t>(n));
+            buffer->append(data, static_cast<size_t>(n));
             continue;
         }
         if (n == 0) {
@@ -189,9 +202,10 @@ bool runSuccessAndErrorScenario(std::string *errorInfo)
             return;
         }
 
+        tinyrpc::TcpBuffer inputBuffer(4096);
         for (int i = 0; i < kRequestCount; ++i) {
             tinyrpc::TinyPbStruct decodedRequest;
-            if (!readTinyPbFromFd(clientFd, &decodedRequest, errorInfo)) {
+            if (!readTinyPbFromFd(clientFd, &inputBuffer, &decodedRequest, errorInfo)) {
                 closeIfValid(&clientFd);
                 return;
             }

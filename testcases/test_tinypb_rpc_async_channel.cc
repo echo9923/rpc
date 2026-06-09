@@ -18,6 +18,7 @@
 #include <cerrno>
 #include <cstring>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <thread>
 #include <unistd.h>
 
@@ -88,14 +89,33 @@ void closeIfValid(int *fd)
     }
 }
 
+bool readTinyPbFromFd(
+    int fd,
+    tinyrpc::TcpBuffer *buffer,
+    tinyrpc::TinyPbStruct *pb,
+    std::string *errorInfo);
+
 bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
 {
-    tinyrpc::TinyPbCodec codec;
     tinyrpc::TcpBuffer buffer(256);
+    return readTinyPbFromFd(fd, &buffer, pb, errorInfo);
+}
+
+bool readTinyPbFromFd(
+    int fd,
+    tinyrpc::TcpBuffer *buffer,
+    tinyrpc::TinyPbStruct *pb,
+    std::string *errorInfo)
+{
+    if (buffer == nullptr || pb == nullptr || errorInfo == nullptr) {
+        return false;
+    }
+
+    tinyrpc::TinyPbCodec codec;
     char data[1024];
 
     while (true) {
-        codec.decode(&buffer, pb);
+        codec.decode(buffer, pb);
         if (pb->m_decodeSucc) {
             return true;
         }
@@ -103,7 +123,7 @@ bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
         // read(2) 参数依次为：socket fd、接收缓冲区、最大读取字节数。
         ssize_t n = read(fd, data, sizeof(data));
         if (n > 0) {
-            buffer.append(data, static_cast<size_t>(n));
+            buffer->append(data, static_cast<size_t>(n));
             continue;
         }
         if (n == 0) {
@@ -141,6 +161,25 @@ bool writeAllToFd(int fd, const char *data, size_t len, std::string *errorInfo)
         return false;
     }
     return true;
+}
+
+bool setReadTimeout(int fd, int timeoutMs, std::string *errorInfo)
+{
+    timeval tv {};
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+
+    // setsockopt(2) 参数依次为：socket fd、协议层、选项名、选项值地址、选项长度。
+    // SO_RCVTIMEO 为阻塞 read 设置最长等待时间，防止测试在缺少第二个请求时挂住。
+    int rt = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (rt == 0) {
+        return true;
+    }
+
+    if (errorInfo != nullptr) {
+        *errorInfo = std::strerror(errno);
+    }
+    return false;
 }
 
 bool encodeTinyPbToString(tinyrpc::TinyPbStruct *pb, std::string *frame)
@@ -369,9 +408,10 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
             return;
         }
 
+        tinyrpc::TcpBuffer inputBuffer(4096);
         for (int i = 0; i < kRequestCount; ++i) {
             tinyrpc::TinyPbStruct decodedRequest;
-            if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            if (!readTinyPbFromFd(clientFd, &inputBuffer, &decodedRequest, &serverError)) {
                 closeIfValid(&clientFd);
                 return;
             }
@@ -456,6 +496,113 @@ TEST_F(TinyPbRpcAsyncChannelTest, TenAsyncRequestsAllCompleteOnIOThread)
         EXPECT_EQ(responses[i].name(), "async-" + std::to_string(1100 + i));
         EXPECT_EQ(doneThreadIds[i], channel.getIOThreadId());
     }
+}
+
+TEST_F(TinyPbRpcAsyncChannelTest, RequestsArePipelinedBeforeFirstResponse)
+{
+    std::atomic<bool> serverReadBoth {false};
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        if (!setReadTimeout(clientFd, 1000, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        tinyrpc::TcpBuffer inputBuffer(4096);
+        tinyrpc::TinyPbStruct decodedRequest1;
+        tinyrpc::TinyPbStruct decodedRequest2;
+        if (!readTinyPbFromFd(clientFd, &inputBuffer, &decodedRequest1, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+        if (!readTinyPbFromFd(clientFd, &inputBuffer, &decodedRequest2, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+        serverReadBoth.store(true);
+
+        std::vector<tinyrpc::TinyPbStruct> requests {decodedRequest1, decodedRequest2};
+        for (const auto& decodedRequest : requests) {
+            queryNameReq pbReq;
+            if (!pbReq.ParseFromString(decodedRequest.m_pbData)) {
+                serverError = "request parse failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            queryNameRes pbRes;
+            pbRes.set_ret_code(0);
+            pbRes.set_res_info("ok");
+            pbRes.set_req_no(pbReq.req_no());
+            pbRes.set_id(pbReq.id());
+            pbRes.set_name("pipeline-" + std::to_string(pbReq.id()));
+
+            tinyrpc::TinyPbStruct response;
+            response.m_reqId = decodedRequest.m_reqId;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            if (!pbRes.SerializeToString(&response.m_pbData)) {
+                serverError = "response serialize failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "response encode failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+        }
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TinyPbRpcAsyncChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    int nextReqId = 0;
+    channel.setReqIdGenerator([&]() {
+        return "pipeline-" + std::to_string(nextReqId++);
+    });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq request1;
+    request1.set_req_no(801);
+    request1.set_id(1501);
+    request1.set_type(1);
+
+    queryNameReq request2;
+    request2.set_req_no(802);
+    request2.set_id(1502);
+    request2.set_type(1);
+
+    queryNameRes response1;
+    queryNameRes response2;
+    tinyrpc::TinyPbRpcController controller1;
+    tinyrpc::TinyPbRpcController controller2;
+    std::atomic<int> doneCount {0};
+    CountClosure done1(&doneCount);
+    CountClosure done2(&doneCount);
+
+    stub.query_name(&controller1, &request1, &response1, &done1);
+    stub.query_name(&controller2, &request2, &response2, &done2);
+
+    ASSERT_TRUE(waitUntil([&]() { return doneCount.load() == 2; }, 3000));
+    serverThread.join();
+
+    EXPECT_TRUE(serverReadBoth.load()) << serverError;
+    EXPECT_FALSE(controller1.Failed()) << controller1.ErrorText();
+    EXPECT_FALSE(controller2.Failed()) << controller2.ErrorText();
+    EXPECT_EQ(response1.name(), "pipeline-1501");
+    EXPECT_EQ(response2.name(), "pipeline-1502");
 }
 
 TEST_F(TinyPbRpcAsyncChannelTest, PendingMapMatchesOutOfOrderResponses)

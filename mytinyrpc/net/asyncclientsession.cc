@@ -133,8 +133,8 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         return false;
     }
 
-    // 清空上一次残留的输出数据，然后编码当前请求到输出缓冲区。
-    m_connection->getOutputBuffer()->retrieveAll();
+    // 将当前请求追加编码到 output buffer，交给 flushOutput()/EPOLLOUT 推进。
+    // 这里不清空缓冲区，避免覆盖前一个尚未完全写出的异步请求。
     m_connection->encodeClientRequest(request);
     if (!request->m_encodeSucc) {
         m_errorCode = ERROR_FAILED_SERIALIZE;
@@ -143,56 +143,23 @@ bool AsyncClientSession::sendRequest(TinyPbStruct *request)
         return false;
     }
 
-    // Non-blocking send loop: retries on EINTR/EAGAIN.
-    // EAGAIN uses epoll_wait to block until the socket is writable,
-    // keeping the IOThread responsive to other events.
-    TcpBuffer *outBuffer = m_connection->getOutputBuffer();
-    size_t written = 0;
-    size_t total = outBuffer->getReadableBytes();
-
-    while (written < total) {
-        ssize_t n = ::send(m_fd, outBuffer->getReadPtr() + written,
-                           total - written, MSG_NOSIGNAL);
-        if (n > 0) {
-            written += static_cast<size_t>(n);
-            continue;
-        }
-        if (n == 0) {
-            m_errorCode = ERROR_TCP_SEND_FAILED;
-            m_errorInfo = "send returned zero";
-            disconnect();
+    if (!flushOutput()) {
+        if (!m_isConnected) {
             return false;
         }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            struct pollfd pfd;
-            pfd.fd = m_fd;
-            pfd.events = POLLOUT;
-            pfd.revents = 0;
-            int pr = ::poll(&pfd, 1, 5000);
-            if (pr > 0) {
-                continue;
-            }
-            m_errorCode = ERROR_TCP_SEND_FAILED;
-            m_errorInfo = "send EAGAIN wait failed";
-            disconnect();
-            return false;
-        }
-        m_errorCode = ERROR_TCP_SEND_FAILED;
-        m_errorInfo = "send failed: " + std::string(std::strerror(errno));
-        disconnect();
-        return false;
+        registerFdEvent();
     }
-
-    outBuffer->retrieveAll();
     return true;
 }
 
 void AsyncClientSession::setReadCallback(ReadCallback cb)
 {
     m_readCallback = std::move(cb);
+}
+
+void AsyncClientSession::setErrorCallback(ErrorCallback cb)
+{
+    m_errorCallback = std::move(cb);
 }
 
 void AsyncClientSession::startAsyncRead()
@@ -209,7 +176,7 @@ void AsyncClientSession::startAsyncRead()
     m_fdEvent.addListenEvent(EPOLLIN);
 
     if (!m_fdEvent.isRegistered()) {
-        bool ok = m_fdEvent.registerToReactor();
+        m_fdEvent.registerToReactor();
     } else {
         m_fdEvent.updateToReactor();
     }
@@ -223,10 +190,10 @@ void AsyncClientSession::handleRead()
 
     bool peerClosed = false;
     char data[4096];
-    int readIterations = 0;
     while (true) {
+        // recv(2) 参数依次为：socket fd、接收缓冲区、最大读取字节数、标志位。
+        // MSG_DONTWAIT 让本次读取不阻塞；EAGAIN/EWOULDBLOCK 表示当前批次已读尽。
         ssize_t n = ::recv(m_fd, data, sizeof(data), MSG_DONTWAIT);
-        ++readIterations;
         if (n > 0) {
             m_connection->appendClientInput(data, static_cast<size_t>(n));
             continue;
@@ -238,7 +205,15 @@ void AsyncClientSession::handleRead()
         if (errno == EINTR) {
             continue;
         }
-        break;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+
+        m_errorCode = ERROR_TCP_RECV_FAILED;
+        m_errorInfo = "recv failed: " + std::string(std::strerror(errno));
+        notifyError(m_errorCode, m_errorInfo);
+        disconnect();
+        return;
     }
 
     // Process any buffered responses before handling peer close.
@@ -255,6 +230,7 @@ void AsyncClientSession::handleRead()
     if (peerClosed) {
         m_errorCode = ERROR_TCP_RECV_FAILED;
         m_errorInfo = "peer closed connection";
+        notifyError(m_errorCode, m_errorInfo);
         disconnect();
     }
 }
@@ -280,6 +256,7 @@ bool AsyncClientSession::flushOutput()
         if (n == 0) {
             m_errorCode = ERROR_TCP_SEND_FAILED;
             m_errorInfo = "send returned zero";
+            notifyError(m_errorCode, m_errorInfo);
             disconnect();
             return false;
         }
@@ -295,6 +272,7 @@ bool AsyncClientSession::flushOutput()
 
         m_errorCode = ERROR_TCP_SEND_FAILED;
         m_errorInfo = "send failed: " + std::string(std::strerror(errno));
+        notifyError(m_errorCode, m_errorInfo);
         disconnect();
         return false;
     }
@@ -319,6 +297,9 @@ void AsyncClientSession::registerFdEvent()
 
     m_fdEvent.setFd(m_fd);
     m_fdEvent.setReactor(m_reactor);
+    m_fdEvent.setReadCallback([this]() {
+        handleRead();
+    });
     m_fdEvent.setWriteCallback([this]() {
         flushOutput();
     });
@@ -328,6 +309,13 @@ void AsyncClientSession::registerFdEvent()
         m_fdEvent.registerToReactor();
     } else {
         m_fdEvent.updateToReactor();
+    }
+}
+
+void AsyncClientSession::notifyError(int errorCode, const std::string& errorInfo)
+{
+    if (m_errorCallback) {
+        m_errorCallback(errorCode, errorInfo);
     }
 }
 

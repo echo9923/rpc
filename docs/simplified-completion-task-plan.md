@@ -49,7 +49,7 @@
 | `coroutinepool` | 已补全 | 已支持配置化初始容量、耗尽策略和按块扩展。 | 阶段 19 |
 | 协程栈内存池 | 已补全 | `CoroutinePool` 内部协程栈已接入 `FixedMemoryPool`，并验证非法归还。 | 阶段 19 |
 | `TcpClient` | 已补全 | 已接入客户端 `TcpConnection`、Reactor/Timer 同步超时、按 reqId 响应缓存和连接复用/失败重建策略。 | 阶段 20 |
-| 异步 RPC | 简化复刻 | pending/timeout/cancel 已有，但真实网络仍复用同步 `TcpClient` 路径。 | 阶段 21 |
+| 异步 RPC | 已补全 | 已接入长生命周期 `AsyncClientSession`、non-blocking socket、EPOLLIN/EPOLLOUT、pending 匹配、timeout/cancel/stop 和真实 TcpServer E2E。 | 阶段 21 |
 | HTTP | 简化复刻 | 支持常见 GET/POST 和 Content-Length，缺少更完整 URL/query/header/连接语义。 | 阶段 22 |
 | `generator` | 简化复刻 | 支持简单 proto service/method 和生成工程，未复刻原项目完整目录、`protoc` 流程和 interface/test_client 体系。 | 阶段 23 |
 | ThreadPool / MySQL / tracing / benchmark | 暂不复刻 | 不在主链路中，但属于原项目生产外壳或完整化配套能力。 | 阶段 24 |
@@ -2016,13 +2016,13 @@ git status --short
 
 ## 2.1 最推荐的下一步
 
-**任务一百零一：抽出长生命周期 AsyncClientSession。**
+**任务一百零六：HTTP request line、URL 和 query 解析补全。**
 
 理由：
 
-- 阶段 20 已经补齐同步 `TcpClient` 的 Reactor/Timer 等待模型、客户端连接缓存和失败重建策略。
-- 阶段 21 可以在这个稳定同步客户端地基上，把异步 RPC 从“复用同步路径”推进为真实网络异步路径。
-- 任务一百零一范围集中在抽出长生命周期客户端会话，适合作为阶段 21 的第一步。
+- 阶段 21 已经补齐真实异步 RPC 网络路径，异步 Channel 默认由 IOThread Reactor 驱动发送和响应读取。
+- 阶段 22 会继续补齐 HTTP 协议栈的 request line、URL、query、header、body 和连接语义。
+- 任务一百零六范围集中在 HTTP request target 解析，适合作为阶段 22 的第一步。
 
 ## 2.2 阶段依赖
 
@@ -2055,7 +2055,7 @@ git status --short
 最合理的起点是：
 
 ```text
-任务一百零一：抽出长生命周期 AsyncClientSession
+任务一百零六：HTTP request line、URL 和 query 解析补全
 ```
 
-阶段 20 已完成，`TcpClient` 已经具备 Reactor/Timer 同步等待、客户端 `TcpConnection`、响应缓存和连接复用策略。下一步可以进入阶段 21，补齐真正异步 RPC 网络路径。
+阶段 21 已完成，异步 RPC 已经具备 session 化连接管理、Reactor 读写事件、pending 匹配、timeout/cancel/stop 生命周期和真实 TcpServer E2E 验证。下一步可以进入阶段 22，补齐 HTTP 协议栈。

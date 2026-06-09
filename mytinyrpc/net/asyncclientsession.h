@@ -6,6 +6,7 @@
 #include "net/tinypb/tinypbcodec.h"
 #include "net/tinypb/tinypbdata.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -17,8 +18,8 @@ namespace tinyrpc {
 // 负责连接建立、请求发送、响应接收和连接关闭。
 // Channel 只负责构造 request、注册 pending、投递发送任务。
 //
-// 当前任务（101）建立连接管理外壳：connect/sendRequest/recvResponse 仍在 IOThread
-// 上以同步方式执行，后续任务会把网络路径升级为真正的 Reactor 异步模型。
+// 会话运行在 IOThread Reactor 中：请求写入 output buffer 后由 EPOLLOUT 推进，
+// 响应由 EPOLLIN 读回调解码后交给 Channel 的 pending map。
 class AsyncClientSession {
  public:
     explicit AsyncClientSession(const IPAddress& peerAddr);
@@ -43,12 +44,15 @@ class AsyncClientSession {
     bool flushOutput();
 
     using ReadCallback = std::function<void(const TinyPbStruct&)>;
+    using ErrorCallback = std::function<void(int, const std::string&)>;
     void setReadCallback(ReadCallback cb);
+    void setErrorCallback(ErrorCallback cb);
     void startAsyncRead();
 
 
  private:
     void handleRead();
+    void notifyError(int errorCode, const std::string& errorInfo);
     void registerFdEvent();
     void unregisterFdEvent();
 
@@ -62,6 +66,7 @@ class AsyncClientSession {
     Reactor *m_reactor {nullptr};
     FdEvent m_fdEvent;
     ReadCallback m_readCallback;
+    ErrorCallback m_errorCallback;
 };
 
 }
