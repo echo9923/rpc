@@ -109,6 +109,11 @@ git show --stat task-38
 | 任务一百零三 | `3874118` | `完成任务一百零三：异步读取循环基础设施和非阻塞 socket` | 接入 non-blocking socket、EPOLLIN 读取循环和 read callback | 标题明确；阶段 21 |
 | 任务一百零四 | `2feb9e6` | `完成任务一百零四：timeout/cancel 打断网络状态` | 补齐 timeout、cancel、stop 对 pending 的一次性仲裁和失败路径 | 标题明确；阶段 21 |
 | 任务一百零五 | `2c8d0f9` | `完成任务一百零五：真实 TcpServer 异步 RPC 端到端验收` | 接入真实 TcpServer 异步 E2E 验收和异步回归脚本增强 | 标题明确；阶段 21；其后有阶段收口提交 `230b334` |
+| 任务一百零六 | `fb0c8e7` | `完成任务一百零六：HTTP request target 和 query 解析补全` | 补齐 HTTP origin-form / absolute-form request target 和 query map 解析 | 标题明确；阶段 22 |
+| 任务一百零七 | `e4218bf` | `完成任务一百零七：HTTP header 和 body 解析增强` | 增强 header 大小写无关查询、Content-Length 严格解析和 body 边界 | 标题明确；阶段 22 |
+| 任务一百零八 | `acebdfc` | `完成任务一百零八：HTTP response 默认头和错误响应` | 补齐 response 默认 header、错误响应和 Connection close 编码策略 | 标题明确；阶段 22 |
+| 任务一百零九 | `a5ca525` | `完成任务一百零九：HTTP Servlet 分发补全` | 补齐 root servlet、失败转 500 和 HTTP request context path | 标题明确；阶段 22 |
+| 任务一百一十 | `b9c2dca` | `完成任务一百一十：HTTP 连接语义和脚本收口` | HTTP 响应写完关闭连接，扩展真实服务端脚本和阶段文档 | 标题明确；阶段 22 |
 
 ## 早期任务推定索引
 
