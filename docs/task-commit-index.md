@@ -114,6 +114,11 @@ git show --stat task-38
 | 任务一百零八 | `acebdfc` | `完成任务一百零八：HTTP response 默认头和错误响应` | 补齐 response 默认 header、错误响应和 Connection close 编码策略 | 标题明确；阶段 22 |
 | 任务一百零九 | `a5ca525` | `完成任务一百零九：HTTP Servlet 分发补全` | 补齐 root servlet、失败转 500 和 HTTP request context path | 标题明确；阶段 22 |
 | 任务一百一十 | `b9c2dca` | `完成任务一百一十：HTTP 连接语义和脚本收口` | HTTP 响应写完关闭连接，扩展真实服务端脚本和阶段文档 | 标题明确；阶段 22 |
+| 任务一百一十一 | `0769eb6` | `完成任务一百一十一：生成器支持完整工程布局` | 生成器支持 simple/full layout、`protoc` 产物、descriptor 读取基础和 full 模板 | 标题明确；阶段 23；与任务一百一十四同提交 |
+| 任务一百一十二 | `7fdce9d` | `完成任务一百一十三：生成器支持 descriptor 服务解析` | `check_generator.sh` 覆盖 `protoc` 产物、非法 proto 和缺少 `protoc` 错误路径 | 阶段 23；能力主体在任务一百一十一提交，验收在本提交 |
+| 任务一百一十三 | `7fdce9d` | `完成任务一百一十三：生成器支持 descriptor 服务解析` | 生成器验收覆盖 package、多 service、descriptor 选择和 TinyPB package serviceName 解析 | 标题明确；阶段 23；与任务一百一十二同提交 |
+| 任务一百一十四 | `0769eb6` | `完成任务一百一十一：生成器支持完整工程布局` | 生成 `BusinessException`、`InterfaceBase`、method interface 和 service 适配模板 | 阶段 23；与任务一百一十一同提交 |
+| 任务一百一十五 | `c1b01ef` | `完成任务一百一十五：生成工程端到端验收` | `check_generator_project.sh` 同时验收 simple/full 生成工程构建、启动、调用和关闭 | 标题明确；阶段 23；其后有阶段收口提交 `6b08682` |
 
 ## 早期任务推定索引
 
@@ -141,6 +146,7 @@ git show --stat task-38
 | `4159bb1` | 任务二十之后，任务二十一之前 | `补充 Linux 构建说明和协程汇编注释` | 文档和汇编注释补充 |
 | `10271c0` | 任务三十七之后，任务三十八之前 | `docs(plan): 删除未来任务计划文档并新增分支管理规范` | 计划文档和分支管理规范调整 |
 | `230b334` | 任务一百零五之后，任务一百零六之前 | `完成阶段二十一异步 RPC 网络路径收口` | 将异步 Channel 默认路径收口为 EPOLLIN/EPOLLOUT 驱动并更新阶段文档 |
+| `6b08682` | 任务一百一十五之后，任务一百一十六之前 | `完成阶段二十三生成器完整化收口` | 新增阶段 23 文档，更新 README、示例、覆盖矩阵和进度记录 |
 
 ## 维护规则
 
