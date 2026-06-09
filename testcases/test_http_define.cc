@@ -46,9 +46,31 @@ TEST(HttpDefineTest, ResponseGeneratesStatusLineHeadersAndBody)
     std::string raw = response.toString();
 
     EXPECT_NE(raw.find("HTTP/1.1 200 OK\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("Content-Type: text/plain\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("Content-Length: 10\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-type: text/plain\r\n"), std::string::npos);
     EXPECT_NE(raw.find("\r\n\r\nhello http"), std::string::npos);
+}
+
+TEST(HttpDefineTest, ResponseHeaderCanSetAndReadCaseInsensitive)
+{
+    tinyrpc::HttpResponse response;
+    response.setHeader("Content-Type", "text/plain");
+    response.setHeader("connection", "keep-alive");
+
+    EXPECT_TRUE(response.hasHeader("content-type"));
+    EXPECT_TRUE(response.hasHeader("CONNECTION"));
+    EXPECT_EQ(response.getHeader("Content-Type"), "text/plain");
+    EXPECT_EQ(response.getHeader("Connection"), "keep-alive");
+    EXPECT_EQ(response.getHeader("Missing"), "");
+}
+
+TEST(HttpDefineTest, ResponseSetErrorResponse)
+{
+    tinyrpc::HttpResponse response;
+    response.setErrorResponse(tinyrpc::HttpStatusCode::InternalServerError);
+
+    EXPECT_EQ(response.getStatusCode(), tinyrpc::HttpStatusCode::InternalServerError);
+    EXPECT_EQ(response.getHeader("Content-Type"), "text/plain; charset=utf-8");
+    EXPECT_EQ(response.getBody(), "Internal Server Error");
 }
 
 int main(int argc, char **argv)

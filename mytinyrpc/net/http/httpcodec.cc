@@ -40,7 +40,7 @@ void HttpCodec::encode(TcpBuffer *buffer, AbstractData *data)
         return;
     }
 
-    response->setHeader("Content-Length", std::to_string(response->getBody().size()));
+    response->prepareForEncode();
     std::string raw = response->toString();
     buffer->append(raw);
     response->m_encodeSucc = true;

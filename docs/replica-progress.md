@@ -1369,3 +1369,26 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 不支持 chunked body。
 - 不支持 multipart。
 - HTTP body 上限固定为 `1 MiB`，暂未接入配置项。
+
+### 任务一百零八：HTTP response 默认 header 和错误响应
+
+已完成能力：
+
+- `HttpResponse` header name 按小写规范化保存，查询大小写不敏感。
+- `HttpResponse::setErrorResponse()` 可统一生成 400、404、500 等错误响应。
+- `HttpCodec::encode()` 在编码前统一修正 `Content-Length`。
+- response 缺少 `Content-Type` 时默认补齐为 `text/plain; charset=utf-8`。
+- response 编码时统一写入 `Connection: close`，覆盖调用方传入的 keep-alive。
+- `HttpResponse::toString()` 只负责输出当前 response 字段，默认 header 由 encode 前的 `prepareForEncode()` 统一兜底。
+
+验证命令：
+```bash
+./build/test_http_define
+./build/test_http_codec
+```
+
+当前限制：
+
+- 不支持 gzip。
+- 不支持 streaming response。
+- 当前阶段统一关闭 HTTP 连接，不实现 keep-alive。

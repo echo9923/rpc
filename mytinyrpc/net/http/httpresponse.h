@@ -30,9 +30,13 @@ class HttpResponse : public AbstractData {
     const std::string& getBody() const;
     void setBody(const std::string& body);
 
+    void setErrorResponse(HttpStatusCode code);
     std::string toString() const;
+    void prepareForEncode();
 
  private:
+    static std::string normalizeHeaderKey(const std::string& key);
+
     int m_statusCode {static_cast<int>(HttpStatusCode::OK)};
     std::string m_version {"HTTP/1.1"};
     HttpHeaders m_headers;

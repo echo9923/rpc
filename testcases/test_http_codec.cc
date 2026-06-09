@@ -258,17 +258,37 @@ TEST(HttpCodecTest, EncodeOkResponse)
     EXPECT_TRUE(response.m_encodeSucc);
     std::string raw = buffer.retrieveAllAsString();
     EXPECT_NE(raw.find("HTTP/1.1 200 OK\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("Content-Type: text/plain\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("Content-Length: 5\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-type: text/plain\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-length: 5\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("connection: close\r\n"), std::string::npos);
     EXPECT_NE(raw.find("\r\n\r\nhello"), std::string::npos);
+}
+
+TEST(HttpCodecTest, EncodeOkResponseAddsDefaultHeaders)
+{
+    tinyrpc::HttpResponse response;
+    response.setStatusCode(tinyrpc::HttpStatusCode::OK);
+    response.setBody("hello");
+
+    tinyrpc::TcpBuffer buffer;
+    tinyrpc::HttpCodec codec;
+    codec.encode(&buffer, &response);
+
+    EXPECT_TRUE(response.m_encodeSucc);
+    EXPECT_EQ(response.getHeader("Content-Length"), "5");
+    EXPECT_EQ(response.getHeader("Content-Type"), "text/plain; charset=utf-8");
+    EXPECT_EQ(response.getHeader("Connection"), "close");
+    std::string raw = buffer.retrieveAllAsString();
+    EXPECT_NE(raw.find("HTTP/1.1 200 OK\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-type: text/plain; charset=utf-8\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-length: 5\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("connection: close\r\n"), std::string::npos);
 }
 
 TEST(HttpCodecTest, EncodeNotFoundResponse)
 {
     tinyrpc::HttpResponse response;
-    response.setStatusCode(tinyrpc::HttpStatusCode::NotFound);
-    response.setHeader("Content-Type", "text/plain");
-    response.setBody("missing");
+    response.setErrorResponse(tinyrpc::HttpStatusCode::NotFound);
 
     tinyrpc::TcpBuffer buffer;
     tinyrpc::HttpCodec codec;
@@ -277,8 +297,34 @@ TEST(HttpCodecTest, EncodeNotFoundResponse)
     EXPECT_TRUE(response.m_encodeSucc);
     std::string raw = buffer.retrieveAllAsString();
     EXPECT_NE(raw.find("HTTP/1.1 404 Not Found\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("Content-Length: 7\r\n"), std::string::npos);
-    EXPECT_NE(raw.find("\r\n\r\nmissing"), std::string::npos);
+    EXPECT_NE(raw.find("content-length: 9\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("connection: close\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("\r\n\r\nNot Found"), std::string::npos);
+}
+
+TEST(HttpCodecTest, EncodeBadRequestAndInternalServerError)
+{
+    tinyrpc::HttpCodec codec;
+
+    tinyrpc::HttpResponse badRequest;
+    badRequest.setErrorResponse(tinyrpc::HttpStatusCode::BadRequest);
+    tinyrpc::TcpBuffer badRequestBuffer;
+    codec.encode(&badRequestBuffer, &badRequest);
+
+    EXPECT_TRUE(badRequest.m_encodeSucc);
+    std::string badRequestRaw = badRequestBuffer.retrieveAllAsString();
+    EXPECT_NE(badRequestRaw.find("HTTP/1.1 400 Bad Request\r\n"), std::string::npos);
+    EXPECT_NE(badRequestRaw.find("\r\n\r\nBad Request"), std::string::npos);
+
+    tinyrpc::HttpResponse internalError;
+    internalError.setErrorResponse(tinyrpc::HttpStatusCode::InternalServerError);
+    tinyrpc::TcpBuffer internalErrorBuffer;
+    codec.encode(&internalErrorBuffer, &internalError);
+
+    EXPECT_TRUE(internalError.m_encodeSucc);
+    std::string internalErrorRaw = internalErrorBuffer.retrieveAllAsString();
+    EXPECT_NE(internalErrorRaw.find("HTTP/1.1 500 Internal Server Error\r\n"), std::string::npos);
+    EXPECT_NE(internalErrorRaw.find("\r\n\r\nInternal Server Error"), std::string::npos);
 }
 
 TEST(HttpCodecTest, EncodeResponseCorrectsContentLength)
@@ -294,8 +340,25 @@ TEST(HttpCodecTest, EncodeResponseCorrectsContentLength)
 
     EXPECT_TRUE(response.m_encodeSucc);
     std::string raw = buffer.retrieveAllAsString();
-    EXPECT_NE(raw.find("Content-Length: 3\r\n"), std::string::npos);
-    EXPECT_EQ(raw.find("Content-Length: 999\r\n"), std::string::npos);
+    EXPECT_NE(raw.find("content-length: 3\r\n"), std::string::npos);
+    EXPECT_EQ(raw.find("content-length: 999\r\n"), std::string::npos);
+}
+
+TEST(HttpCodecTest, EncodeResponseForcesConnectionClose)
+{
+    tinyrpc::HttpResponse response;
+    response.setHeader("Connection", "keep-alive");
+    response.setBody("abc");
+
+    tinyrpc::TcpBuffer buffer;
+    tinyrpc::HttpCodec codec;
+    codec.encode(&buffer, &response);
+
+    EXPECT_TRUE(response.m_encodeSucc);
+    EXPECT_EQ(response.getHeader("Connection"), "close");
+    std::string raw = buffer.retrieveAllAsString();
+    EXPECT_NE(raw.find("connection: close\r\n"), std::string::npos);
+    EXPECT_EQ(raw.find("connection: keep-alive\r\n"), std::string::npos);
 }
 
 int main(int argc, char **argv)
