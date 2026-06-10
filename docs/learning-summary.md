@@ -64,6 +64,25 @@
     - 补齐通用 ThreadPool、MySQL 可选插件骨架、轻量 request context/tracing、基础 benchmark 和资源生命周期检查。
     - 关键收获：生产外壳能力要默认低依赖，普通构建不能因为外部数据库或压测工具缺失而失败。
 
+16. 补全计划收口
+    - 用覆盖矩阵、完整补全回归脚本、README、examples 和最终边界审计给第二轮补全计划建立终点。
+    - 关键收获：补全不是无限加功能，而是让已补能力可定位、可验证，让剩余边界被明确写下。
+
+## 阶段 18 到阶段 25 补全总结
+
+阶段 18 到阶段 25 是第二轮“简化实现补全”路线，目标不是重做主链路，而是集中补齐早期为了学习节奏保留的简化项。
+
+| 阶段 | 补全范围 | 结果 |
+|---|---|---|
+| 阶段 18 | 配置、日志、启动入口和运行时 | 分组式 XML、RPC/APP 双日志、异步日志生命周期、启动 helper 和 request context 已可回归。 |
+| 阶段 19 | 协程 hook、协程池和栈内存池 | 透明系统调用 hook、fd 归属、协程池扩展和固定栈内存池完成，`check_coroutinehook.sh` 收口。 |
+| 阶段 20 | TcpClient Reactor 化和客户端连接语义 | 同步客户端接入客户端 `TcpConnection`、Reactor/Timer 超时、reqId 匹配、连接复用和失败重建。 |
+| 阶段 21 | 真正异步 RPC 网络路径 | 异步 Channel 使用长生命周期 session、nonblocking socket、EPOLLIN/EPOLLOUT、pending 仲裁和真实服务端 E2E。 |
+| 阶段 22 | HTTP 协议栈补全 | request target、query、header/body、response 默认头、root servlet、404/500 和关闭连接语义补齐。 |
+| 阶段 23 | 生成器完整化 | full layout、`protoc`、descriptor-set、多 service、interface/service 模板和生成工程端到端验收完成。 |
+| 阶段 24 | 可选插件、观测和性能边界 | 通用 `ThreadPool`、MySQL 可选骨架、轻量 tracing、基础 benchmark 和资源生命周期脚本完成。 |
+| 阶段 25 | 补全计划收口 | 覆盖矩阵、完整补全回归脚本、入口文档、示例说明和最终边界审计形成明确终点。 |
+
 ## 当前可展示能力
 
 - TinyPB 同步 RPC：`scripts/check_rpc_sync.sh`
@@ -73,6 +92,7 @@
 - 生成工程端到端：`scripts/check_generator_project.sh`
 - 资源生命周期与基础 benchmark：`scripts/check_resource_lifetime.sh`
 - 全量回归：`scripts/check_all.sh`
+- 完整补全回归：`scripts/check_full_completion.sh`
 
 ## 与原 TinyRPC 的关系
 
@@ -96,6 +116,14 @@
 - benchmark 只做基础参考统计，不做商业级压测报告。
 
 更详细的覆盖状态见 [原 TinyRPC 功能覆盖矩阵](original-coverage-matrix.md)。
+
+阶段 25 后，第二轮补全计划的验收入口是：
+
+```bash
+./scripts/check_full_completion.sh
+```
+
+该脚本通过 `[full-completion] PASS` 表示阶段 18 到阶段 25 的补全能力已按当前边界完成回归。
 
 ## 继续演进建议
 

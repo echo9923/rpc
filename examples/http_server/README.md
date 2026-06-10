@@ -13,10 +13,10 @@ cd /mnt/d/codeproject/cpp/rpc
 Expected final output:
 
 ```text
-[stage12] PASS
+[stage12-http] PASS
 ```
 
-The script starts `test_http_server`, checks `/hello`, checks an unknown path returns `404`, and stops the server process.
+The script starts `test_http_server`, checks `/hello`, query handling, `404`, `500`, POST body, `Connection: close`, `Content-Length`, and stops the server process.
 
 ## Source Pointers
 
@@ -24,6 +24,10 @@ The script starts `test_http_server`, checks `/hello`, checks an unknown path re
 - HTTP codec: `mytinyrpc/net/http/httpcodec.*`
 - HTTP dispatcher: `mytinyrpc/net/http/httpdispatcher.*`
 - Servlet abstraction: `mytinyrpc/net/http/httpservlet.*`
+
+## Full-Completion Path
+
+This example is the completed stage 22 HTTP path. It covers HTTP/1.0/1.1 GET/POST, origin-form and absolute-form request targets, query map, case-insensitive headers, `Content-Length` body, default response headers, exact/root servlet dispatch, error responses, HTTP request context, and close-after-response semantics. It is included by `scripts/check_all.sh` and `scripts/check_full_completion.sh`.
 
 ## Boundary
 

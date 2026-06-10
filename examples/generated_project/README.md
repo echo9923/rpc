@@ -44,6 +44,10 @@ Omit `--layout full` to keep the backward-compatible simple layout. The simple l
 - Generator checks: `scripts/check_generator.sh`
 - Generated project check: `scripts/check_generator_project.sh`
 
+## Full-Completion Path
+
+This example is the completed stage 23 generator path. The generated project flow covers simple/full layouts, `protoc` output, descriptor-set service/method metadata, package-aware generated code, method interface classes, service adapters, a generated test client, and build/start/call/shutdown verification. It is included by `scripts/check_all.sh` and `scripts/check_full_completion.sh`.
+
 ## Boundary
 
 The generator uses `protoc` to generate C++ Protobuf files and descriptor-set metadata, then generates method interface classes, a service adapter, a test client, and run/shutdown scripts. It currently supports unary RPC only; streaming RPC, proto2-specific behavior, multi-language generation, and IDE project generation are outside this example.

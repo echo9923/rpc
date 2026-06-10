@@ -76,6 +76,26 @@ Core directories:
 | HTTP server | [examples/http_server/README.md](examples/http_server/README.md) |
 | Generated project | [examples/generated_project/README.md](examples/generated_project/README.md) |
 
+## Completed Supplement Capabilities
+
+Stages 18 to 25 close the earlier simplified areas without changing the project into a commercial RPC distribution. The completed supplement path now includes:
+
+- Config/log/start/runtime completion: grouped XML config, dual RPC/APP logs, runtime request context, and startup helper tests.
+- Coroutine completion: transparent `read/write/accept/connect/sleep/usleep` hooks, hook fd ownership, coroutine pool expansion, and fixed stack memory pool coverage.
+- Client networking completion: `TcpClient` uses client-side `TcpConnection`, Reactor/Timer timeout handling, response matching, connection reuse, explicit close, and failure rebuild.
+- Async RPC completion: `TinyPbRpcAsyncChannel` uses a long-lived `AsyncClientSession`, nonblocking socket, EPOLLIN/EPOLLOUT, pending matching, timeout/cancel/stop arbitration, and real `TcpServer` E2E validation.
+- HTTP completion: HTTP/1.0/1.1 GET/POST, origin-form and absolute-form targets, query map, case-insensitive headers, `Content-Length` body, default response headers, root servlet, 404/500 responses, request context, and close-after-response semantics.
+- Generator completion: simple/full layouts, `protoc`, descriptor-set parsing, package-aware service/method selection, method interface classes, service adapters, generated test client, and generated-project build/start/call/shutdown verification.
+- Optional shell capabilities: default-off MySQL plugin skeleton, fixed `ThreadPool`, lightweight tracing fields, basic benchmark programs, and resource-lifetime checks.
+
+The complete supplement gate is:
+
+```bash
+./scripts/check_full_completion.sh
+```
+
+It ends with `[full-completion] PASS`.
+
 ## Regression Scripts
 
 | Script | Purpose |
