@@ -22,6 +22,24 @@ Expected final output:
 [all] PASS
 ```
 
+Run the stage 25 full-completion gate when you want to verify the completed supplement plan:
+
+```bash
+./scripts/check_full_completion.sh
+```
+
+From Windows PowerShell:
+
+```powershell
+.\scripts\check_all.ps1 -FullCompletion
+```
+
+Expected final output:
+
+```text
+[full-completion] PASS
+```
+
 If you only need a fast build:
 
 ```bash
@@ -70,6 +88,7 @@ Core directories:
 | `scripts/check_generator_project.sh` | Generated project build/start/client/shutdown regression. |
 | `scripts/check_resource_lifetime.sh` | Stage 24 benchmark and resource-lifetime regression. |
 | `scripts/check_all.sh` | Full local regression across the project. |
+| `scripts/check_full_completion.sh` | Stage 25 full-completion gate across all supplement-stage regressions. |
 
 ## Minimal Runtime Entry
 

@@ -1,3 +1,7 @@
+param(
+    [switch]$FullCompletion
+)
+
 $ErrorActionPreference = "Stop"
 
 $RootDir = Split-Path -Parent $PSScriptRoot
@@ -11,5 +15,10 @@ if ($null -eq $WslCommand) {
     exit 1
 }
 
-& wsl.exe --cd "$RootDir" bash ./scripts/check_all.sh
+$ScriptPath = "./scripts/check_all.sh"
+if ($FullCompletion) {
+    $ScriptPath = "./scripts/check_full_completion.sh"
+}
+
+& wsl.exe --cd "$RootDir" bash $ScriptPath
 exit $LASTEXITCODE
