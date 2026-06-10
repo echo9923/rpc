@@ -1,4 +1,5 @@
 #include "comm/config.h"
+#include "comm/mysql_instance.h"
 #include "net/http/httpcodec.h"
 #include "net/http/httpdispatcher.h"
 #include "net/netaddress.h"
@@ -50,6 +51,11 @@ TEST(ConfigTest, DefaultsAreExplicit)
     EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
     EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
     EXPECT_EQ(config.getTimeWheelIntervalSec(), 1);
+    EXPECT_FALSE(config.isMySQLEnabled());
+    EXPECT_EQ(config.getMySQLConfig().m_host, "127.0.0.1");
+    EXPECT_EQ(config.getMySQLConfig().m_port, 3306);
+    EXPECT_EQ(config.getMySQLConfig().m_charset, "utf8mb4");
+    EXPECT_EQ(config.getMySQLConfig().m_connectTimeoutMs, 5000);
 }
 
 TEST(ConfigTest, DefaultConfigCanInitializeServer)
@@ -175,6 +181,78 @@ TEST(ConfigTest, ExtendedFieldsUseDefaultsWhenMissing)
     EXPECT_EQ(config.getMaxConnectTimeoutMs(), 5000);
     EXPECT_EQ(config.getTimeWheelBucketNum(), 60);
     EXPECT_EQ(config.getTimeWheelIntervalSec(), 1);
+}
+
+TEST(ConfigTest, ParseMySQLSection)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task117_mysql.xml",
+        "<config>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25007</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <mysql>"
+        "        <enable>true</enable>"
+        "        <host>10.0.0.8</host>"
+        "        <port>3307</port>"
+        "        <user>rpc_user</user>"
+        "        <password>rpc_pass</password>"
+        "        <database>rpc_db</database>"
+        "        <charset>utf8</charset>"
+        "        <connect_timeout_ms>1200</connect_timeout_ms>"
+        "    </mysql>"
+        "</config>"
+    );
+
+    ASSERT_TRUE(config.loadFromXml(path));
+    const auto& mysql = config.getMySQLConfig();
+    EXPECT_TRUE(config.isMySQLEnabled());
+    EXPECT_EQ(mysql.m_host, "10.0.0.8");
+    EXPECT_EQ(mysql.m_port, 3307);
+    EXPECT_EQ(mysql.m_user, "rpc_user");
+    EXPECT_EQ(mysql.m_password, "rpc_pass");
+    EXPECT_EQ(mysql.m_database, "rpc_db");
+    EXPECT_EQ(mysql.m_charset, "utf8");
+    EXPECT_EQ(mysql.m_connectTimeoutMs, 1200);
+}
+
+TEST(ConfigTest, InvalidMySQLSectionReturnsFalse)
+{
+    tinyrpc::Config config;
+    std::string path = writeTempConfig(
+        "task117_invalid_mysql.xml",
+        "<config>"
+        "    <server>"
+        "        <host>127.0.0.1</host>"
+        "        <port>25008</port>"
+        "        <protocol>tinypb</protocol>"
+        "    </server>"
+        "    <mysql>"
+        "        <enable>maybe</enable>"
+        "    </mysql>"
+        "</config>"
+    );
+
+    EXPECT_FALSE(config.loadFromXml(path));
+    EXPECT_NE(config.getLastError().find("mysql.enable"), std::string::npos);
+}
+
+TEST(ConfigTest, MySQLPluginDisabledReturnsClearNoOpError)
+{
+    tinyrpc::MySQLConfig mysql;
+    mysql.m_enabled = true;
+
+    tinyrpc::MySQLInstance& instance = tinyrpc::MySQLInstanceFactory::getThreadLocalInstance();
+    instance.close();
+
+    if (!tinyrpc::MySQLInstanceFactory::isPluginEnabled()) {
+        EXPECT_FALSE(instance.connect(mysql));
+        EXPECT_FALSE(instance.isConnected());
+        EXPECT_NE(instance.getLastError().find("MYTINYRPC_ENABLE_MYSQL"), std::string::npos);
+    }
 }
 
 TEST(ConfigTest, InvalidExtendedIntegerReturnsFalse)

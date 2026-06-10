@@ -9,6 +9,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -O0")
 
+option(MYTINYRPC_ENABLE_MYSQL "Enable optional MySQL client wrapper" OFF)
+if(MYTINYRPC_ENABLE_MYSQL)
+    find_path(MYSQL_INCLUDE_DIR
+        NAMES mysql/mysql.h mysql.h
+        PATH_SUFFIXES mysql mariadb
+    )
+    find_library(MYSQL_LIBRARY
+        NAMES mysqlclient mariadb
+    )
+    if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQL_LIBRARY)
+        message(FATAL_ERROR "MYTINYRPC_ENABLE_MYSQL=ON requires MySQL/MariaDB client development library. Install libmysqlclient-dev or libmariadb-dev, or configure with -DMYTINYRPC_ENABLE_MYSQL=OFF.")
+    endif()
+    include_directories(${MYSQL_INCLUDE_DIR})
+    add_compile_definitions(MYTINYRPC_ENABLE_MYSQL)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/mytinyrpc)
 
@@ -28,6 +44,7 @@ protobuf_generate_cpp(E2E_PROTO_SRCS E2E_PROTO_HDRS e2e/proto/e2e_rpc.proto)
 set(SRC
     mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
+    mytinyrpc/comm/mysql_instance.cc
     mytinyrpc/comm/reqid.cc
     mytinyrpc/comm/runtime.cc
     mytinyrpc/comm/start.cc
@@ -70,6 +87,9 @@ add_library(mytinyrpc_obj OBJECT ${SRC})
 
 # coroutinehook.cc 使用 dlsym，需要链接 libdl
 link_libraries(dl)
+if(MYTINYRPC_ENABLE_MYSQL)
+    link_libraries(${MYSQL_LIBRARY})
+endif()
 
 add_executable(test_tcp_echo_server
     testcases/test_tcp_echo_server.cc

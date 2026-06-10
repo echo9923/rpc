@@ -7,6 +7,17 @@
 
 namespace tinyrpc {
 
+struct MySQLConfig {
+    bool m_enabled {false};
+    std::string m_host {"127.0.0.1"};
+    uint16_t m_port {3306};
+    std::string m_user;
+    std::string m_password;
+    std::string m_database;
+    std::string m_charset {"utf8mb4"};
+    int m_connectTimeoutMs {5000};
+};
+
 // Config 保存框架启动所需的最小配置。
 // XML 中缺失字段会继续使用这里的默认值。
 class Config {
@@ -31,6 +42,8 @@ class Config {
     int getMaxConnectTimeoutMs() const;
     int getTimeWheelBucketNum() const;
     int getTimeWheelIntervalSec() const;
+    const MySQLConfig& getMySQLConfig() const;
+    bool isMySQLEnabled() const;
     const std::string& getLastError() const;
 
  private:
@@ -52,6 +65,7 @@ class Config {
     int m_maxConnectTimeoutMs {5000};
     int m_timeWheelBucketNum {60};
     int m_timeWheelIntervalSec {1};
+    MySQLConfig m_mysqlConfig;
     std::string m_lastError;
 };
 

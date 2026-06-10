@@ -279,6 +279,7 @@ bool Config::loadFromXml(const std::string& path)
     int maxConnectTimeoutMs = m_maxConnectTimeoutMs;
     int timeWheelBucketNum = m_timeWheelBucketNum;
     int timeWheelIntervalSec = m_timeWheelIntervalSec;
+    MySQLConfig mysqlConfig = m_mysqlConfig;
     std::string error;
 
     auto serverSection = findSection(xml, "server");
@@ -378,6 +379,48 @@ bool Config::loadFromXml(const std::string& path)
         return false;
     }
 
+    auto mysqlSection = findSection(xml, "mysql");
+    int mysqlPort = mysqlConfig.m_port;
+    if (!parseOptionalBoolField(mysqlSection, "mysql", "enable", mysqlConfig.m_enabled, error)
+        || !parseOptionalIntField(mysqlSection, "mysql", "port", 1, 65535, mysqlPort, error)
+        || !parseOptionalIntField(
+            mysqlSection,
+            "mysql",
+            "connect_timeout_ms",
+            1,
+            24 * 60 * 60 * 1000,
+            mysqlConfig.m_connectTimeoutMs,
+            error)) {
+        m_lastError = error;
+        return false;
+    }
+    mysqlConfig.m_port = static_cast<uint16_t>(mysqlPort);
+    if (mysqlSection.has_value()) {
+        if (auto value = findTagValue(*mysqlSection, "host"); value.has_value()) {
+            if (value->empty()) {
+                m_lastError = "invalid mysql.host: empty";
+                return false;
+            }
+            mysqlConfig.m_host = *value;
+        }
+        if (auto value = findTagValue(*mysqlSection, "user"); value.has_value()) {
+            mysqlConfig.m_user = *value;
+        }
+        if (auto value = findTagValue(*mysqlSection, "password"); value.has_value()) {
+            mysqlConfig.m_password = *value;
+        }
+        if (auto value = findTagValue(*mysqlSection, "database"); value.has_value()) {
+            mysqlConfig.m_database = *value;
+        }
+        if (auto value = findTagValue(*mysqlSection, "charset"); value.has_value()) {
+            if (value->empty()) {
+                m_lastError = "invalid mysql.charset: empty";
+                return false;
+            }
+            mysqlConfig.m_charset = *value;
+        }
+    }
+
     m_serverHost = serverHost;
     m_serverPort = serverPort;
     m_protocol = protocol;
@@ -396,6 +439,7 @@ bool Config::loadFromXml(const std::string& path)
     m_maxConnectTimeoutMs = maxConnectTimeoutMs;
     m_timeWheelBucketNum = timeWheelBucketNum;
     m_timeWheelIntervalSec = timeWheelIntervalSec;
+    m_mysqlConfig = mysqlConfig;
     m_lastError.clear();
     return true;
 }
@@ -493,6 +537,16 @@ int Config::getTimeWheelBucketNum() const
 int Config::getTimeWheelIntervalSec() const
 {
     return m_timeWheelIntervalSec;
+}
+
+const MySQLConfig& Config::getMySQLConfig() const
+{
+    return m_mysqlConfig;
+}
+
+bool Config::isMySQLEnabled() const
+{
+    return m_mysqlConfig.m_enabled;
 }
 
 const std::string& Config::getLastError() const
