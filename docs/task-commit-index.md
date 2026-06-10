@@ -119,6 +119,10 @@ git show --stat task-38
 | 任务一百一十三 | `7fdce9d` | `完成任务一百一十三：生成器支持 descriptor 服务解析` | 生成器验收覆盖 package、多 service、descriptor 选择和 TinyPB package serviceName 解析 | 标题明确；阶段 23；与任务一百一十二同提交 |
 | 任务一百一十四 | `0769eb6` | `完成任务一百一十一：生成器支持完整工程布局` | 生成 `BusinessException`、`InterfaceBase`、method interface 和 service 适配模板 | 阶段 23；与任务一百一十一同提交 |
 | 任务一百一十五 | `c1b01ef` | `完成任务一百一十五：生成工程端到端验收` | `check_generator_project.sh` 同时验收 simple/full 生成工程构建、启动、调用和关闭 | 标题明确；阶段 23；其后有阶段收口提交 `6b08682` |
+| 任务一百一十六 | `ee587a3` | `完成任务一百一十六：增加通用 ThreadPool 工具` | 新增普通后台 `ThreadPool`、生命周期测试和构建目标 | 标题明确；阶段 24 |
+| 任务一百一十七 | `14c9ddc` | `完成任务一百一十七：增加 MySQL 可选插件骨架` | 新增 MySQL 可选编译开关、配置解析和 no-op 插件入口 | 标题明确；阶段 24 |
+| 任务一百一十八 | `e3c0b69` | `完成任务一百一十八：补齐请求上下文追踪` | 轻量 request context 贯穿 TinyPB、HTTP、同步/异步客户端和日志 | 标题明确；阶段 24 |
+| 任务一百一十九 | `e2528fa` | `完成任务一百一十九：增加基础 benchmark 和资源检查` | 新增 HTTP/TinyPB benchmark、资源生命周期检查脚本并收口阶段 24 文档 | 标题明确；阶段 24 |
 
 ## 早期任务推定索引
 
