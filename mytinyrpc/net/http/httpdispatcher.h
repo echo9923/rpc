@@ -22,6 +22,7 @@ class HttpDispatcher : public AbstractDispatcher {
 
     void dispatch(AbstractData *data, TcpConnection *conn) override;
     void dispatch(HttpRequest *request, HttpResponse *response);
+    void dispatch(HttpRequest *request, HttpResponse *response, TcpConnection *conn);
 
     bool registerServlet(const std::string& path, HttpServlet::Ptr servlet);
     HttpServlet* findServlet(const std::string& path) const;

@@ -30,6 +30,7 @@ class ContextServiceImpl : public QueryService {
         google::protobuf::Closure *done) override
     {
         auto& context = tinyrpc::getRuntime().getCurrentRequestContext();
+        m_observedTraceId = context.getTraceId();
         m_observedReqId = context.getReqId();
         m_observedInterface = context.getInterfaceName();
         m_observedMethod = context.getMethodName();
@@ -37,6 +38,7 @@ class ContextServiceImpl : public QueryService {
         m_observedLocalAddr = context.getLocalAddr();
         m_observedPeerAddr = context.getPeerAddr();
         m_observedProtocol = context.getProtocolType();
+        m_observedSummary = context.toString();
 
         response->set_ret_code(0);
         response->set_res_info("runtime ok");
@@ -49,6 +51,7 @@ class ContextServiceImpl : public QueryService {
         }
     }
 
+    std::string m_observedTraceId;
     std::string m_observedReqId;
     std::string m_observedInterface;
     std::string m_observedMethod;
@@ -56,6 +59,7 @@ class ContextServiceImpl : public QueryService {
     std::string m_observedLocalAddr;
     std::string m_observedPeerAddr;
     tinyrpc::ProtocolType m_observedProtocol {tinyrpc::ProtocolType::TinyPb};
+    std::string m_observedSummary;
 };
 
 class ContextHttpServlet : public tinyrpc::HttpServlet {
@@ -63,6 +67,7 @@ class ContextHttpServlet : public tinyrpc::HttpServlet {
     bool handle(tinyrpc::HttpRequest * /*request*/, tinyrpc::HttpResponse *response) override
     {
         auto& context = tinyrpc::getRuntime().getCurrentRequestContext();
+        m_observedTraceId = context.getTraceId();
         m_observedReqId = context.getReqId();
         m_observedInterface = context.getInterfaceName();
         m_observedMethod = context.getMethodName();
@@ -70,12 +75,14 @@ class ContextHttpServlet : public tinyrpc::HttpServlet {
         m_observedLocalAddr = context.getLocalAddr();
         m_observedPeerAddr = context.getPeerAddr();
         m_observedProtocol = context.getProtocolType();
+        m_observedSummary = context.toString();
 
         response->setStatusCode(tinyrpc::HttpStatusCode::OK);
         response->setBody("runtime http ok");
         return true;
     }
 
+    std::string m_observedTraceId;
     std::string m_observedReqId;
     std::string m_observedInterface;
     std::string m_observedMethod;
@@ -83,6 +90,7 @@ class ContextHttpServlet : public tinyrpc::HttpServlet {
     std::string m_observedLocalAddr;
     std::string m_observedPeerAddr;
     tinyrpc::ProtocolType m_observedProtocol {tinyrpc::ProtocolType::TinyPb};
+    std::string m_observedSummary;
 };
 
 std::shared_ptr<tinyrpc::TcpConnection> makeConnection(
@@ -131,6 +139,7 @@ TEST(RuntimeTest, DispatcherSetsTinyPbFullRequestContext)
 
     dispatcher->dispatch(&request, conn.get());
 
+    EXPECT_EQ(service->m_observedTraceId, "runtime-req-001");
     EXPECT_EQ(service->m_observedReqId, "runtime-req-001");
     EXPECT_EQ(service->m_observedInterface, "QueryService");
     EXPECT_EQ(service->m_observedMethod, "query_name");
@@ -138,6 +147,8 @@ TEST(RuntimeTest, DispatcherSetsTinyPbFullRequestContext)
     EXPECT_EQ(service->m_observedProtocol, tinyrpc::ProtocolType::TinyPb);
     EXPECT_FALSE(service->m_observedLocalAddr.empty());
     EXPECT_FALSE(service->m_observedPeerAddr.empty());
+    EXPECT_NE(service->m_observedSummary.find("traceId=runtime-req-001"), std::string::npos);
+    EXPECT_NE(service->m_observedSummary.find("protocol=tinypb"), std::string::npos);
     EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getReqId().empty());
     EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getInterfaceName().empty());
     EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getMethodName().empty());
@@ -158,6 +169,7 @@ TEST(RuntimeTest, HttpDispatcherSetsRequestContext)
     dispatcher->dispatch(&request, &response);
 
     EXPECT_EQ(response.getStatusCodeValue(), 200);
+    EXPECT_EQ(servlet->m_observedTraceId, "http-req-001");
     EXPECT_EQ(servlet->m_observedReqId, "http-req-001");
     EXPECT_EQ(servlet->m_observedInterface, "http");
     EXPECT_EQ(servlet->m_observedMethod, "GET");
@@ -165,6 +177,8 @@ TEST(RuntimeTest, HttpDispatcherSetsRequestContext)
     EXPECT_EQ(servlet->m_observedProtocol, tinyrpc::ProtocolType::Http);
     EXPECT_FALSE(servlet->m_observedLocalAddr.empty());
     EXPECT_FALSE(servlet->m_observedPeerAddr.empty());
+    EXPECT_NE(servlet->m_observedSummary.find("path=/runtime"), std::string::npos);
+    EXPECT_NE(servlet->m_observedSummary.find("protocol=http"), std::string::npos);
 }
 
 TEST(RuntimeTest, RequestContextIsClearedAfterHttpAndTinyPb)
@@ -206,6 +220,7 @@ TEST(RuntimeTest, RequestContextIsThreadLocal)
 {
     auto task = [](const std::string& reqId) {
         tinyrpc::getRuntime().setCurrentRequestContext(
+            "trace-" + reqId,
             reqId,
             "QueryService",
             "query_name",
@@ -214,7 +229,8 @@ TEST(RuntimeTest, RequestContextIsThreadLocal)
             tinyrpc::ProtocolType::TinyPb
         );
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        std::string observed = tinyrpc::getRuntime().getCurrentRequestContext().getReqId();
+        const auto& context = tinyrpc::getRuntime().getCurrentRequestContext();
+        std::string observed = context.getTraceId() + "/" + context.getReqId();
         tinyrpc::getRuntime().clearCurrentRequestContext();
         return observed;
     };
@@ -222,8 +238,8 @@ TEST(RuntimeTest, RequestContextIsThreadLocal)
     auto first = std::async(std::launch::async, task, "thread-req-1");
     auto second = std::async(std::launch::async, task, "thread-req-2");
 
-    EXPECT_EQ(first.get(), "thread-req-1");
-    EXPECT_EQ(second.get(), "thread-req-2");
+    EXPECT_EQ(first.get(), "trace-thread-req-1/thread-req-1");
+    EXPECT_EQ(second.get(), "trace-thread-req-2/thread-req-2");
     EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getReqId().empty());
 }
 
@@ -235,6 +251,7 @@ TEST(RuntimeTest, LoggerUsesCurrentContextReqId)
 
     ASSERT_TRUE(tinyrpc::Logger::init(path, tinyrpc::LogLevel::Debug));
     tinyrpc::getRuntime().setCurrentRequestContext(
+        "log-context-trace",
         "log-context-req",
         "QueryService",
         "query_name",
@@ -251,7 +268,12 @@ TEST(RuntimeTest, LoggerUsesCurrentContextReqId)
 
     std::string content = readFile(path);
     EXPECT_NE(content.find("[RPC]"), std::string::npos);
+    EXPECT_NE(content.find("[traceId=log-context-trace]"), std::string::npos);
     EXPECT_NE(content.find("[reqId=log-context-req]"), std::string::npos);
+    EXPECT_NE(content.find("[interface=QueryService]"), std::string::npos);
+    EXPECT_NE(content.find("[method=query_name]"), std::string::npos);
+    EXPECT_NE(content.find("[peer=peer]"), std::string::npos);
+    EXPECT_NE(content.find("[protocol=tinypb]"), std::string::npos);
     EXPECT_NE(content.find("[func="), std::string::npos);
     EXPECT_NE(content.find("log from runtime context"), std::string::npos);
     std::filesystem::remove(path);

@@ -39,6 +39,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     Socket getFd() const;
     TcpConnectionType getConnectionType() const;
     const IPAddress& getPeerAddress() const;
+    std::string getLocalAddressString() const;
+    std::string getPeerAddressString() const;
 
     AbstractCodec::Ptr getCodec() const;
     TcpBuffer* getInputBuffer();
@@ -76,6 +78,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     FdEvent m_fdEvent;                        // 文件描述符事件对象，管理可读/可写事件的注册
     TcpConnectionType m_connectionType {TcpConnectionType::ServerConnection}; // 区分服务端连接和客户端连接语义
     IPAddress m_peerAddr {"0.0.0.0", 0};      // 对端地址；客户端连接用于记录目标服务端
+    std::string m_localAddrString;            // 当前连接本端地址字符串，供 tracing 日志展示
+    std::string m_peerAddrString;             // 当前连接对端地址字符串，供 tracing 日志展示
     AbstractCodec::Ptr m_codec;               // 协议编解码器，nullptr 时走 Echo 语义
     AbstractDispatcher::Ptr m_dispatcher;     // 协议分发器，nullptr 时 execute() 走 encode 回环
     std::function<void(int)> m_closeCallback; // 连接关闭时的回调函数，参数为 fd

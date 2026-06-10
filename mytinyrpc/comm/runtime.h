@@ -15,6 +15,7 @@ namespace tinyrpc {
 
 class RequestContext {
  public:
+    const std::string& getTraceId() const;
     const std::string& getReqId() const;
     const std::string& getInterfaceName() const;
     const std::string& getMethodName() const;
@@ -22,7 +23,20 @@ class RequestContext {
     const std::string& getLocalAddr() const;
     const std::string& getPeerAddr() const;
     ProtocolType getProtocolType() const;
+    std::string getProtocolName() const;
+    bool hasContext() const;
+    std::string toString() const;
 
+    void set(
+        const std::string& traceId,
+        const std::string& reqId,
+        const std::string& interfaceName,
+        const std::string& methodName,
+        const std::string& localAddr,
+        const std::string& peerAddr,
+        ProtocolType protocolType,
+        const std::string& path = ""
+    );
     void set(
         const std::string& reqId,
         const std::string& interfaceName,
@@ -35,6 +49,7 @@ class RequestContext {
     void clear();
 
  private:
+    std::string m_traceId;
     std::string m_reqId;
     std::string m_interfaceName;
     std::string m_methodName;
@@ -65,6 +80,16 @@ class Runtime {
     RequestContext& getCurrentRequestContext();
     const RequestContext& getCurrentRequestContext() const;
     void setCurrentRequestContext(
+        const std::string& reqId,
+        const std::string& interfaceName,
+        const std::string& methodName,
+        const std::string& localAddr,
+        const std::string& peerAddr,
+        ProtocolType protocolType,
+        const std::string& path = ""
+    );
+    void setCurrentRequestContext(
+        const std::string& traceId,
         const std::string& reqId,
         const std::string& interfaceName,
         const std::string& methodName,

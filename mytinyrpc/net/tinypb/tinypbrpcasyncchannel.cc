@@ -2,6 +2,7 @@
 
 #include "comm/errorcode.h"
 #include "comm/reqid.h"
+#include "comm/runtime.h"
 #include "net/timer.h"
 #include "net/tinypb/tinypbrpccontroller.h"
 
@@ -12,6 +13,57 @@
 #include <utility>
 
 namespace tinyrpc {
+
+namespace {
+
+std::string splitServiceName(const std::string& methodFullName)
+{
+    auto pos = methodFullName.rfind('.');
+    if (pos == std::string::npos) {
+        return methodFullName;
+    }
+    return methodFullName.substr(0, pos);
+}
+
+std::string splitMethodName(const std::string& methodFullName)
+{
+    auto pos = methodFullName.rfind('.');
+    if (pos == std::string::npos) {
+        return "";
+    }
+    return methodFullName.substr(pos + 1);
+}
+
+class RequestContextGuard {
+ public:
+    explicit RequestContextGuard(const std::shared_ptr<AsyncCallContext>& context)
+    {
+        if (context == nullptr) {
+            return;
+        }
+        getRuntime().setCurrentRequestContext(
+            context->m_reqId,
+            context->m_interfaceName,
+            context->m_methodName,
+            "client",
+            context->m_peerAddr,
+            ProtocolType::TinyPb
+        );
+        m_enabled = true;
+    }
+
+    ~RequestContextGuard()
+    {
+        if (m_enabled) {
+            getRuntime().clearCurrentRequestContext();
+        }
+    }
+
+ private:
+    bool m_enabled {false};
+};
+
+}  // namespace
 
 TinyPbRpcAsyncChannel::TinyPbRpcAsyncChannel(const IPAddress& peerAddr)
     : m_peerAddr(peerAddr),
@@ -45,7 +97,10 @@ void TinyPbRpcAsyncChannel::CallMethod(
     context->m_done = done;
     if (method != nullptr) {
         context->m_methodFullName = method->full_name();
+        context->m_interfaceName = splitServiceName(context->m_methodFullName);
+        context->m_methodName = splitMethodName(context->m_methodFullName);
     }
+    context->m_peerAddr = m_peerAddr.toString();
     {
         std::lock_guard<std::mutex> lock(m_pendingMutex);
         m_lastContext = context;
@@ -70,6 +125,7 @@ void TinyPbRpcAsyncChannel::CallMethod(
         }
     }
 
+    RequestContextGuard contextGuard(context);
     context->m_tinyRequest.m_reqId = context->m_reqId;
     context->m_tinyRequest.m_serviceFullName = context->m_methodFullName;
     // [第三方 API] SerializeToString 把业务 request 编码成 Protobuf 二进制串，
@@ -137,6 +193,7 @@ bool TinyPbRpcAsyncChannel::handleTinyPbResponse(const TinyPbStruct& response)
     if (context == nullptr) {
         return false;
     }
+    RequestContextGuard contextGuard(context);
 
     if (response.m_errCode != 0) {
         setControllerError(context->m_controller, response.m_errCode, response.m_errInfo);
@@ -165,6 +222,7 @@ bool TinyPbRpcAsyncChannel::cancel(const std::string& reqId)
     if (context == nullptr) {
         return false;
     }
+    RequestContextGuard contextGuard(context);
 
     auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->m_controller);
     if (tinyController != nullptr) {
@@ -201,6 +259,7 @@ void TinyPbRpcAsyncChannel::failAllPending(int errorCode, const std::string& err
     }
     for (auto& ctx : contexts) {
         if (ctx == nullptr) continue;
+        RequestContextGuard contextGuard(ctx);
         if (ctx->m_timeoutEntry != nullptr) {
             ctx->m_timeoutEntry->cancel();
         }
@@ -311,6 +370,7 @@ void TinyPbRpcAsyncChannel::handleTimeout(const std::string& reqId)
 
 void TinyPbRpcAsyncChannel::finishContext(const std::shared_ptr<AsyncCallContext>& context)
 {
+    RequestContextGuard contextGuard(context);
     if (context != nullptr) {
         auto *tinyController = dynamic_cast<TinyPbRpcController *>(context->m_controller);
         if (tinyController != nullptr) {
@@ -328,6 +388,7 @@ void TinyPbRpcAsyncChannel::sendContextOnIOThread(const std::shared_ptr<AsyncCal
     if (context == nullptr || m_session == nullptr) {
         return;
     }
+    RequestContextGuard contextGuard(context);
 
     m_session->setReadCallback([this](const TinyPbStruct& resp) {
         handleTinyPbResponse(resp);

@@ -8,10 +8,56 @@
 #include "net/tinypb/tinypbdata.h"
 
 #include <cerrno>
+#include <arpa/inet.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 namespace tinyrpc {
+
+namespace {
+
+std::string socketAddressToString(const sockaddr_in& addr)
+{
+    char ip[INET_ADDRSTRLEN] {};
+    const char *rt = inet_ntop(AF_INET, &addr.sin_addr, ip, sizeof(ip));
+    if (rt == nullptr) {
+        return "";
+    }
+    return std::string(ip) + ":" + std::to_string(ntohs(addr.sin_port));
+}
+
+std::string getSocketName(Socket fd)
+{
+    if (fd < 0) {
+        return "";
+    }
+
+    sockaddr_in addr {};
+    socklen_t len = sizeof(addr);
+    // getsockname(2) 读取 socket 本端地址，参数依次为 fd、输出地址缓冲、缓冲长度指针。
+    if (getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) != 0) {
+        return "";
+    }
+    return socketAddressToString(addr);
+}
+
+std::string getPeerName(Socket fd)
+{
+    if (fd < 0) {
+        return "";
+    }
+
+    sockaddr_in addr {};
+    socklen_t len = sizeof(addr);
+    // getpeername(2) 读取 socket 对端地址，参数依次为 fd、输出地址缓冲、缓冲长度指针。
+    if (getpeername(fd, reinterpret_cast<sockaddr *>(&addr), &len) != 0) {
+        return "";
+    }
+    return socketAddressToString(addr);
+}
+
+}  // namespace
 
 TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
                              AbstractCodec::Ptr codec,
@@ -21,6 +67,8 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
       m_codec(std::move(codec)),
       m_dispatcher(std::move(dispatcher))
 {
+    m_localAddrString = getSocketName(m_fd);
+    m_peerAddrString = getPeerName(m_fd);
     refreshActiveTime();
 }
 
@@ -35,6 +83,8 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor, TcpConnectionType conn
       m_codec(std::move(codec)),
       m_dispatcher(std::move(dispatcher))
 {
+    m_localAddrString = getSocketName(m_fd);
+    m_peerAddrString = m_peerAddr.toString();
     refreshActiveTime();
 }
 
@@ -56,6 +106,22 @@ TcpConnectionType TcpConnection::getConnectionType() const
 const IPAddress& TcpConnection::getPeerAddress() const
 {
     return m_peerAddr;
+}
+
+std::string TcpConnection::getLocalAddressString() const
+{
+    if (!m_localAddrString.empty()) {
+        return m_localAddrString;
+    }
+    return getSocketName(m_fd);
+}
+
+std::string TcpConnection::getPeerAddressString() const
+{
+    if (!m_peerAddrString.empty()) {
+        return m_peerAddrString;
+    }
+    return getPeerName(m_fd);
 }
 
 AbstractCodec::Ptr TcpConnection::getCodec() const

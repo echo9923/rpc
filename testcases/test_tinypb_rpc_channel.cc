@@ -9,6 +9,7 @@
  */
 
 #include "comm/errorcode.h"
+#include "comm/runtime.h"
 #include "net/tcpbuffer.h"
 #include "net/tinypb/tinypbcodec.h"
 #include "net/tinypb/tinypbrpcchannel.h"
@@ -120,6 +121,36 @@ class FlagClosure : public google::protobuf::Closure {
     {
         *m_called = true;
     }
+
+ private:
+    bool *m_called {nullptr};
+};
+
+class ContextRecordingClosure : public google::protobuf::Closure {
+ public:
+    explicit ContextRecordingClosure(bool *called)
+        : m_called(called)
+    {
+    }
+
+    void Run() override
+    {
+        *m_called = true;
+        const auto& context = tinyrpc::getRuntime().getCurrentRequestContext();
+        m_traceId = context.getTraceId();
+        m_reqId = context.getReqId();
+        m_interfaceName = context.getInterfaceName();
+        m_methodName = context.getMethodName();
+        m_peerAddr = context.getPeerAddr();
+        m_protocol = context.getProtocolName();
+    }
+
+    std::string m_traceId;
+    std::string m_reqId;
+    std::string m_interfaceName;
+    std::string m_methodName;
+    std::string m_peerAddr;
+    std::string m_protocol;
 
  private:
     bool *m_called {nullptr};
@@ -247,6 +278,75 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
     EXPECT_EQ(response.req_no(), 7);
     EXPECT_EQ(response.id(), 100);
     EXPECT_EQ(response.name(), "Alice");
+}
+
+TEST_F(TinyPbRpcChannelTest, DoneRunsWithClientRequestContext)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct decodedRequest;
+        if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        queryNameRes pbRes;
+        pbRes.set_ret_code(0);
+        pbRes.set_res_info("ok");
+        pbRes.set_req_no(17);
+        pbRes.set_id(109);
+        pbRes.set_name("TraceDone");
+
+        tinyrpc::TinyPbStruct response;
+        response.m_reqId = decodedRequest.m_reqId;
+        response.m_serviceFullName = decodedRequest.m_serviceFullName;
+        ASSERT_TRUE(pbRes.SerializeToString(&response.m_pbData));
+
+        std::string frame;
+        if (!encodeTinyPbToString(&response, &frame)) {
+            serverError = "response encode failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+        serverOk = writeAllToFd(clientFd, frame.data(), frame.size(), &serverError);
+        closeIfValid(&clientFd);
+    });
+
+    tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", getListenPort()));
+    channel.setReqIdGenerator([]() { return "sync-context-req"; });
+    QueryService_Stub stub(&channel);
+
+    queryNameReq request;
+    request.set_req_no(17);
+    request.set_id(109);
+    request.set_type(1);
+
+    queryNameRes response;
+    tinyrpc::TinyPbRpcController controller;
+    bool doneCalled = false;
+    ContextRecordingClosure done(&doneCalled);
+
+    stub.query_name(&controller, &request, &response, &done);
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_FALSE(controller.Failed()) << controller.ErrorText();
+    EXPECT_TRUE(doneCalled);
+    EXPECT_EQ(done.m_traceId, "sync-context-req");
+    EXPECT_EQ(done.m_reqId, "sync-context-req");
+    EXPECT_EQ(done.m_interfaceName, "QueryService");
+    EXPECT_EQ(done.m_methodName, "query_name");
+    EXPECT_EQ(done.m_peerAddr, "127.0.0.1:" + std::to_string(getListenPort()));
+    EXPECT_EQ(done.m_protocol, "tinypb");
+    EXPECT_TRUE(tinyrpc::getRuntime().getCurrentRequestContext().getReqId().empty());
 }
 
 TEST_F(TinyPbRpcChannelTest, ControllerPresetReqIdIsUsedByChannel)

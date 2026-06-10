@@ -426,6 +426,7 @@ LogEvent makeLogEvent(
     const std::string& msg,
     const std::string& reqId)
 {
+    const auto& context = getRuntime().getCurrentRequestContext();
     LogEvent event;
     event.m_type = type;
     event.m_level = level;
@@ -437,7 +438,16 @@ LogEvent makeLogEvent(
     event.m_file = file;
     event.m_line = line;
     event.m_function = function;
-    event.m_reqId = reqId;
+    event.m_traceId = context.getTraceId();
+    event.m_reqId = reqId.empty() ? context.getReqId() : reqId;
+    if (event.m_traceId.empty()) {
+        event.m_traceId = event.m_reqId;
+    }
+    event.m_interfaceName = context.getInterfaceName();
+    event.m_methodName = context.getMethodName();
+    event.m_path = context.getPath();
+    event.m_peerAddr = context.getPeerAddr();
+    event.m_protocol = context.getProtocolName();
     event.m_message = msg;
     return event;
 }
@@ -451,7 +461,13 @@ std::string formatLogEvent(const LogEvent& event)
            << "[pid=" << event.m_pid << "] "
            << "[tid=" << event.m_threadId << "] "
            << "[co=" << event.m_coroutineId << "] "
+           << "[traceId=" << event.m_traceId << "] "
            << "[reqId=" << event.m_reqId << "] "
+           << "[interface=" << event.m_interfaceName << "] "
+           << "[method=" << event.m_methodName << "] "
+           << "[path=" << event.m_path << "] "
+           << "[peer=" << event.m_peerAddr << "] "
+           << "[protocol=" << event.m_protocol << "] "
            << "[" << (event.m_file == nullptr ? "" : event.m_file) << ":" << event.m_line << "] "
            << "[func=" << (event.m_function == nullptr ? "" : event.m_function) << "] "
            << event.m_message;

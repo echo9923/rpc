@@ -27,7 +27,13 @@ struct LogEvent {
     const char *m_file {nullptr};
     int m_line {0};
     const char *m_function {nullptr};
+    std::string m_traceId;
     std::string m_reqId;
+    std::string m_interfaceName;
+    std::string m_methodName;
+    std::string m_path;
+    std::string m_peerAddr;
+    std::string m_protocol;
     std::string m_message;
 };
 

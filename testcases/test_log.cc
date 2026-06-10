@@ -1,4 +1,5 @@
 #include "comm/log.h"
+#include "comm/runtime.h"
 
 #include <gtest/gtest.h>
 
@@ -130,9 +131,15 @@ TEST(LoggerTest, FileOutputContainsThreadFileLineAndReqId)
     EXPECT_NE(content.find("[pid="), std::string::npos);
     EXPECT_NE(content.find("[tid="), std::string::npos);
     EXPECT_NE(content.find("[co="), std::string::npos);
+    EXPECT_NE(content.find("[traceId=req-001]"), std::string::npos);
     EXPECT_NE(content.find("[unit_file.cc:77]"), std::string::npos);
     EXPECT_NE(content.find("[func=unit_func]"), std::string::npos);
     EXPECT_NE(content.find("[reqId=req-001]"), std::string::npos);
+    EXPECT_NE(content.find("[interface="), std::string::npos);
+    EXPECT_NE(content.find("[method="), std::string::npos);
+    EXPECT_NE(content.find("[path="), std::string::npos);
+    EXPECT_NE(content.find("[peer="), std::string::npos);
+    EXPECT_NE(content.find("[protocol="), std::string::npos);
     EXPECT_NE(content.find("method=QueryService.query_name"), std::string::npos);
     EXPECT_NE(content.find("err=100"), std::string::npos);
 
@@ -259,6 +266,7 @@ TEST(LoggerTest, LogLineContainsEventFields)
     EXPECT_NE(content.find("[pid="), std::string::npos);
     EXPECT_NE(content.find("[tid="), std::string::npos);
     EXPECT_NE(content.find("[co="), std::string::npos);
+    EXPECT_NE(content.find("[traceId=event-req]"), std::string::npos);
     EXPECT_NE(content.find("[reqId=event-req]"), std::string::npos);
     EXPECT_NE(content.find("[event_file.cc:123]"), std::string::npos);
     EXPECT_NE(content.find("[func=event_func]"), std::string::npos);
@@ -414,6 +422,43 @@ TEST(LoggerTest, SmallMaxSizeTriggersRolling)
 
     tinyrpc::Logger::shutdown();
     removePrefixedLogs("task89_roll");
+}
+
+TEST(LoggerTest, CurrentRequestContextFieldsAreWritten)
+{
+    removePrefixedLogs("task118_context_fields");
+    ASSERT_TRUE(tinyrpc::Logger::init(
+        "build/log-tests",
+        "task118_context_fields",
+        tinyrpc::LogLevel::Debug,
+        tinyrpc::LogLevel::Debug
+    ));
+
+    tinyrpc::getRuntime().setCurrentRequestContext(
+        "trace-118",
+        "req-118",
+        "TraceService",
+        "call",
+        "127.0.0.1:1000",
+        "127.0.0.1:2000",
+        tinyrpc::ProtocolType::TinyPb,
+        "/trace"
+    );
+    InfoLog("context fields visible");
+    tinyrpc::Logger::flush();
+    tinyrpc::getRuntime().clearCurrentRequestContext();
+
+    std::string content = readFile("build/log-tests/task118_context_fields_rpc.log");
+    EXPECT_NE(content.find("[traceId=trace-118]"), std::string::npos);
+    EXPECT_NE(content.find("[reqId=req-118]"), std::string::npos);
+    EXPECT_NE(content.find("[interface=TraceService]"), std::string::npos);
+    EXPECT_NE(content.find("[method=call]"), std::string::npos);
+    EXPECT_NE(content.find("[path=/trace]"), std::string::npos);
+    EXPECT_NE(content.find("[peer=127.0.0.1:2000]"), std::string::npos);
+    EXPECT_NE(content.find("[protocol=tinypb]"), std::string::npos);
+
+    tinyrpc::Logger::shutdown();
+    removePrefixedLogs("task118_context_fields");
 }
 
 int main(int argc, char **argv)

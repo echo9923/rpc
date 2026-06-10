@@ -2,6 +2,7 @@
 
 #include "comm/errorcode.h"
 #include "comm/reqid.h"
+#include "comm/runtime.h"
 #include "net/tcpclient.h"
 #include "net/tinypb/tinypbdata.h"
 #include "net/tinypb/tinypbrpccontroller.h"
@@ -13,6 +14,52 @@
 #include <utility>
 
 namespace tinyrpc {
+
+namespace {
+
+std::string splitServiceName(const std::string& methodFullName)
+{
+    auto pos = methodFullName.rfind('.');
+    if (pos == std::string::npos) {
+        return methodFullName;
+    }
+    return methodFullName.substr(0, pos);
+}
+
+std::string splitMethodName(const std::string& methodFullName)
+{
+    auto pos = methodFullName.rfind('.');
+    if (pos == std::string::npos) {
+        return "";
+    }
+    return methodFullName.substr(pos + 1);
+}
+
+class RequestContextGuard {
+ public:
+    RequestContextGuard(
+        const std::string& reqId,
+        const std::string& methodFullName,
+        const IPAddress& peerAddr
+    )
+    {
+        getRuntime().setCurrentRequestContext(
+            reqId,
+            splitServiceName(methodFullName),
+            splitMethodName(methodFullName),
+            "client",
+            peerAddr.toString(),
+            ProtocolType::TinyPb
+        );
+    }
+
+    ~RequestContextGuard()
+    {
+        getRuntime().clearCurrentRequestContext();
+    }
+};
+
+}  // namespace
 
 TinyPbRpcChannel::TinyPbRpcChannel(const IPAddress& peerAddr)
     : m_peerAddr(peerAddr)
@@ -58,6 +105,7 @@ void TinyPbRpcChannel::CallMethod(
     if (tinyController != nullptr) {
         tinyController->setReqId(tinyRequest.m_reqId);
     }
+    RequestContextGuard contextGuard(tinyRequest.m_reqId, tinyRequest.m_serviceFullName, m_peerAddr);
 
     // [第三方 API] SerializeToString 将业务 request 编码为 Protobuf 二进制串，
     // 该二进制串作为 TinyPB envelope 中的 pbData 字段传输。

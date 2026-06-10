@@ -1,8 +1,11 @@
 #include "comm/runtime.h"
 #include "comm/log.h"
+#include "comm/reqid.h"
 #include "net/http/httpcodec.h"
 #include "net/netaddress.h"
 #include "net/tinypb/tinypbcodec.h"
+
+#include <sstream>
 
 namespace tinyrpc {
 
@@ -10,7 +13,35 @@ namespace {
 
 thread_local RequestContext t_requestContext;
 
+std::string protocolTypeToString(ProtocolType protocolType)
+{
+    switch (protocolType) {
+    case ProtocolType::TinyPb:
+        return "tinypb";
+    case ProtocolType::Http:
+        return "http";
+    default:
+        return "unknown";
+    }
+}
+
+std::string makeTraceId(const std::string& traceId, const std::string& reqId)
+{
+    if (!traceId.empty()) {
+        return traceId;
+    }
+    if (!reqId.empty()) {
+        return reqId;
+    }
+    return ReqIdUtil::genReqId();
+}
+
 }  // namespace
+
+const std::string& RequestContext::getTraceId() const
+{
+    return m_traceId;
+}
 
 const std::string& RequestContext::getReqId() const
 {
@@ -47,6 +78,60 @@ ProtocolType RequestContext::getProtocolType() const
     return m_protocolType;
 }
 
+std::string RequestContext::getProtocolName() const
+{
+    if (!hasContext()) {
+        return "";
+    }
+    return protocolTypeToString(m_protocolType);
+}
+
+bool RequestContext::hasContext() const
+{
+    return !m_traceId.empty()
+        || !m_reqId.empty()
+        || !m_interfaceName.empty()
+        || !m_methodName.empty()
+        || !m_path.empty()
+        || !m_localAddr.empty()
+        || !m_peerAddr.empty();
+}
+
+std::string RequestContext::toString() const
+{
+    std::ostringstream stream;
+    stream << "traceId=" << m_traceId
+           << " reqId=" << m_reqId
+           << " interface=" << m_interfaceName
+           << " method=" << m_methodName
+           << " path=" << m_path
+           << " local=" << m_localAddr
+           << " peer=" << m_peerAddr
+           << " protocol=" << getProtocolName();
+    return stream.str();
+}
+
+void RequestContext::set(
+    const std::string& traceId,
+    const std::string& reqId,
+    const std::string& interfaceName,
+    const std::string& methodName,
+    const std::string& localAddr,
+    const std::string& peerAddr,
+    ProtocolType protocolType,
+    const std::string& path
+)
+{
+    m_traceId = makeTraceId(traceId, reqId);
+    m_reqId = reqId;
+    m_interfaceName = interfaceName;
+    m_methodName = methodName;
+    m_path = path;
+    m_localAddr = localAddr;
+    m_peerAddr = peerAddr;
+    m_protocolType = protocolType;
+}
+
 void RequestContext::set(
     const std::string& reqId,
     const std::string& interfaceName,
@@ -57,17 +142,12 @@ void RequestContext::set(
     const std::string& path
 )
 {
-    m_reqId = reqId;
-    m_interfaceName = interfaceName;
-    m_methodName = methodName;
-    m_path = path;
-    m_localAddr = localAddr;
-    m_peerAddr = peerAddr;
-    m_protocolType = protocolType;
+    set("", reqId, interfaceName, methodName, localAddr, peerAddr, protocolType, path);
 }
 
 void RequestContext::clear()
 {
+    m_traceId.clear();
     m_reqId.clear();
     m_interfaceName.clear();
     m_methodName.clear();
@@ -184,6 +264,20 @@ void Runtime::setCurrentRequestContext(
 )
 {
     t_requestContext.set(reqId, interfaceName, methodName, localAddr, peerAddr, protocolType, path);
+}
+
+void Runtime::setCurrentRequestContext(
+    const std::string& traceId,
+    const std::string& reqId,
+    const std::string& interfaceName,
+    const std::string& methodName,
+    const std::string& localAddr,
+    const std::string& peerAddr,
+    ProtocolType protocolType,
+    const std::string& path
+)
+{
+    t_requestContext.set(traceId, reqId, interfaceName, methodName, localAddr, peerAddr, protocolType, path);
 }
 
 void Runtime::clearCurrentRequestContext()

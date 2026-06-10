@@ -45,6 +45,9 @@ struct TimeoutEntry {
 struct AsyncCallContext {
     std::string m_reqId;
     std::string m_methodFullName;
+    std::string m_interfaceName;
+    std::string m_methodName;
+    std::string m_peerAddr;
     TinyPbStruct m_tinyRequest;
     google::protobuf::RpcController *m_controller {nullptr};
     const google::protobuf::Message *m_request {nullptr};

@@ -12,22 +12,37 @@ namespace {
 
 class RequestContextGuard {
  public:
-    explicit RequestContextGuard(HttpRequest *request)
+    RequestContextGuard(HttpRequest *request, TcpConnection *conn)
     {
         std::string reqId;
         std::string method;
         std::string path;
+        std::string localAddr = "local";
+        std::string peerAddr = "peer";
         if (request != nullptr) {
             reqId = request->getHeader("X-Req-Id");
+            if (reqId.empty()) {
+                reqId = request->getHeader("X-Trace-Id");
+            }
             method = httpMethodToString(request->getMethod());
             path = request->getPath();
+        }
+        if (conn != nullptr) {
+            std::string local = conn->getLocalAddressString();
+            std::string peer = conn->getPeerAddressString();
+            if (!local.empty()) {
+                localAddr = local;
+            }
+            if (!peer.empty()) {
+                peerAddr = peer;
+            }
         }
         getRuntime().setCurrentRequestContext(
             reqId,
             "http",
             method,
-            "local",
-            "peer",
+            localAddr,
+            peerAddr,
             ProtocolType::Http,
             path
         );
@@ -72,11 +87,16 @@ HttpServlet* HttpDispatcher::findServlet(const std::string& path) const
 
 void HttpDispatcher::dispatch(HttpRequest *request, HttpResponse *response)
 {
+    dispatch(request, response, nullptr);
+}
+
+void HttpDispatcher::dispatch(HttpRequest *request, HttpResponse *response, TcpConnection *conn)
+{
     if (request == nullptr || response == nullptr) {
         return;
     }
 
-    RequestContextGuard contextGuard(request);
+    RequestContextGuard contextGuard(request, conn);
     HttpServlet *servlet = findServlet(request->getPath());
     if (servlet == nullptr) {
         return;
@@ -110,7 +130,7 @@ void HttpDispatcher::dispatch(AbstractData *data, TcpConnection *conn)
     }
 
     HttpResponse response;
-    dispatch(request, &response);
+    dispatch(request, &response, conn);
     conn->sendProtocolData(&response);
 }
 

@@ -36,13 +36,27 @@ class RequestContextGuard {
     }
 };
 
-std::string getConnectionLocalAddress(TcpConnection * /*conn*/)
+std::string getConnectionLocalAddress(TcpConnection *conn)
 {
+    if (conn == nullptr) {
+        return "";
+    }
+    std::string local = conn->getLocalAddressString();
+    if (!local.empty()) {
+        return local;
+    }
     return "local";
 }
 
-std::string getConnectionPeerAddress(TcpConnection * /*conn*/)
+std::string getConnectionPeerAddress(TcpConnection *conn)
 {
+    if (conn == nullptr) {
+        return "";
+    }
+    std::string peer = conn->getPeerAddressString();
+    if (!peer.empty()) {
+        return peer;
+    }
     return "peer";
 }
 
