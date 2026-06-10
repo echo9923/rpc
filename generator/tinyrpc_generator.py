@@ -535,7 +535,7 @@ def render_simple_server_source_body(service: ServiceSpec) -> str:
         [
             f"void {service.name}Server::start()",
             "{",
-            f"    std::cout << \"[{service.name}] start placeholder from generated server\" << std::endl;",
+            f"    std::cout << \"[{service.name}] start generated demo server\" << std::endl;",
             "}",
         ]
     )

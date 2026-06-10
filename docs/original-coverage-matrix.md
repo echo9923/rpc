@@ -28,7 +28,7 @@
 | `net/http` | `mytinyrpc/net/http/*` | 已复刻核心语义 | 106、107、108、109、110、118、119 | HTTP/1.0/1.1 GET/POST、origin-form/absolute-form request target、query map、大小写无关 header、Content-Length body、默认 response header、精确路径/root servlet、错误响应、统一关闭连接、HTTP request context 和基础 benchmark。 | `./build/test_http_define`、`./build/test_http_codec`、`./build/test_http_dispatcher`、`./scripts/check_stage12_http.sh`、`./scripts/check_resource_lifetime.sh` |
 | `net/tinypb` | `mytinyrpc/net/tinypb/*` | 已复刻 | 96、98、101、102、103、104、105、118、119 | TinyPB data/codec/dispatcher、Protobuf service 分发、同步 `TinyPbRpcChannel`、controller、reqId、响应匹配、异步 Channel pending/timeout/cancel/stop、真实异步网络路径、request context 和 sync/async benchmark。 | `./build/test_tinypb_codec`、`./build/test_tinypb_dispatcher`、`./build/test_tinypb_rpc_channel`、`./build/test_tinypb_rpc_async_channel`、`./scripts/check_rpc_sync.sh`、`./scripts/check_rpc_async.sh`、`./scripts/check_resource_lifetime.sh` |
 | `generator` | `generator/tinyrpc_generator.py`、`generator/template/*` | 已复刻核心工程语义 | 111、112、113、114、115 | CLI、simple/full layout、`protoc` 生成 `.pb.h/.pb.cc` 和 descriptor-set、descriptor service/method 解析、多 service 选择、method interface、service 适配、business exception、test client、生成工程 CMake、启动/调用/关闭脚本。 | `./scripts/check_generator.sh`、`./scripts/check_generator_project.sh` |
-| benchmark / resource | `testcases/benchmark_*.cc`、`scripts/check_resource_lifetime.sh` | 已复刻核心语义 | 119 | HTTP/TinyPB sync/TinyPB async 基础参考 benchmark、日志和线程池生命周期、真实 TinyPB server fd 增长和残留进程检查。 | `./scripts/check_resource_lifetime.sh` |
+| benchmark / resource | `testcases/benchmark_*.cc`、`scripts/check_resource_lifetime.sh` | 已复刻核心语义 | 119、121 | HTTP/TinyPB sync/TinyPB async 基础参考 benchmark、日志和线程池生命周期、真实 TinyPB server fd 增长和残留进程检查，已纳入完整补全回归。 | `./scripts/check_resource_lifetime.sh`、`./scripts/check_full_completion.sh` |
 
 ## 保留边界
 
@@ -42,20 +42,34 @@
 | 生成器高级 proto 语义 | 保留简化 | 已使用 descriptor-set 获取 package/service/method/request/response，但不支持 streaming RPC、proto2 特殊语义或多语言生成。 | 需要真实 IDL 平台能力时另起生成器计划。 |
 | 发布级独立工程打包 | 保留简化 | full layout 生成原项目风格目录，但仍依赖本地 MyTinyRPC 源码路径和脚本 pid 管理。 | 需要发布形态时单独补安装、打包和 server stop 能力。 |
 
-## 回归建议
+## 最终边界审计
 
-任务一百二十一会新增完整补全回归脚本。脚本完成前，可以按下面的已有入口验证补全覆盖面：
+阶段 25 使用下面命令审计剩余边界词：
 
 ```bash
-./scripts/check_all.sh
-./scripts/check_coroutinehook.sh
-./scripts/check_rpc_client_reactor.sh
-./scripts/check_rpc_async.sh
-./scripts/check_stage12_http.sh
-./scripts/check_generator_project.sh
-./scripts/check_resource_lifetime.sh
+rg -n "简化|暂不|TODO|placeholder|后续" docs mytinyrpc generator testcases
 ```
+
+审计结果按以下三类处理：
+
+| 分类 | 命中范围 | 处理结论 |
+|---|---|---|
+| 已有计划且已执行 | `docs/simplified-completion-task-plan.md`、`docs/replica-progress.md` 中阶段 18 到阶段 25 的“简化项补全”记录。 | 阶段 18 到阶段 25 已完成，最终验收入口为 `./scripts/check_full_completion.sh`。 |
+| 明确不做 | MySQL 真实连接池、连接池/负载均衡、HTTPS/HTTP2/chunked/streaming、完整 tracing、商业级压测、高级 proto 语义和发布级独立工程打包。 | 已在“保留边界”表中列明，不属于遗漏。 |
+| 需要新计划 | `TcpServer::stop()`、HTTP keep-alive/chunked/streaming、更完整服务发现/多目标 RPC、OpenTelemetry/跨进程 trace、发布级生成工程打包。 | 不在阶段 25 继续补代码；未来如需要应单独建新阶段。 |
+
+代码侧审计中，`coroutinehook.cc` 的历史 `TODO(task-92)` 注释已更新为当前 FdEventContainer 实现说明；生成器模板里的 `placeholder` 文案已改为生成示例/测试客户端描述。剩余命中主要来自历史阶段文档的当时边界说明、当前保留边界和本审计命令本身。
+
+## 回归建议
+
+阶段 25 后，完整补全能力使用统一脚本验收：
+
+```bash
+./scripts/check_full_completion.sh
+```
+
+脚本最终输出 `[full-completion] PASS` 表示阶段 18 到阶段 25 的补全能力按当前边界通过回归。
 
 ## 结论
 
-当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。阶段 18 到阶段 24 已经把早期简化项集中补齐：配置/日志/运行时、协程 hook、TcpClient Reactor 化、真实异步 RPC 网络路径、HTTP 协议语义、生成器完整工程、可选插件、轻量观测、基础 benchmark 和资源生命周期脚本均有验证入口。剩余边界属于明确保留的生产级扩展能力，不是阶段 25 的遗漏。
+当前项目已经覆盖 TinyRPC 学习主线中的配置、日志、启动入口、运行时、Reactor、Timer、TCP、TinyPB、HTTP、协程、异步 RPC 和生成器。阶段 18 到阶段 25 已经把早期简化项集中补齐并完成收口：配置/日志/运行时、协程 hook、TcpClient Reactor 化、真实异步 RPC 网络路径、HTTP 协议语义、生成器完整工程、可选插件、轻量观测、基础 benchmark、资源生命周期脚本、完整补全回归和最终边界审计均有验证入口。剩余边界属于明确保留的生产级扩展能力，不是阶段 25 的遗漏。

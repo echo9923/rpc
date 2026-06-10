@@ -1,5 +1,5 @@
 /*
- * Generated TinyRPC client placeholder for {{SERVICE_NAME}}.
+ * Generated TinyRPC test client for {{SERVICE_NAME}}.
  */
 
 #include "{{PROTO_INCLUDE}}"

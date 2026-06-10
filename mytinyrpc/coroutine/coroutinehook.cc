@@ -488,7 +488,7 @@ int usleepHook(Reactor *reactor, useconds_t usec)
 //   - hook 关闭（s_hookEnabled == false）或主协程 → 直通 g_sys_* 真实调用
 //   - hook 开启且非主协程：
 //       sleep/usleep → 委托 sleepHook / usleepHook（已由 Reactor::getCurrentReactor 获取 Reactor）
-//       read/write/accept/connect → TODO(task-92)：接入 FdEventContainer 后补全协程挂起路径
+//       read/write/accept/connect → 通过 FdEventContainer 取得 fd 事件并按 Reactor 事件挂起恢复
 // ─────────────────────────────────────────────────────────────────────────────
 
 extern "C" {

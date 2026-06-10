@@ -1657,3 +1657,103 @@ cmake -S . -B build-mysql-check -DMYTINYRPC_ENABLE_MYSQL=ON
 - 不引入外部压测工具或商业级压测报告。
 
 阶段 24 已完成。可选插件、轻量观测和性能边界已经收口：普通构建不依赖 MySQL 或外部压测工具；tracing 以线程局部 request context 贯穿 TinyPB、HTTP、同步/异步客户端和日志；benchmark 与资源生命周期检查通过脚本提供低依赖验收入口。下一步可以进入阶段 25，更新覆盖矩阵、完整补全回归脚本和最终边界总结。
+
+## 阶段 25：补全计划收口
+
+### 任务一百二十：更新原 TinyRPC 覆盖矩阵
+
+已完成能力：
+
+- `docs/original-coverage-matrix.md` 更新为阶段 25 收口口径。
+- 覆盖矩阵新增“补全任务编号”列，能直接追溯阶段 18 到阶段 24 的补全来源。
+- 状态统一为“已复刻 / 已复刻核心语义 / 保留简化 / 可选未启用”。
+- 每个模块都列出当前能力和验证入口。
+- 保留边界表明确 MySQL 真实连接池、连接池/负载均衡、HTTP 高级能力、完整 tracing、商业级压测、高级 proto 语义和发布级打包不在本阶段继续补。
+
+验证方式：
+
+```bash
+rg -n "补全任务编号|保留边界" docs/original-coverage-matrix.md
+```
+
+当前限制：
+
+- 矩阵是学习复刻覆盖矩阵，不承诺与原 TinyRPC 100% 行为一致。
+- 任务一百二十提交时完整补全脚本尚未创建，最终入口由任务一百二十一补齐。
+
+### 任务一百二十一：新增完整补全回归脚本
+
+已完成能力：
+
+- 新增 `scripts/check_full_completion.sh`。
+- 脚本串联 `check_all.sh`、`check_coroutinehook.sh`、`check_rpc_client_reactor.sh`、`check_rpc_async.sh`、`check_stage12_http.sh`、`check_generator_project.sh` 和 `check_resource_lifetime.sh`。
+- `check_all.sh` 先完成构建，后续支持 skip build 的专项脚本使用 `MYTINYRPC_SKIP_BUILD=1` 减少重复构建。
+- 脚本统一输出 `[full-completion] PASS`。
+- `scripts/check_all.ps1` 新增 `-FullCompletion` 参数，Windows PowerShell 可通过 WSL 调用完整补全回归。
+- README 增加完整补全回归入口。
+
+验证命令：
+
+```bash
+./scripts/check_full_completion.sh
+```
+
+已验证结果：
+
+- 2026-06-10 在 WSL 中通过，最终输出 `[full-completion] PASS`。
+
+当前限制：
+
+- 该脚本是本地 Linux/WSL 回归入口，不绑定云 CI。
+- 生成工程和资源生命周期检查会让总耗时明显长于 `check_all.sh`。
+
+### 任务一百二十二：README 和学习总结补全
+
+已完成能力：
+
+- README 新增 “Completed Supplement Capabilities” 章节，说明阶段 18 到阶段 25 补全能力。
+- `docs/learning-summary.md` 新增阶段 18 到阶段 25 补全总结表。
+- `examples/tinypb_sync/README.md` 说明阶段 20 同步客户端 Reactor 化完整路径。
+- `examples/tinypb_async/README.md` 更新为阶段 21 真实 non-blocking EPOLLIN/EPOLLOUT 异步网络路径。
+- `examples/http_server/README.md` 更新阶段 22 HTTP 补全能力和 `[stage12-http] PASS` 输出。
+- `examples/generated_project/README.md` 说明阶段 23 simple/full layout、descriptor-set、interface/service 和生成工程端到端路径。
+- 文档明确项目仍是学习实现，不升级为商业级 RPC 发布版。
+
+验证方式：
+
+```bash
+rg -n "check_full_completion|Full-Completion Path|阶段 18 到阶段 25|Completed Supplement" README.md docs/learning-summary.md examples
+```
+
+当前限制：
+
+- examples 仍复用测试程序和脚本作为可运行示例，不额外复制一套示例源码。
+- README 和学习总结不是商业用户手册。
+
+### 任务一百二十三：最终边界审计和收口提交
+
+已完成能力：
+
+- 执行 `rg -n "简化|暂不|TODO|placeholder|后续" docs mytinyrpc generator testcases` 审计剩余边界词。
+- 将剩余项分为：
+  - 已有计划且已执行：阶段 18 到阶段 25 的简化项补全记录。
+  - 明确不做：MySQL 真实连接池、连接池/负载均衡、HTTP 高级能力、完整 tracing、商业级压测、高级 proto 语义、发布级独立工程打包。
+  - 需要新计划：`TcpServer::stop()`、HTTP keep-alive/chunked/streaming、服务发现/多目标 RPC、OpenTelemetry/跨进程 trace、发布级生成工程打包。
+- `coroutinehook.cc` 清理历史 `TODO(task-92)` 注释，改为当前 FdEventContainer 挂起恢复说明。
+- 生成器 `placeholder` 文案改为生成示例/测试客户端描述，避免被误判为未完成项。
+- `docs/original-coverage-matrix.md` 新增最终边界审计表，回归入口更新为 `./scripts/check_full_completion.sh`。
+
+验证命令：
+
+```bash
+rg -n "简化|暂不|TODO|placeholder|后续" docs mytinyrpc generator testcases
+./scripts/check_full_completion.sh
+git status --short
+```
+
+当前限制：
+
+- 阶段 25 不继续补新代码能力，只做补全计划终点、脚本和边界收口。
+- 剩余生产级能力需要新阶段或新计划承接。
+
+阶段 25 已完成。第二轮“简化实现补全”现在有覆盖矩阵、完整补全回归脚本、README/学习总结/examples 入口和最终边界审计；验收以 `./scripts/check_full_completion.sh` 输出 `[full-completion] PASS` 为准。
