@@ -60,6 +60,10 @@
     - 补齐目录说明、覆盖矩阵、一键全量回归、examples 和学习总结。
     - 关键收获：学习型项目也需要可回归、可定位、可解释的收口材料。
 
+15. 可选插件、观测和性能边界
+    - 补齐通用 ThreadPool、MySQL 可选插件骨架、轻量 request context/tracing、基础 benchmark 和资源生命周期检查。
+    - 关键收获：生产外壳能力要默认低依赖，普通构建不能因为外部数据库或压测工具缺失而失败。
+
 ## 当前可展示能力
 
 - TinyPB 同步 RPC：`scripts/check_rpc_sync.sh`
@@ -67,6 +71,7 @@
 - 多 Reactor TCP server：`scripts/check_stage11_server.sh`
 - HTTP server：`scripts/check_stage12_http.sh`
 - 生成工程端到端：`scripts/check_generator_project.sh`
+- 资源生命周期与基础 benchmark：`scripts/check_resource_lifetime.sh`
 - 全量回归：`scripts/check_all.sh`
 
 ## 与原 TinyRPC 的关系
@@ -83,19 +88,19 @@
 
 主要简化点：
 
-- 不做 MySQL 插件。
+- MySQL 只做可选插件骨架和配置解析，默认关闭，不在默认回归中连接真实数据库。
 - 不做完整连接池和负载均衡。
 - 不做 HTTPS、HTTP/2、chunked 或 streaming response。
-- 不做完整 tracing 系统。
+- tracing 只做线程局部 request context 和日志字段补齐，不做 OpenTelemetry 或跨进程传播。
 - 不做 streaming RPC、proto2 特殊语义或多语言生成。
-- 不做性能压测报告。
+- benchmark 只做基础参考统计，不做商业级压测报告。
 
 更详细的覆盖状态见 [原 TinyRPC 功能覆盖矩阵](original-coverage-matrix.md)。
 
 ## 继续演进建议
 
 1. 给 `TcpServer` 增加框架层 `stop()`，替代脚本杀进程。
-2. 把异步 RPC 的网络路径从“IOThread 内同步 TcpClient”继续推进到真正非阻塞连接。
-3. 为 HTTP 增加大小写无关 header、keep-alive 边界和更多错误响应。
+2. 为 MySQL 可选插件补真实连接池和健康检查，但仍保持默认构建低依赖。
+3. 为 HTTP 增加 keep-alive、chunked 或 streaming response 的独立计划。
 4. 为生成器补充更真实的业务字段填充样例和发布级工程打包。
-5. 根据需要再规划连接池、负载均衡和 tracing，而不是提前塞入主链路。
+5. 根据需要再规划连接池、负载均衡和完整 tracing，而不是提前塞入主链路。

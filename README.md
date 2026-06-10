@@ -1,6 +1,6 @@
 # MyTinyRPC
 
-MyTinyRPC is a staged TinyRPC learning project. It now covers the main learning path from a blocking TCP Echo Server to Reactor/Timer, multi-Reactor TCP server, TinyPB synchronous and asynchronous RPC, HTTP server support, runtime startup helpers, coroutine hooks, a full generated-project workflow, and final regression scripts.
+MyTinyRPC is a staged TinyRPC learning project. It now covers the main learning path from a blocking TCP Echo Server to Reactor/Timer, multi-Reactor TCP server, TinyPB synchronous and asynchronous RPC, HTTP server support, runtime startup helpers, coroutine hooks, a full generated-project workflow, optional production-shell utilities, and regression scripts.
 
 ## Quick Start
 
@@ -68,6 +68,7 @@ Core directories:
 | `scripts/check_stage12_http.sh` | HTTP server regression. |
 | `scripts/check_generator.sh` | Generator template and service/method skeleton regression. |
 | `scripts/check_generator_project.sh` | Generated project build/start/client/shutdown regression. |
+| `scripts/check_resource_lifetime.sh` | Stage 24 benchmark and resource-lifetime regression. |
 | `scripts/check_all.sh` | Full local regression across the project. |
 
 ## Minimal Runtime Entry
@@ -114,6 +115,7 @@ int main()
 - [协程模型](docs/coroutine-model.md)
 - [代码生成器与示例工程](docs/stage-16.md)
 - [生成器完整化](docs/stage-23.md)
+- [可选插件、观测和性能边界](docs/stage-24.md)
 
 ## Current Boundaries
 

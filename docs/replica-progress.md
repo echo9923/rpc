@@ -1553,3 +1553,107 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 - 生成 server 的关闭仍由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。
 
 阶段 23 已完成。生成器已经具备 simple/full layout、`protoc` 产物生成、descriptor-set 元数据解析、package/service/method 识别、method interface、service 适配、test client 和生成工程端到端验收。下一步可以进入阶段 24，补齐可选插件、观测和性能边界。
+
+## 阶段 24：可选插件、观测和性能边界
+
+### 任务一百一十六：通用 ThreadPool 工具
+
+已完成能力：
+
+- 新增 `mytinyrpc/comm/thread_pool.*`，提供固定数量普通工作线程。
+- `ThreadPool::start()` 启动工作线程，`addTask()` 接收 `std::function<void()>` 后由 worker 执行。
+- `ThreadPool::stop()` 停止接收新任务，等待已入队任务执行完并 join 所有 worker。
+- 析构函数自动调用 `stop()`，避免普通后台线程泄漏。
+- stop 后再次 `addTask()` 返回 false，空任务和 0 线程池也有明确失败边界。
+- 新增 `test_thread_pool`，覆盖并发执行、stop drain、析构 join 和无效线程数。
+
+验证命令：
+```bash
+./build.sh
+./build/test_thread_pool
+```
+
+当前限制：
+
+- 不替换 `IOThreadPool`。
+- 不实现优先级队列或动态扩缩容。
+
+### 任务一百一十七：MySQL 插件配置和可选编译骨架
+
+已完成能力：
+
+- 新增 `MYTINYRPC_ENABLE_MYSQL` CMake option，默认关闭。
+- 默认构建不会查找 MySQL/MariaDB client 开发库，普通回归不受外部数据库依赖影响。
+- option 开启时查找 `mysql/mysql.h`、`mysql.h` 以及 `mysqlclient` / `mariadb` client 库。
+- 缺少开发库时 CMake 输出明确错误，提示安装 `libmysqlclient-dev` 或 `libmariadb-dev`，也可关闭 option。
+- `Config` 支持解析 `<mysql>` 配置段，缺失时使用关闭状态和默认 host、port、charset、timeout。
+- 新增 `MySQLInstance` / `MySQLInstanceFactory`，插件关闭时提供 no-op 线程局部实例入口。
+- 新增 `test_config` 覆盖 MySQL 默认配置和 XML 配置解析。
+- 新增 `docs/stage-24.md` 记录可选插件边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_config
+cmake -S . -B build-mysql-check -DMYTINYRPC_ENABLE_MYSQL=ON
+```
+
+当前限制：
+
+- 不在默认回归中连接真实 MySQL server。
+- 不实现 MySQL 连接池。
+
+### 任务一百一十八：Tracing / request context 补全
+
+已完成能力：
+
+- `RequestContext` 新增 `traceId`、`path`、`protocolType` 和 `getProtocolName()`，`toString()` 输出完整上下文摘要。
+- `Logger` 的 `LogEvent` 新增 traceId、interface、method、path、peer 和 protocol 字段。
+- 日志写入时会自动读取当前线程 request context，未显式传入 reqId 时同时补齐 traceId 和请求信息。
+- TinyPB 服务端 dispatcher 在业务方法执行期间设置 reqId、service、method、local、peer 和协议类型。
+- HTTP dispatcher 在 servlet 执行期间设置 `interfaceName=http`、HTTP method 和 path。
+- 同步 `TinyPbRpcChannel` 在客户端 Stub 调用期间设置 request context，并记录 peer 地址。
+- 异步 `TinyPbRpcAsyncChannel` 在发送、响应、超时、取消和 stop 清理路径中设置 request context。
+- 新增/扩展 `test_runtime`、`test_log`、`test_tinypb_rpc_channel` 和 `test_tinypb_rpc_async_channel` 覆盖上下文字段和清理边界。
+
+验证命令：
+```bash
+./build.sh
+./build/test_runtime
+./build/test_log
+./build/test_tinypb_rpc_channel
+./build/test_tinypb_rpc_async_channel
+./scripts/check_rpc_sync.sh
+./scripts/check_rpc_async.sh
+./scripts/check_stage12_http.sh
+```
+
+当前限制：
+
+- 不实现 OpenTelemetry。
+- 不做跨进程 trace 传播协议。
+
+### 任务一百一十九：基础 benchmark 和资源生命周期检查
+
+已完成能力：
+
+- 新增 `benchmark_http`，覆盖 HTTP decode、dispatcher 和 encode 的简单吞吐统计。
+- 新增 `benchmark_tinypb_sync`，通过真实 TinyPB frame 服务端统计同步 Stub 调用平均耗时。
+- 新增 `benchmark_tinypb_async`，通过长连接 TinyPB frame 服务端统计异步 Channel 多请求完成吞吐。
+- 新增 `scripts/check_resource_lifetime.sh`，集中运行 benchmark、日志生命周期、线程池生命周期和真实 TinyPB server fd 检查。
+- 资源脚本会检查多次 client 调用后 server fd 数量不持续增长，并在退出后确认没有残留 server 进程。
+- `.gitignore` 忽略 `build-*` 临时 CMake 目录，避免可选插件探测目录污染工作区。
+- `CMakeLists.txt` 接入三个 benchmark 目标。
+
+验证命令：
+```bash
+./build.sh
+./scripts/check_resource_lifetime.sh
+```
+
+当前限制：
+
+- benchmark 只输出参考统计，不作为严格性能门禁。
+- 不引入外部压测工具或商业级压测报告。
+
+阶段 24 已完成。可选插件、轻量观测和性能边界已经收口：普通构建不依赖 MySQL 或外部压测工具；tracing 以线程局部 request context 贯穿 TinyPB、HTTP、同步/异步客户端和日志；benchmark 与资源生命周期检查通过脚本提供低依赖验收入口。下一步可以进入阶段 25，更新覆盖矩阵、完整补全回归脚本和最终边界总结。

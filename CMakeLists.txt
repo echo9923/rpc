@@ -319,6 +319,24 @@ add_executable(test_runtime
 )
 target_link_libraries(test_runtime ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
+add_executable(benchmark_tinypb_sync
+    testcases/benchmark_tinypb_sync.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(benchmark_tinypb_sync pthread ${Protobuf_LIBRARIES})
+
+add_executable(benchmark_tinypb_async
+    testcases/benchmark_tinypb_async.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(benchmark_tinypb_async pthread ${Protobuf_LIBRARIES})
+
+add_executable(benchmark_http
+    testcases/benchmark_http.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(benchmark_http pthread ${Protobuf_LIBRARIES})
+
 # E2E 联动测试目标
 add_executable(e2e_server
     e2e/server/server.cc
