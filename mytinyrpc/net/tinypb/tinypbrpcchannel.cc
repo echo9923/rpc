@@ -10,6 +10,7 @@
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -66,9 +67,54 @@ TinyPbRpcChannel::TinyPbRpcChannel(const IPAddress& peerAddr)
 {
 }
 
+TinyPbRpcChannel::TinyPbRpcChannel(std::shared_ptr<IPAddress> peerAddr)
+    : m_peerAddr(peerAddr == nullptr ? IPAddress("127.0.0.1", 0) : *peerAddr)
+{
+}
+
+TinyPbRpcChannel::~TinyPbRpcChannel() = default;
+
 void TinyPbRpcChannel::setReqIdGenerator(std::function<std::string()> generator)
 {
     m_reqIdGenerator = std::move(generator);
+}
+
+const IPAddress& TinyPbRpcChannel::getPeerAddress() const
+{
+    return m_peerAddr;
+}
+
+void TinyPbRpcChannel::setTimeout(int timeoutMs)
+{
+    m_timeoutMs = timeoutMs > 0 ? timeoutMs : 0;
+    if (m_client != nullptr) {
+        m_client->setTimeout(m_timeoutMs);
+    }
+}
+
+int TinyPbRpcChannel::getTimeout() const
+{
+    return m_timeoutMs;
+}
+
+void TinyPbRpcChannel::setReuseConnection(bool enabled)
+{
+    m_reuseConnection = enabled;
+    if (m_client != nullptr) {
+        m_client->setReuseConnection(enabled);
+    }
+}
+
+bool TinyPbRpcChannel::isReuseConnection() const
+{
+    return m_reuseConnection;
+}
+
+void TinyPbRpcChannel::closeConnection()
+{
+    if (m_client != nullptr) {
+        m_client->closeConnection();
+    }
 }
 
 void TinyPbRpcChannel::CallMethod(
@@ -116,7 +162,9 @@ void TinyPbRpcChannel::CallMethod(
     }
 
     TinyPbStruct tinyResponse;
-    TcpClient client(m_peerAddr);
+    TcpClient& client = getOrCreateClient();
+    client.setTimeout(m_timeoutMs);
+    client.setReuseConnection(m_reuseConnection);
     if (tinyController != nullptr && tinyController->getTimeout() > 0) {
         client.setTimeout(tinyController->getTimeout());
     }
@@ -165,6 +213,16 @@ std::string TinyPbRpcChannel::genReqId() const
     }
 
     return ReqIdUtil::genReqId();
+}
+
+TcpClient& TinyPbRpcChannel::getOrCreateClient()
+{
+    if (m_client == nullptr) {
+        m_client = std::make_unique<TcpClient>(m_peerAddr);
+        m_client->setTimeout(m_timeoutMs);
+        m_client->setReuseConnection(m_reuseConnection);
+    }
+    return *m_client;
 }
 
 void TinyPbRpcChannel::setControllerError(

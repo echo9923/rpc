@@ -5,9 +5,12 @@
 #include <google/protobuf/service.h>
 
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace tinyrpc {
+
+class TcpClient;
 
 // TinyPbRpcChannel 是 Protobuf Stub 到 TinyPB/TcpClient 的同步适配层。
 // Stub 只会调用 RpcChannel::CallMethod()，不会感知 TCP 连接和 TinyPB 帧格式。
@@ -23,7 +26,11 @@ namespace tinyrpc {
 // 不包含：连接池、并发请求、乱序响应缓存、异步 pending map。
 class TinyPbRpcChannel : public google::protobuf::RpcChannel {
  public:
+    using Ptr = std::shared_ptr<TinyPbRpcChannel>;
+
     explicit TinyPbRpcChannel(const IPAddress& peerAddr);
+    explicit TinyPbRpcChannel(std::shared_ptr<IPAddress> peerAddr);
+    ~TinyPbRpcChannel() override;
 
     // [第三方 API] Protobuf 生成的 Stub 会调用 CallMethod()。
     // method 描述要调用的 RPC 方法，request/response 是业务消息对象，
@@ -38,14 +45,25 @@ class TinyPbRpcChannel : public google::protobuf::RpcChannel {
     // 设置请求号生成器，仅用于测试稳定断言；生产路径使用默认生成器。
     void setReqIdGenerator(std::function<std::string()> generator);
 
+    const IPAddress& getPeerAddress() const;
+    void setTimeout(int timeoutMs);
+    int getTimeout() const;
+    void setReuseConnection(bool enabled);
+    bool isReuseConnection() const;
+    void closeConnection();
+
  private:
     std::string genReqId() const;
+    TcpClient& getOrCreateClient();
     static void setControllerError(
         google::protobuf::RpcController *controller,
         int errorCode,
         const std::string& errorInfo);
 
     IPAddress m_peerAddr;
+    std::unique_ptr<TcpClient> m_client;
+    int m_timeoutMs {0};
+    bool m_reuseConnection {true};
     std::function<std::string()> m_reqIdGenerator;
 };
 

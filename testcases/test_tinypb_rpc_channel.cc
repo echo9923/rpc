@@ -27,7 +27,9 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -39,14 +41,17 @@ void closeIfValid(int *fd)
     }
 }
 
-bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
+bool readTinyPbFromFd(
+    int fd,
+    tinyrpc::TcpBuffer *buffer,
+    tinyrpc::TinyPbStruct *pb,
+    std::string *errorInfo)
 {
     tinyrpc::TinyPbCodec codec;
-    tinyrpc::TcpBuffer buffer(256);
     char data[1024];
 
     while (true) {
-        codec.decode(&buffer, pb);
+        codec.decode(buffer, pb);
         if (pb->m_decodeSucc) {
             return true;
         }
@@ -54,7 +59,7 @@ bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
         // read(2) 参数依次为：socket fd、接收缓冲区地址、最大读取字节数。
         ssize_t n = read(fd, data, sizeof(data));
         if (n > 0) {
-            buffer.append(data, static_cast<size_t>(n));
+            buffer->append(data, static_cast<size_t>(n));
             continue;
         }
 
@@ -70,6 +75,12 @@ bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
         *errorInfo = std::strerror(errno);
         return false;
     }
+}
+
+bool readTinyPbFromFd(int fd, tinyrpc::TinyPbStruct *pb, std::string *errorInfo)
+{
+    tinyrpc::TcpBuffer buffer(256);
+    return readTinyPbFromFd(fd, &buffer, pb, errorInfo);
 }
 
 bool writeAllToFd(int fd, const char *data, size_t len, std::string *errorInfo)
@@ -278,6 +289,110 @@ TEST_F(TinyPbRpcChannelTest, StubCallSendsTinyPbRequestAndParsesResponse)
     EXPECT_EQ(response.req_no(), 7);
     EXPECT_EQ(response.id(), 100);
     EXPECT_EQ(response.name(), "Alice");
+}
+
+TEST_F(TinyPbRpcChannelTest, PtrChannelReusesConnectionForSequentialStubCalls)
+{
+    std::vector<std::string> reqIds;
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        // accept(2) 从监听队列取出一个已完成三次握手的 TCP 连接，用于验证两次 RPC 复用同一条连接。
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        tinyrpc::TcpBuffer inputBuffer(256);
+        for (int i = 0; i < 2; ++i) {
+            tinyrpc::TinyPbStruct decodedRequest;
+            if (!readTinyPbFromFd(clientFd, &inputBuffer, &decodedRequest, &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+            reqIds.push_back(decodedRequest.m_reqId);
+
+            queryNameReq serverReq;
+            if (!serverReq.ParseFromString(decodedRequest.m_pbData)) {
+                serverError = "request pbData parse failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            queryNameRes pbRes;
+            pbRes.set_ret_code(0);
+            pbRes.set_res_info("ok");
+            pbRes.set_req_no(serverReq.req_no());
+            pbRes.set_id(serverReq.id());
+            pbRes.set_name("reuse-" + std::to_string(serverReq.id()));
+
+            tinyrpc::TinyPbStruct response;
+            response.m_reqId = decodedRequest.m_reqId;
+            response.m_serviceFullName = decodedRequest.m_serviceFullName;
+            if (!pbRes.SerializeToString(&response.m_pbData)) {
+                serverError = "response serialize failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+
+            std::string frame;
+            if (!encodeTinyPbToString(&response, &frame)) {
+                serverError = "response encode failed";
+                closeIfValid(&clientFd);
+                return;
+            }
+            if (!writeAllToFd(clientFd, frame.data(), frame.size(), &serverError)) {
+                closeIfValid(&clientFd);
+                return;
+            }
+        }
+
+        serverOk = true;
+        closeIfValid(&clientFd);
+    });
+
+    auto addr = std::make_shared<tinyrpc::IPAddress>("127.0.0.1", getListenPort());
+    tinyrpc::TinyPbRpcChannel::Ptr channel = std::make_shared<tinyrpc::TinyPbRpcChannel>(addr);
+    channel->setTimeout(500);
+    channel->setReuseConnection(true);
+    int nextReqId = 0;
+    channel->setReqIdGenerator([&]() {
+        return "sync-ptr-" + std::to_string(nextReqId++);
+    });
+    QueryService_Stub stub(channel.get());
+
+    queryNameReq request1;
+    request1.set_req_no(21);
+    request1.set_id(201);
+    request1.set_type(1);
+
+    queryNameReq request2;
+    request2.set_req_no(22);
+    request2.set_id(202);
+    request2.set_type(1);
+
+    queryNameRes response1;
+    queryNameRes response2;
+    tinyrpc::TinyPbRpcController controller1;
+    tinyrpc::TinyPbRpcController controller2;
+
+    stub.query_name(&controller1, &request1, &response1, nullptr);
+    stub.query_name(&controller2, &request2, &response2, nullptr);
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    ASSERT_EQ(reqIds.size(), 2u);
+    EXPECT_EQ(reqIds[0], "sync-ptr-0");
+    EXPECT_EQ(reqIds[1], "sync-ptr-1");
+    EXPECT_FALSE(controller1.Failed()) << controller1.ErrorText();
+    EXPECT_FALSE(controller2.Failed()) << controller2.ErrorText();
+    EXPECT_EQ(response1.name(), "reuse-201");
+    EXPECT_EQ(response2.name(), "reuse-202");
+    EXPECT_EQ(channel->getTimeout(), 500);
+    EXPECT_TRUE(channel->isReuseConnection());
+    EXPECT_EQ(channel->getPeerAddress().toString(), "127.0.0.1:" + std::to_string(getListenPort()));
 }
 
 TEST_F(TinyPbRpcChannelTest, DoneRunsWithClientRequestContext)
