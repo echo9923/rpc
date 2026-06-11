@@ -95,6 +95,8 @@ assert_grep "QueryService Generated Project" "${OUT_DIR}/README.md"
 assert_grep 'Layout: `simple`' "${OUT_DIR}/README.md"
 assert_grep "QueryService" "${OUT_DIR}/main.cc"
 assert_grep "TinyPbRpcChannel" "${OUT_DIR}/client.cc"
+assert_grep "TinyPbRpcChannel::Ptr" "${OUT_DIR}/client.cc"
+assert_grep "setReuseConnection(true)" "${OUT_DIR}/client.cc"
 assert_grep "class QueryServiceImpl : public QueryService" "${OUT_DIR}/interface.h"
 assert_grep "void query_name(" "${OUT_DIR}/interface.h"
 assert_grep "void QueryServiceImpl::query_name(" "${OUT_DIR}/interface.cc"
@@ -163,6 +165,8 @@ assert_grep "class QueryNameInterface : public InterfaceBase" \
 assert_grep "m_queryNameInterface.handle" "${FULL_OUT_DIR}/query_service/service/server.cc"
 assert_grep "REGISTER_SERVICE(QueryServiceImpl)" "${FULL_OUT_DIR}/query_service/service/main.cc"
 assert_grep "test_client/test_tinyrpc_client.cc" "${FULL_OUT_DIR}/CMakeLists.txt"
+assert_grep "TinyPbRpcChannel::Ptr" "${FULL_OUT_DIR}/test_client/test_tinyrpc_client.cc"
+assert_grep "setReuseConnection(true)" "${FULL_OUT_DIR}/test_client/test_tinyrpc_client.cc"
 
 g++ -std=c++20 -I"${FULL_OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
     -c "${FULL_OUT_DIR}/query_service/pb/test_tinypb_server.pb.cc" \

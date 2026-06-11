@@ -1831,3 +1831,68 @@ rg -n "TcpServer::stop|StopRpcServer|check_stage26_lifecycle|阶段 26" README.m
 - `TcpServer::start()` 仍是阻塞式事件循环；异步启动由调用方放入独立线程。
 - 同一 `TcpServer` 对象不提供 stop 后 restart 语义。
 - HTTP keep-alive、服务发现、连接池、OpenTelemetry 和发布级安装包仍属于后续独立阶段。
+
+## 阶段 27：RPC Channel API 对齐
+
+阶段 27 的目标是让 RPC Channel 的对外使用体验更接近原 TinyRPC，同时继续使用当前项目已经补齐的同步 Reactor 客户端、异步 pending 仲裁和真实网络路径。
+
+### 任务一百二十八：对齐同步 RPC Channel API
+
+已完成能力：
+
+- `TinyPbRpcChannel` 新增 `Ptr` 类型别名，业务代码可以使用 `TinyPbRpcChannel::Ptr` 持有 Channel。
+- 新增 `std::shared_ptr<IPAddress>` 构造入口，对齐原 TinyRPC 中以共享地址对象创建 Channel 的用法。
+- 同步 Channel 持有长生命周期 `TcpClient`，同一个 Channel 下连续 Stub 调用可以复用 TCP 连接。
+- 新增 `setTimeout()` / `getTimeout()`，作为 Channel 级默认同步网络超时；单次调用仍可通过 controller timeout 覆盖。
+- 新增 `setReuseConnection()` / `isReuseConnection()` / `closeConnection()`，明确同步 Channel 连接复用和关闭语义。
+- `test_tinypb_rpc_channel` 新增 `PtrChannelReusesConnectionForSequentialStubCalls`，验证 `Ptr`、共享地址构造和同连接连续 RPC。
+
+验证命令：
+
+```bash
+cmake --build build --target test_tinypb_rpc_channel -j2
+./build/test_tinypb_rpc_channel
+```
+
+### 任务一百二十九：对齐异步 RPC Channel API
+
+已完成能力：
+
+- `TinyPbRpcAsyncChannel` 新增 `Ptr`、`ControllerPtr`、`MessagePtr` 和 `ClosurePtr` 类型别名。
+- 新增 `std::shared_ptr<IPAddress>` 构造入口，与同步 Channel 的创建方式保持一致。
+- 新增 `saveCallee()`，在下一次 Stub 调用前保存 controller、request、response 和 closure 的 shared_ptr 生命周期。
+- 新增 `wait()` 和 `waitFor()`，等待 pending 清空并等待正在执行的完成回调退出。
+- 新增 `getPeerAddress()`，方便生成代码和测试观察目标地址。
+- `test_tinypb_rpc_async_channel` 新增 `SaveCalleeKeepsSharedObjectsAliveUntilWaitReturns`，验证共享对象保活、response 写回、closure 执行和 pending 清空。
+
+验证命令：
+
+```bash
+cmake --build build --target test_tinypb_rpc_async_channel -j2
+./build/test_tinypb_rpc_async_channel
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+```
+
+### 任务一百三十：生成客户端和阶段文档收口
+
+已完成能力：
+
+- `generator/template/client.cc.template` 使用 `std::make_shared<IPAddress>`、`TinyPbRpcChannel::Ptr` 和 `setReuseConnection(true)`。
+- `scripts/check_generator.sh` 对 simple/full 生成客户端增加 `TinyPbRpcChannel::Ptr` 和 `setReuseConnection(true)` 断言。
+- 新增 `docs/stage-27.md`，记录同步/异步 Channel API、生成客户端改动和当前边界。
+- README、学习总结、覆盖矩阵、项目结构和生成器示例说明同步记录阶段 27。
+
+验证命令：
+
+```bash
+./scripts/check_generator.sh
+./scripts/check_generator_project.sh
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+```
+
+当前限制：
+
+- 同步 Channel 仍是单目标 RPC Channel，不做连接池、服务发现或负载均衡。
+- 异步 Channel 仍使用一个 `AsyncClientSession` 和内部 `IOThread`，`saveCallee()` 只负责生命周期托管。
+- 生成工程仍依赖 `MYTINYRPC_ROOT` 指向本地 MyTinyRPC 源码树；发布级独立工程打包由阶段 31 承接。

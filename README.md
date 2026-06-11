@@ -52,6 +52,14 @@ Expected final output:
 [stage26-lifecycle] PASS
 ```
 
+Run the stage 27 RPC Channel API gate when you need to verify the public synchronous/asynchronous Channel usage surface:
+
+```bash
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
+./scripts/check_generator.sh
+```
+
 If you only need a fast build:
 
 ```bash
@@ -96,6 +104,7 @@ Stages 18 to 25 close the earlier simplified areas without changing the project 
 - Coroutine completion: transparent `read/write/accept/connect/sleep/usleep` hooks, hook fd ownership, coroutine pool expansion, and fixed stack memory pool coverage.
 - Client networking completion: `TcpClient` uses client-side `TcpConnection`, Reactor/Timer timeout handling, response matching, connection reuse, explicit close, and failure rebuild.
 - Async RPC completion: `TinyPbRpcAsyncChannel` uses a long-lived `AsyncClientSession`, nonblocking socket, EPOLLIN/EPOLLOUT, pending matching, timeout/cancel/stop arbitration, and real `TcpServer` E2E validation.
+- RPC Channel API alignment: synchronous and asynchronous Channels now expose `Ptr`, `shared_ptr<IPAddress>` constructors, Channel-level address observation, synchronous timeout/reuse controls, asynchronous `saveCallee()` lifetime holding, and `wait()` / `waitFor()` completion waits.
 - HTTP completion: HTTP/1.0/1.1 GET/POST, origin-form and absolute-form targets, query map, case-insensitive headers, `Content-Length` body, default response headers, root servlet, 404/500 responses, request context, and close-after-response semantics.
 - Generator completion: simple/full layouts, `protoc`, descriptor-set parsing, package-aware service/method selection, method interface classes, service adapters, generated test client, and generated-project build/start/call/shutdown verification.
 - Optional shell capabilities: default-off MySQL plugin skeleton, fixed `ThreadPool`, lightweight tracing fields, basic benchmark programs, and resource-lifetime checks.
@@ -172,12 +181,13 @@ int main()
 - [生成器完整化](docs/stage-23.md)
 - [可选插件、观测和性能边界](docs/stage-24.md)
 - [TcpServer 优雅停止和生命周期收口](docs/stage-26.md)
+- [RPC Channel API 对齐](docs/stage-27.md)
 
 ## Current Boundaries
 
 - This is a learning implementation, not a production RPC distribution.
 - HTTP is a minimal request/response server path; HTTPS, HTTP/2, chunked, and streaming are out of scope.
-- The generated project depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`; full layout also generates `bin`、`conf`、`log`、`lib`、`obj`、`service`、`interface`、`pb` and `test_client` structure.
+- The generated project still depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`; stage 27 aligns the generated client with the public Channel API, and stage 31 will handle release-grade standalone packaging.
 - `TcpServer::start()` is blocking; stage 26 adds framework-level `TcpServer::stop()` / `StopRpcServer()` for graceful shutdown, while scripts still use pid files as their user-facing process handle.
 - Connection pools, load balancing, MySQL plugins, full tracing, and performance reports are intentionally not part of the current scope.
 

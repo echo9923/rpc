@@ -10,7 +10,7 @@
 | `mytinyrpc/coroutine` | 协程对象、hook、协程池和固定块内存池。 |
 | `mytinyrpc/net` | fd、Reactor、Timer、TcpBuffer、TcpClient、TcpServer、IOThread 和连接生命周期。 |
 | `mytinyrpc/net/http` | HTTP request/response、codec、servlet 和 dispatcher。 |
-| `mytinyrpc/net/tinypb` | TinyPB data/codec/dispatcher、同步 RPC Channel、异步 RPC Channel 和 controller。 |
+| `mytinyrpc/net/tinypb` | TinyPB data/codec/dispatcher、同步 RPC Channel、异步 RPC Channel、Channel API 对齐入口和 controller。 |
 | `generator` | TinyRPC 业务工程生成器和模板。 |
 | `conf` | 测试和示例配置文件。 |
 | `testcases` | 单元测试、脚本验收程序和端到端测试入口。 |
@@ -23,11 +23,11 @@
 |---|---|
 | `scripts/check_stage1.sh` | 阶段 1 阻塞 Echo Server 验收。 |
 | `scripts/check_stage8_rpc.sh` | 阶段 8 Stub 到真实 TcpServer 的同步 RPC 验收。 |
-| `scripts/check_rpc_sync.sh` | 同步 TinyPB RPC 稳定性回归入口。 |
+| `scripts/check_rpc_sync.sh` | 同步 TinyPB RPC 稳定性、同步 Channel API 和真实服务端回归入口。 |
 | `scripts/check_stage11_server.sh` | 多 Reactor TcpServer 同步 RPC 验收。 |
 | `scripts/check_stage12_http.sh` | HTTP server 验收。 |
 | `scripts/check_stage26_lifecycle.sh` | TcpServer 优雅停止和生命周期验收。 |
-| `scripts/check_rpc_async.sh` | 异步 TinyPB RPC 回归入口。 |
+| `scripts/check_rpc_async.sh` | 异步 TinyPB RPC、异步 Channel API 和网络路径回归入口。 |
 | `scripts/check_generator.sh` | 生成器模板、proto service/method 骨架和编译校验。 |
 | `scripts/check_generator_project.sh` | 生成工程端到端构建、启动、调用和关闭验收。 |
 
@@ -42,4 +42,5 @@
 
 - `mytinyrpc` 目录名保留不变，避免无意义的大规模 include 迁移。
 - `TcpServer::start()` 当前仍是阻塞式事件循环；阶段 26 已提供框架层 `stop()` / `StopRpcServer()`，脚本仍用 pid 文件作为进程管理入口。
+- 阶段 27 已对齐同步/异步 RPC Channel 的 `Ptr`、共享地址构造、连接复用和异步等待入口；连接池、服务发现和多目标 RPC 不在当前目录结构中展开。
 - `build/` 是跨环境产物目录，切换 Windows/WSL/Docker 构建环境后应先清理再重建。

@@ -72,6 +72,10 @@
     - `TcpServer::stop()`、`StopRpcServer()` 和阶段 26 生命周期回归补齐服务端关闭入口。
     - 关键收获：服务端退出也应走框架生命周期，监听 fd、连接表、Reactor 和 IOThreadPool 要有统一收口路径。
 
+18. RPC Channel API 对齐
+    - 同步/异步 Channel 补齐 `Ptr`、`shared_ptr<IPAddress>` 构造、同步超时/连接复用控制、异步 `saveCallee()` 和 `wait()` / `waitFor()`。
+    - 关键收获：框架核心使用体验不只看内部网络路径是否正确，也要让用户和生成代码能用稳定、清晰、可保活的 Channel API 发起 Stub 调用。
+
 ## 阶段 18 到阶段 25 补全总结
 
 阶段 18 到阶段 25 是第二轮“简化实现补全”路线，目标不是重做主链路，而是集中补齐早期为了学习节奏保留的简化项。
@@ -87,6 +91,7 @@
 | 阶段 24 | 可选插件、观测和性能边界 | 通用 `ThreadPool`、MySQL 可选骨架、轻量 tracing、基础 benchmark 和资源生命周期脚本完成。 |
 | 阶段 25 | 补全计划收口 | 覆盖矩阵、完整补全回归脚本、入口文档、示例说明和最终边界审计形成明确终点。 |
 | 阶段 26 | TcpServer 优雅停止和生命周期 | `TcpServer::stop()`、`StopRpcServer()`、生成 server 信号停止和单/多 Reactor 生命周期验收完成。 |
+| 阶段 27 | RPC Channel API 对齐 | 同步 Channel 支持 `Ptr`、共享地址、默认超时和连接复用；异步 Channel 支持 `saveCallee()`、`wait()` / `waitFor()` 和共享对象保活；生成客户端使用新 API。 |
 
 ## 当前可展示能力
 
@@ -97,6 +102,7 @@
 - 生成工程端到端：`scripts/check_generator_project.sh`
 - 资源生命周期与基础 benchmark：`scripts/check_resource_lifetime.sh`
 - TcpServer 生命周期：`scripts/check_stage26_lifecycle.sh`
+- RPC Channel API：`scripts/check_rpc_sync.sh`、`scripts/check_rpc_async.sh`、`scripts/check_generator.sh`
 - 全量回归：`scripts/check_all.sh`
 - 完整补全回归：`scripts/check_full_completion.sh`
 
@@ -106,7 +112,7 @@
 
 - Reactor / Timer / IOThread / IOThreadPool。
 - TcpServer / TcpConnection / TcpClient。
-- TinyPB codec / dispatcher / RpcChannel / RpcController。
+- TinyPB codec / dispatcher / RpcChannel / RpcController，其中阶段 27 已对齐同步/异步 Channel 的公开使用入口。
 - HTTP codec / dispatcher / servlet。
 - Config / Log / Runtime / Start。
 - Coroutine hook 和基础协程复用。
@@ -144,5 +150,5 @@
 
 1. 为 MySQL 可选插件补真实连接池和健康检查，但仍保持默认构建低依赖。
 2. 为 HTTP 增加 keep-alive、chunked 或 streaming response 的独立计划。
-3. 为生成器补充更真实的业务字段填充样例和发布级工程打包。
+3. 为生成器补充更真实的业务字段填充样例和发布级工程打包；其中发布级生成工程打包由阶段 31 继续推进。
 4. 根据需要再规划连接池、负载均衡和完整 tracing，而不是提前塞入主链路。

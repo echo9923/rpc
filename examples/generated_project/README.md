@@ -50,4 +50,4 @@ This example is the completed stage 23 generator path. The generated project flo
 
 ## Boundary
 
-The generator uses `protoc` to generate C++ Protobuf files and descriptor-set metadata, then generates method interface classes, a service adapter, a test client, and run/shutdown scripts. It currently supports unary RPC only; streaming RPC, proto2-specific behavior, multi-language generation, and IDE project generation are outside this example.
+The generator uses `protoc` to generate C++ Protobuf files and descriptor-set metadata, then generates method interface classes, a service adapter, a test client, and run/shutdown scripts. The generated client uses `TinyPbRpcChannel::Ptr`, a shared `IPAddress`, and Channel-level connection reuse so the generated code exercises the public stage 27 RPC Channel API. It currently supports unary RPC only; streaming RPC, proto2-specific behavior, multi-language generation, release-grade standalone packaging, and IDE project generation are outside this example.

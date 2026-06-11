@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <string>
 
 namespace {
@@ -48,8 +49,11 @@ bool call{{SERVICE_NAME}}({{QUALIFIED_STUB_TYPE}} *stub, tinyrpc::TinyPbRpcContr
 
 int runClient(uint16_t port)
 {
-    tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress(kHost, port));
-    {{QUALIFIED_STUB_TYPE}} stub(&channel);
+    auto addr = std::make_shared<tinyrpc::IPAddress>(kHost, port);
+    tinyrpc::TinyPbRpcChannel::Ptr channel = std::make_shared<tinyrpc::TinyPbRpcChannel>(addr);
+    channel->setReuseConnection(true);
+
+    {{QUALIFIED_STUB_TYPE}} stub(channel.get());
     tinyrpc::TinyPbRpcController controller;
 
     if (!call{{SERVICE_NAME}}(&stub, &controller)) {
