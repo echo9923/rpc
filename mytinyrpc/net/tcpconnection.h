@@ -9,6 +9,7 @@
 #include "net/tcpbuffer.h"
 #include "net/tinypb/tinypbdata.h"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
@@ -61,6 +62,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     bool isClosed() const;
     int64_t getLastActiveTimeMs() const;
     void refreshActiveTime();
+    static int getAliveCountForTest();
 
  private:
     friend class TcpConnectionTimeWheel;
@@ -89,6 +91,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     int64_t m_lastActiveTimeMs {0};           // 最近一次读到业务数据的时间，供空闲超时判断
     std::unique_ptr<Coroutine> m_readCoroutine; // 连接协程，读写均通过 hook 完成
     std::unordered_map<std::string, TinyPbStruct> m_clientResponses; // 客户端侧按 reqId 缓存已解码响应
+
+    static std::atomic<int> s_aliveCount;      // 当前进程内存活 TcpConnection 数量，供生命周期测试观察
 };
 
 }

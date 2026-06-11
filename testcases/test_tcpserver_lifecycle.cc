@@ -177,6 +177,37 @@ TEST(TcpServerLifecycleTest, StopIsIdempotentAndReleasesPort)
     restarted.stop();
 }
 
+TEST(TcpServerLifecycleTest, ClosedPeerDoesNotKeepServerConnectionAlive)
+{
+    uint16_t port = reserveFreePort();
+    ASSERT_NE(port, 0);
+
+    int aliveBefore = tinyrpc::TcpConnection::getAliveCountForTest();
+    tinyrpc::TcpServer server(tinyrpc::IPAddress("127.0.0.1", port));
+    ASSERT_TRUE(server.init());
+
+    std::thread serverThread(runServerThread, &server);
+    ASSERT_TRUE(waitUntilReady(port));
+
+    tinyrpc::TcpClient client(tinyrpc::IPAddress("127.0.0.1", port));
+    ASSERT_TRUE(client.connectServer()) << client.getErrorInfo();
+    client.closeConnection();
+
+    for (int i = 0;
+         i < 100
+         && (server.getConnectionCount() != 0
+             || tinyrpc::TcpConnection::getAliveCountForTest() != aliveBefore);
+         ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    EXPECT_EQ(server.getConnectionCount(), 0u);
+    EXPECT_EQ(tinyrpc::TcpConnection::getAliveCountForTest(), aliveBefore);
+
+    server.stop();
+    serverThread.join();
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

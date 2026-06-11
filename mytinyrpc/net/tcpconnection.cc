@@ -15,6 +15,8 @@
 
 namespace tinyrpc {
 
+std::atomic<int> TcpConnection::s_aliveCount {0};
+
 namespace {
 
 std::string socketAddressToString(const sockaddr_in& addr)
@@ -70,6 +72,7 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor,
     m_localAddrString = getSocketName(m_fd);
     m_peerAddrString = getPeerName(m_fd);
     refreshActiveTime();
+    s_aliveCount.fetch_add(1);
 }
 
 TcpConnection::TcpConnection(Socket fd, Reactor *reactor, TcpConnectionType connectionType,
@@ -86,11 +89,13 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor, TcpConnectionType conn
     m_localAddrString = getSocketName(m_fd);
     m_peerAddrString = m_peerAddr.toString();
     refreshActiveTime();
+    s_aliveCount.fetch_add(1);
 }
 
 TcpConnection::~TcpConnection()
 {
     closeConnection();
+    s_aliveCount.fetch_sub(1);
 }
 
 Socket TcpConnection::getFd() const
@@ -244,12 +249,16 @@ void TcpConnection::startConnection()
     FdEventContainer::getInstance().registerFdEvent(&m_fdEvent);
 
     // 启动连接协程，读写均在此协程中串行完成。
-    // 协程回调持有 shared_ptr，防止协程执行期间 TcpConnection 被提前释放。
-    // 例如对端关闭后 coroutineReadLoop 内调用 closeWithCallback 会触发
-    // TcpServer::removeConnection 释放唯一的 shared_ptr，若无此引用则 this 悬空。
-    auto self = shared_from_this();
+    // 协程回调只捕获 weak_ptr，避免 TcpConnection -> Coroutine -> callback
+    // -> shared_ptr<TcpConnection> 形成自引用环。协程内部关闭连接时，
+    // closeWithCallback() 会把移除连接表动作延后到 Reactor task，保证当前
+    // 协程完全返回前仍由 TcpServer::m_connections 保活。
+    std::weak_ptr<TcpConnection> self = shared_from_this();
     m_readCoroutine = std::make_unique<Coroutine>([self]() {
-        self->coroutineReadLoop();
+        auto conn = self.lock();
+        if (conn != nullptr) {
+            conn->coroutineReadLoop();
+        }
     });
     m_readCoroutine->resume();
 }
@@ -306,13 +315,27 @@ void TcpConnection::refreshActiveTime()
     m_lastActiveTimeMs = getNowMs();
 }
 
+int TcpConnection::getAliveCountForTest()
+{
+    return s_aliveCount.load();
+}
+
 void TcpConnection::closeWithCallback()
 {
     Socket closedFd = m_fd;
     closeConnection();
 
     if (m_closeCallback) {
-        m_closeCallback(closedFd);
+        auto callback = m_closeCallback;
+        if (m_readCoroutine != nullptr
+            && Coroutine::getCurrentCoroutine() == m_readCoroutine.get()
+            && m_reactor != nullptr) {
+            m_reactor->addTask([callback, closedFd]() {
+                callback(closedFd);
+            });
+            return;
+        }
+        callback(closedFd);
     }
 }
 
