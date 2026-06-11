@@ -57,6 +57,9 @@ echo "[all] run http regression"
 echo "[all] run async rpc regression"
 MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 
+echo "[all] run TcpServer lifecycle regression"
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_stage26_lifecycle.sh
+
 echo "[all] run generator regression"
 ./scripts/check_generator.sh
 ./scripts/check_generator_project.sh

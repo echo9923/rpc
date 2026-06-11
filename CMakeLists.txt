@@ -199,6 +199,12 @@ add_executable(test_tcp_client
 )
 target_link_libraries(test_tcp_client ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
 
+add_executable(test_tcpserver_lifecycle
+    testcases/test_tcpserver_lifecycle.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(test_tcpserver_lifecycle ${GTEST_LIBRARIES} pthread ${Protobuf_LIBRARIES})
+
 add_executable(test_tinypb_rpc_channel
     testcases/test_tinypb_rpc_channel.cc
     $<TARGET_OBJECTS:mytinyrpc_obj>
