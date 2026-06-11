@@ -27,6 +27,14 @@ bool StartRpcServer()
     return serverReady;
 }
 
+void StopRpcServer()
+{
+    auto server = getRuntime().getServer();
+    if (server != nullptr) {
+        server->stop();
+    }
+}
+
 Config& GetConfig()
 {
     return getRuntime().getConfig();

@@ -9,6 +9,7 @@ namespace tinyrpc {
 
 bool InitConfig(const std::string& path);
 bool StartRpcServer();
+void StopRpcServer();
 Config& GetConfig();
 const Config& GetConstConfig();
 TcpServer::Ptr GetServer();

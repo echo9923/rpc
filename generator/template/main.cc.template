@@ -5,11 +5,25 @@
 #include "comm/start.h"
 #include "{{SERVICE_HEADER_INCLUDE}}"
 
+#include <csignal>
 #include <iostream>
 #include <string>
 
+namespace {
+
+void handleSignal(int signal)
+{
+    (void)signal;
+    tinyrpc::StopRpcServer();
+}
+
+}  // namespace
+
 int main(int argc, char **argv)
 {
+    std::signal(SIGTERM, handleSignal);
+    std::signal(SIGINT, handleSignal);
+
     std::string configPath = "conf.xml";
     if (argc >= 2) {
         configPath = argv[1];

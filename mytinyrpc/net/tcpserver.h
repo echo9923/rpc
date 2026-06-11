@@ -14,8 +14,10 @@
 // registerService() 的参数类型依赖此定义。
 #include <google/protobuf/service.h>
 
+#include <atomic>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace tinyrpc {
 
@@ -39,6 +41,8 @@ class TcpServer {
     bool init();
 
     void start();
+    void stop();
+    bool isRunning() const;
     bool addTimerTask(const std::shared_ptr<TimerTask>& task);
 
     // 返回主 Reactor 指针，供测试等场景直接驱动事件循环
@@ -54,6 +58,10 @@ class TcpServer {
 
     void addConnection(Socket clientFd);
     void removeConnection(int fd);
+    void shutdown();
+    void closeListenSocket();
+    void closeAllConnections();
+    std::vector<std::shared_ptr<TcpConnection>> snapshotConnectionsAndClear();
 
  private:
      IPAddress m_addr;                                                          // 服务器监听地址（IP + 端口）
@@ -67,7 +75,8 @@ class TcpServer {
      int m_ioThreadNum {0};                                                    // IO 线程池中线程的数量
      std::unordered_map<int, std::shared_ptr<TcpConnection>> m_connections;    // fd -> TcpConnection 映射表，管理所有活跃连接
      mutable Mutex m_connectionMutex;                                          // 保护 m_connections 的互斥锁（mutable 允许 const 方法加锁）
-     bool m_running {false};                                                   // 服务器运行状态标志
+     std::atomic<bool> m_running {false};                                      // 服务器事件循环运行状态标志
+     std::atomic<bool> m_shutdownStarted {false};                              // shutdown 是否已执行，保证 stop/析构幂等
 };
 
 }

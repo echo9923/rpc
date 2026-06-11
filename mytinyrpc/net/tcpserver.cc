@@ -8,6 +8,7 @@
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <utility>
 #include <unistd.h>
 
 namespace tinyrpc {
@@ -24,12 +25,8 @@ TcpServer::TcpServer(const IPAddress& addr,
 
 TcpServer::~TcpServer()
 {
-    if (m_ioThreadPool != nullptr) {
-        m_ioThreadPool->stop();
-    }
-    if (m_listenFd != kInvalidSocket) {
-        close(m_listenFd);
-    }
+    stop();
+    shutdown();
 }
 
 const IPAddress& TcpServer::getLocalAddress() const
@@ -96,6 +93,8 @@ void TcpServer::start()
 {
     InfoLog("TcpServer start on " + m_addr.toString());
 
+    m_shutdownStarted.store(false);
+
     // 将监听 fd 封装为 FdEvent，注册 EPOLLIN 事件到 Reactor。
     // 当有新的客户端连接到达时，Reactor 会触发 acceptLoop() 回调。
     m_listenEvent.setFd(m_listenFd);
@@ -117,6 +116,19 @@ void TcpServer::start()
             break;
         }
     }
+
+    shutdown();
+}
+
+void TcpServer::stop()
+{
+    m_running.store(false);
+    m_reactor.stop();
+}
+
+bool TcpServer::isRunning() const
+{
+    return m_running.load();
 }
 
 bool TcpServer::addTimerTask(const std::shared_ptr<TimerTask>& task)
@@ -129,9 +141,17 @@ bool TcpServer::addTimerTask(const std::shared_ptr<TimerTask>& task)
 
 void TcpServer::acceptLoop()
 {
+    if (!m_running.load()) {
+        return;
+    }
+
     // acceptLoop 由 Reactor 在监听 fd 可读时触发。
     // 循环 accept 直到连接队列清空（EAGAIN），充分利用一次事件通知。
     while (true) {
+        if (!m_running.load()) {
+            break;
+        }
+
         sockaddr_in clientAddr {};
         socklen_t clientLen = sizeof(clientAddr);
 
@@ -164,6 +184,11 @@ void TcpServer::acceptLoop()
 
 void TcpServer::addConnection(Socket clientFd)
 {
+    if (!m_running.load()) {
+        close(clientFd);
+        return;
+    }
+
     Reactor *connectionReactor = &m_reactor;
     IOThread *ioThread = nullptr;
     if (m_ioThreadPool != nullptr) {
@@ -198,6 +223,61 @@ void TcpServer::removeConnection(int fd)
 {
     MutexLockGuard lock(m_connectionMutex);
     m_connections.erase(fd);
+}
+
+void TcpServer::shutdown()
+{
+    bool expected = false;
+    if (!m_shutdownStarted.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    m_running.store(false);
+    closeListenSocket();
+
+    if (m_ioThreadPool != nullptr) {
+        m_ioThreadPool->stop();
+    }
+
+    closeAllConnections();
+}
+
+void TcpServer::closeListenSocket()
+{
+    m_listenEvent.unregisterFromReactor();
+    m_listenEvent.clearCoroutine();
+
+    if (m_listenFd == kInvalidSocket) {
+        return;
+    }
+
+    // close(2) 关闭监听 socket，参数是监听 fd；关闭后内核释放端口引用，
+    // 后续服务端可重新 bind 同一地址。
+    close(m_listenFd);
+    m_listenFd = kInvalidSocket;
+    m_listenEvent.setFd(kInvalidSocket);
+}
+
+void TcpServer::closeAllConnections()
+{
+    auto connections = snapshotConnectionsAndClear();
+    for (auto& conn : connections) {
+        if (conn != nullptr) {
+            conn->closeConnection();
+        }
+    }
+}
+
+std::vector<std::shared_ptr<TcpConnection>> TcpServer::snapshotConnectionsAndClear()
+{
+    std::vector<std::shared_ptr<TcpConnection>> connections;
+    MutexLockGuard lock(m_connectionMutex);
+    connections.reserve(m_connections.size());
+    for (auto& entry : m_connections) {
+        connections.push_back(std::move(entry.second));
+    }
+    m_connections.clear();
+    return connections;
 }
 
 bool TcpServer::registerService(std::shared_ptr<google::protobuf::Service> service)
