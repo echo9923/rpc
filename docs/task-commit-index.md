@@ -127,6 +127,10 @@ git show --stat task-38
 | 任务一百二十一 | `1891861` | `完成任务一百二十一：新增完整补全回归脚本` | 新增 `check_full_completion.sh`、PowerShell `-FullCompletion` 入口和 README 回归说明 | 标题明确；阶段 25 |
 | 任务一百二十二 | `ed9d6a0` | `完成任务一百二十二：补全 README 学习总结和示例说明` | README、学习总结和 examples 说明阶段 18 到阶段 25 补全能力 | 标题明确；阶段 25 |
 | 任务一百二十三 | `77ad5d1` | `完成任务一百二十三：最终边界审计和阶段收口` | 审计剩余边界词，更新覆盖矩阵和进度文档，清理过期 TODO/placeholder 文案 | 标题明确；阶段 25 |
+| 任务一百二十四 | `ea65827` | `完成任务一百二十四：增加 TcpServer 优雅停止入口` | 新增 `TcpServer::stop()` / `isRunning()`、`StopRpcServer()` 和生成 server 信号停止入口 | 标题明确；阶段 26 |
+| 任务一百二十五 | `66902d4` | `完成任务一百二十五：新增 TcpServer 生命周期验收` | 新增 `test_tcpserver_lifecycle`、`check_stage26_lifecycle.sh` 并接入 `check_all.sh` | 标题明确；阶段 26 |
+| 任务一百二十六 | `862b3c8` | `完成任务一百二十六：修复连接协程生命周期保活` | 连接协程改捕获 `weak_ptr`，关闭回调延后到 Reactor task，并补连接对象析构回归 | 标题明确；阶段 26 |
+| 任务一百二十七 | `508c41a` | `完成任务一百二十七：阶段二十六文档和矩阵收口` | 新增 `docs/stage-26.md`，同步 README、覆盖矩阵、学习总结、项目结构和进度记录 | 标题明确；阶段 26 |
 
 ## 早期任务推定索引
 
