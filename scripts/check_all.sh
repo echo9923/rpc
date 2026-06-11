@@ -63,5 +63,6 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_stage26_lifecycle.sh
 echo "[all] run generator regression"
 ./scripts/check_generator.sh
 ./scripts/check_generator_project.sh
+./scripts/check_generator_release_package.sh
 
 echo "[all] PASS"

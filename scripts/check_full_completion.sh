@@ -21,6 +21,7 @@ run_step "client Reactor regression" env MYTINYRPC_SKIP_BUILD=1 ./scripts/check_
 run_step "async rpc regression" env MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 run_step "http regression" ./scripts/check_stage12_http.sh
 run_step "generated project regression" ./scripts/check_generator_project.sh
+run_step "generated release package regression" ./scripts/check_generator_release_package.sh
 run_step "resource lifetime regression" env MYTINYRPC_SKIP_BUILD=1 ./scripts/check_resource_lifetime.sh
 
 echo "[full-completion] PASS"
