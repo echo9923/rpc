@@ -131,6 +131,12 @@ git show --stat task-38
 | 任务一百二十五 | `66902d4` | `完成任务一百二十五：新增 TcpServer 生命周期验收` | 新增 `test_tcpserver_lifecycle`、`check_stage26_lifecycle.sh` 并接入 `check_all.sh` | 标题明确；阶段 26 |
 | 任务一百二十六 | `862b3c8` | `完成任务一百二十六：修复连接协程生命周期保活` | 连接协程改捕获 `weak_ptr`，关闭回调延后到 Reactor task，并补连接对象析构回归 | 标题明确；阶段 26 |
 | 任务一百二十七 | `508c41a` | `完成任务一百二十七：阶段二十六文档和矩阵收口` | 新增 `docs/stage-26.md`，同步 README、覆盖矩阵、学习总结、项目结构和进度记录 | 标题明确；阶段 26 |
+| 任务一百二十八 | `32dd9f1` | `完成任务一百二十八：对齐同步 RPC Channel API` | 同步 `TinyPbRpcChannel` 新增 `Ptr`、共享地址构造、Channel 默认超时、连接复用控制和长生命周期 `TcpClient` | 标题明确；阶段 27 |
+| 任务一百二十九 | `5b12589` | `完成任务一百二十九：对齐异步 RPC Channel API` | 异步 `TinyPbRpcAsyncChannel` 新增 `Ptr`、共享地址构造、`saveCallee()`、`wait()` / `waitFor()` 和共享对象保活回归 | 标题明确；阶段 27 |
+| 任务一百三十 | `74d49a4` | `完成任务一百三十：阶段二十七生成客户端和文档收口` | 生成客户端使用 `TinyPbRpcChannel::Ptr`、共享 `IPAddress` 和 `setReuseConnection(true)`，新增 `docs/stage-27.md` 并更新阶段文档 | 标题明确；阶段 27 |
+| 任务一百三十一 | `1be041b` | `完成任务一百三十一：生成器支持发布级源码包模式` | 生成器新增 `--package source|release`，release 模式复制 `third_party/mytinyrpc` 源码子集并生成 manifest，CMake 自动使用 bundled source | 标题明确；阶段 31 |
+| 任务一百三十二 | `e228067` | `完成任务一百三十二：新增发布包生成工程验收` | 新增 `check_generator_release_package.sh`，不传 `MYTINYRPC_ROOT` 验收 release 生成工程构建、启动、调用和关闭 | 标题明确；阶段 31 |
+| 任务一百三十三 | `fa84bce` | `完成任务一百三十三：阶段三十一文档和矩阵收口` | 新增 `docs/stage-31.md`，同步 README、覆盖矩阵、学习总结、项目结构、历史阶段边界和生成工程示例 | 标题明确；阶段 31 |
 
 ## 早期任务推定索引
 
