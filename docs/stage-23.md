@@ -129,6 +129,6 @@ interface 默认实现只清空 response，业务方可以在对应 `*_interface
 - 当前只生成 C++ Protobuf 代码，不支持多语言生成。
 - 当前只支持 unary RPC，不支持 streaming RPC。
 - 当前不支持 proto2 特殊语义。
-- 生成工程依赖本地 MyTinyRPC 源码，通过 `MYTINYRPC_ROOT` 指定，不是发布级独立源码包。
+- 阶段 23 的 source 模式生成工程依赖本地 MyTinyRPC 源码，通过 `MYTINYRPC_ROOT` 指定；阶段 31 已补齐 `--package release` 发布级源码包模式。
 - 业务 interface 默认返回空 proto3 response，不生成真实业务字段填充逻辑。
 - 不生成 IDE 工程或交互式项目向导。

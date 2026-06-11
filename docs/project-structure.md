@@ -11,7 +11,7 @@
 | `mytinyrpc/net` | fd、Reactor、Timer、TcpBuffer、TcpClient、TcpServer、IOThread 和连接生命周期。 |
 | `mytinyrpc/net/http` | HTTP request/response、codec、servlet 和 dispatcher。 |
 | `mytinyrpc/net/tinypb` | TinyPB data/codec/dispatcher、同步 RPC Channel、异步 RPC Channel、Channel API 对齐入口和 controller。 |
-| `generator` | TinyRPC 业务工程生成器和模板。 |
+| `generator` | TinyRPC 业务工程生成器和模板，支持 source/release package 两种生成工程模式。 |
 | `conf` | 测试和示例配置文件。 |
 | `testcases` | 单元测试、脚本验收程序和端到端测试入口。 |
 | `scripts` | 阶段验收、同步/异步 RPC 回归、HTTP 回归和生成器验收脚本。 |
@@ -30,6 +30,7 @@
 | `scripts/check_rpc_async.sh` | 异步 TinyPB RPC、异步 Channel API 和网络路径回归入口。 |
 | `scripts/check_generator.sh` | 生成器模板、proto service/method 骨架和编译校验。 |
 | `scripts/check_generator_project.sh` | 生成工程端到端构建、启动、调用和关闭验收。 |
+| `scripts/check_generator_release_package.sh` | 发布级生成工程源码包验收，不传 `MYTINYRPC_ROOT` 完成构建、启动、调用和关闭。 |
 
 ## 命名整理
 
@@ -43,4 +44,5 @@
 - `mytinyrpc` 目录名保留不变，避免无意义的大规模 include 迁移。
 - `TcpServer::start()` 当前仍是阻塞式事件循环；阶段 26 已提供框架层 `stop()` / `StopRpcServer()`，脚本仍用 pid 文件作为进程管理入口。
 - 阶段 27 已对齐同步/异步 RPC Channel 的 `Ptr`、共享地址构造、连接复用和异步等待入口；连接池、服务发现和多目标 RPC 不在当前目录结构中展开。
+- 阶段 31 已补齐生成工程 release package 模式，生成目录可自带 `third_party/mytinyrpc` 源码子集；二进制安装器、IDE 工程和系统服务单元不在当前目录结构中展开。
 - `build/` 是跨环境产物目录，切换 Windows/WSL/Docker 构建环境后应先清理再重建。

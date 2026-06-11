@@ -76,6 +76,10 @@
     - 同步/异步 Channel 补齐 `Ptr`、`shared_ptr<IPAddress>` 构造、同步超时/连接复用控制、异步 `saveCallee()` 和 `wait()` / `waitFor()`。
     - 关键收获：框架核心使用体验不只看内部网络路径是否正确，也要让用户和生成代码能用稳定、清晰、可保活的 Channel API 发起 Stub 调用。
 
+19. 发布级生成工程打包
+    - 生成器新增 `--package release`，生成工程自带 `third_party/mytinyrpc` 源码子集和 manifest，可不依赖仓库根目录完成构建运行。
+    - 关键收获：生成工程的可交付性要靠真实端到端验证，CMake 配置、框架源码列表、客户端 Channel API 和 server 停止路径必须放到同一个 release package 回归里检验。
+
 ## 阶段 18 到阶段 25 补全总结
 
 阶段 18 到阶段 25 是第二轮“简化实现补全”路线，目标不是重做主链路，而是集中补齐早期为了学习节奏保留的简化项。
@@ -92,6 +96,7 @@
 | 阶段 25 | 补全计划收口 | 覆盖矩阵、完整补全回归脚本、入口文档、示例说明和最终边界审计形成明确终点。 |
 | 阶段 26 | TcpServer 优雅停止和生命周期 | `TcpServer::stop()`、`StopRpcServer()`、生成 server 信号停止和单/多 Reactor 生命周期验收完成。 |
 | 阶段 27 | RPC Channel API 对齐 | 同步 Channel 支持 `Ptr`、共享地址、默认超时和连接复用；异步 Channel 支持 `saveCallee()`、`wait()` / `waitFor()` 和共享对象保活；生成客户端使用新 API。 |
+| 阶段 31 | 发布级生成工程打包 | 生成器支持 `--package release`，输出目录内置 `third_party/mytinyrpc` 源码子集和 manifest，不传 `MYTINYRPC_ROOT` 也能构建、启动、调用和关闭。 |
 
 ## 当前可展示能力
 
@@ -100,6 +105,7 @@
 - 多 Reactor TCP server：`scripts/check_stage11_server.sh`
 - HTTP server：`scripts/check_stage12_http.sh`
 - 生成工程端到端：`scripts/check_generator_project.sh`
+- 生成工程发布包：`scripts/check_generator_release_package.sh`
 - 资源生命周期与基础 benchmark：`scripts/check_resource_lifetime.sh`
 - TcpServer 生命周期：`scripts/check_stage26_lifecycle.sh`
 - RPC Channel API：`scripts/check_rpc_sync.sh`、`scripts/check_rpc_async.sh`、`scripts/check_generator.sh`
@@ -117,6 +123,7 @@
 - Config / Log / Runtime / Start。
 - Coroutine hook 和基础协程复用。
 - Generator。
+- Generator 发布源码包模式。
 - 框架层 `TcpServer::stop()` 和生成工程信号停止入口。
 
 主要简化点：
@@ -125,7 +132,7 @@
 - 不做完整连接池和负载均衡。
 - 不做 HTTPS、HTTP/2、chunked 或 streaming response。
 - tracing 只做线程局部 request context 和日志字段补齐，不做 OpenTelemetry 或跨进程传播。
-- 不做 streaming RPC、proto2 特殊语义或多语言生成。
+- 生成器已支持 C++ 源码发布包；仍不做 streaming RPC、proto2 特殊语义或多语言生成。
 - benchmark 只做基础参考统计，不做商业级压测报告。
 
 更详细的覆盖状态见 [原 TinyRPC 功能覆盖矩阵](original-coverage-matrix.md)。
@@ -150,5 +157,5 @@
 
 1. 为 MySQL 可选插件补真实连接池和健康检查，但仍保持默认构建低依赖。
 2. 为 HTTP 增加 keep-alive、chunked 或 streaming response 的独立计划。
-3. 为生成器补充更真实的业务字段填充样例和发布级工程打包；其中发布级生成工程打包由阶段 31 继续推进。
+3. 为生成器补充更真实的业务字段填充样例；发布级生成工程源码包已由阶段 31 完成，后续如需二进制安装器或 IDE 工程可单独规划。
 4. 根据需要再规划连接池、负载均衡和完整 tracing，而不是提前塞入主链路。

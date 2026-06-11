@@ -1895,4 +1895,67 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 
 - 同步 Channel 仍是单目标 RPC Channel，不做连接池、服务发现或负载均衡。
 - 异步 Channel 仍使用一个 `AsyncClientSession` 和内部 `IOThread`，`saveCallee()` 只负责生命周期托管。
-- 生成工程仍依赖 `MYTINYRPC_ROOT` 指向本地 MyTinyRPC 源码树；发布级独立工程打包由阶段 31 承接。
+- 生成工程 source 模式仍依赖 `MYTINYRPC_ROOT` 指向本地 MyTinyRPC 源码树；阶段 31 已补齐 `--package release` 发布级源码包模式。
+
+## 阶段 31：发布级生成工程打包
+
+阶段 31 的目标是让生成工程从“依赖本仓库源码树”推进到“可独立交付的源码包”。发布包模式会把生成工程运行所需的 MyTinyRPC 源码子集复制到输出目录，CMake 可以自动使用该 bundled source，不再要求用户传入 `MYTINYRPC_ROOT`。
+
+### 任务一百三十一：生成器支持发布级源码包模式
+
+已完成能力：
+
+- `tinyrpc_generator.py` 新增 `--package source|release`，默认 `source` 保持兼容。
+- `--package release` 在输出目录生成 `third_party/mytinyrpc/`，复制 `mytinyrpc/comm`、`mytinyrpc/coroutine`、`mytinyrpc/net` 下的 `.h`、`.cc` 和 `.s` 文件。
+- 发布包生成 `third_party/MYTINYRPC_MANIFEST.md`，记录随包复制的框架源码文件。
+- `generator/template/CMakeLists.txt.template` 优先使用 `third_party/mytinyrpc`，找不到 bundled source 时继续支持显式 `MYTINYRPC_ROOT`。
+- 生成工程 CMake 源码列表补齐 `comm/thread_pool.cc`、`comm/mysql_instance.cc` 和 `net/asyncclientsession.cc`。
+- `generator/template/README.md.template` 根据 `source` / `release` 模式输出不同构建命令。
+
+验证命令：
+
+```bash
+./scripts/check_generator.sh
+```
+
+### 任务一百三十二：新增发布包生成工程验收
+
+已完成能力：
+
+- 新增 `scripts/check_generator_release_package.sh`。
+- 验收 release full layout 生成工程包含 `third_party/mytinyrpc`、`MYTINYRPC_MANIFEST.md`、`TinyPbRpcChannel::Ptr` 和 `setReuseConnection(true)`。
+- 验收不传 `MYTINYRPC_ROOT` 的 `cmake -S <out> -B <out>/build` 配置路径。
+- 验收生成 server/client 的构建、启动、客户端 TinyPB 调用和 `shutdown.sh` 关闭。
+- `scripts/check_all.sh` 和 `scripts/check_full_completion.sh` 已接入发布包回归。
+
+验证命令：
+
+```bash
+./scripts/check_generator_release_package.sh
+```
+
+已验证结果：
+
+- 2026-06-11 在 WSL 中通过，最终输出 `[generator-release] PASS`。
+
+### 任务一百三十三：阶段三十一文档和覆盖矩阵收口
+
+已完成能力：
+
+- 新增 `docs/stage-31.md`。
+- README、学习总结、覆盖矩阵、项目结构、阶段 23/26/27 文档和生成工程示例同步记录发布包模式。
+- `docs/original-coverage-matrix.md` 将发布级生成工程打包移入 generator 已完成能力，并从保留边界中移除。
+
+验证命令：
+
+```bash
+rg -n "stage-31|阶段 31|check_generator_release_package|--package release|MYTINYRPC_MANIFEST" README.md docs examples generator scripts
+./scripts/check_generator_release_package.sh
+./scripts/check_generator.sh
+```
+
+当前限制：
+
+- release package 是源码包模式，不生成二进制安装器、系统服务单元、deb/rpm 或 IDE 工程。
+- 发布包只复制当前生成工程需要的 MyTinyRPC 源码子集，不复制仓库测试、文档、e2e、benchmark 或构建产物。
+- 生成器仍只支持 C++ unary RPC，不支持 streaming RPC、proto2 特殊语义或多语言生成。

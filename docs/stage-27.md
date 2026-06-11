@@ -63,4 +63,4 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
 - 同步 Channel 的连接复用由 `TcpClient` 承担；失败后重建和响应匹配仍沿用阶段 20 的客户端语义。
 - `TinyPbRpcAsyncChannel::saveCallee()` 是生命周期托管入口，不改变 Protobuf Stub 的 `CallMethod()` 标准调用协议。
 - 异步 Channel 仍使用单个 `AsyncClientSession` 和一个内部 `IOThread`，不在本阶段扩展为连接池。
-- 生成工程仍依赖 `MYTINYRPC_ROOT` 指向本地 MyTinyRPC 源码树；发布级独立工程打包由阶段 31 继续补齐。
+- 生成工程的 source 模式仍可依赖 `MYTINYRPC_ROOT` 指向本地 MyTinyRPC 源码树；阶段 31 已补齐 `--package release` 发布级源码包模式。

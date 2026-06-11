@@ -56,4 +56,4 @@ MYTINYRPC_SKIP_BUILD=1 ./scripts/check_stage26_lifecycle.sh
 
 - `TcpServer::start()` 仍是阻塞式事件循环；需要异步启动时由调用方放入独立线程。
 - `stop()` 负责停止当前服务端和清理已接入的连接/线程资源，不提供同一 `TcpServer` 对象上的 restart 语义。
-- HTTP keep-alive、服务发现、连接池、OpenTelemetry 和发布级安装包仍属于后续独立阶段。
+- HTTP keep-alive、服务发现、连接池和 OpenTelemetry 仍属于后续独立阶段；发布级生成工程源码包已由阶段 31 补齐。
