@@ -26,6 +26,7 @@
 | `scripts/check_rpc_sync.sh` | 同步 TinyPB RPC 稳定性回归入口。 |
 | `scripts/check_stage11_server.sh` | 多 Reactor TcpServer 同步 RPC 验收。 |
 | `scripts/check_stage12_http.sh` | HTTP server 验收。 |
+| `scripts/check_stage26_lifecycle.sh` | TcpServer 优雅停止和生命周期验收。 |
 | `scripts/check_rpc_async.sh` | 异步 TinyPB RPC 回归入口。 |
 | `scripts/check_generator.sh` | 生成器模板、proto service/method 骨架和编译校验。 |
 | `scripts/check_generator_project.sh` | 生成工程端到端构建、启动、调用和关闭验收。 |
@@ -40,5 +41,5 @@
 ## 当前保留边界
 
 - `mytinyrpc` 目录名保留不变，避免无意义的大规模 include 迁移。
-- `TcpServer` 当前仍是阻塞式 `start()`，没有框架层 `stop()`；需要脚本验收时由脚本管理后台进程。
+- `TcpServer::start()` 当前仍是阻塞式事件循环；阶段 26 已提供框架层 `stop()` / `StopRpcServer()`，脚本仍用 pid 文件作为进程管理入口。
 - `build/` 是跨环境产物目录，切换 Windows/WSL/Docker 构建环境后应先清理再重建。

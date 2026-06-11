@@ -947,7 +947,7 @@
 
 - 生成工程依赖本地 MyTinyRPC 源码路径，不是完全独立源码包。
 - 业务方法实现仍是占位逻辑，默认返回空 proto3 response。
-- 生成 server 的关闭由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。
+- 该任务完成时，生成 server 的关闭由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`；阶段 26 已补齐框架层停止入口。
 
 ## 阶段 17：工程收口、覆盖矩阵和最终文档
 
@@ -1146,7 +1146,7 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_rpc_sync.sh && 
 
 当前限制：
 
-- 不实现 `TcpServer::stop()`。
+- 本阶段不实现 `TcpServer::stop()`；阶段 26 已补齐框架层停止入口。
 - TinyPB/HTTP 的 local/peer 地址当前为 `"local"` / `"peer"` 占位，并已封装成后续可替换 helper。
 - `AddTimerTask()` 投递到当前 server 主 Reactor Timer，不额外创建独立 timer runtime。
 
@@ -1550,7 +1550,7 @@ Stage 21 complete: all 5 tasks done. Async Channel has session-based connection 
 
 - 不生成 IDE 工程。
 - 不做交互式项目向导。
-- 生成 server 的关闭仍由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`。
+- 该阶段完成时，生成 server 的关闭仍由脚本 pid 管理，框架层暂未提供 `TcpServer::stop()`；阶段 26 已补齐生成 server 信号停止入口。
 
 阶段 23 已完成。生成器已经具备 simple/full layout、`protoc` 产物生成、descriptor-set 元数据解析、package/service/method 识别、method interface、service 适配、test client 和生成工程端到端验收。下一步可以进入阶段 24，补齐可选插件、观测和性能边界。
 
@@ -1738,7 +1738,7 @@ rg -n "check_full_completion|Full-Completion Path|阶段 18 到阶段 25|Complet
 - 将剩余项分为：
   - 已有计划且已执行：阶段 18 到阶段 25 的简化项补全记录。
   - 明确不做：MySQL 真实连接池、连接池/负载均衡、HTTP 高级能力、完整 tracing、商业级压测、高级 proto 语义、发布级独立工程打包。
-  - 需要新计划：`TcpServer::stop()`、HTTP keep-alive/chunked/streaming、服务发现/多目标 RPC、OpenTelemetry/跨进程 trace、发布级生成工程打包。
+  - 阶段 25 当时需要新计划：`TcpServer::stop()`（已由阶段 26 补齐）、HTTP keep-alive/chunked/streaming、服务发现/多目标 RPC、OpenTelemetry/跨进程 trace、发布级生成工程打包。
 - `coroutinehook.cc` 清理历史 `TODO(task-92)` 注释，改为当前 FdEventContainer 挂起恢复说明。
 - 生成器 `placeholder` 文案改为生成示例/测试客户端描述，避免被误判为未完成项。
 - `docs/original-coverage-matrix.md` 新增最终边界审计表，回归入口更新为 `./scripts/check_full_completion.sh`。
@@ -1757,3 +1757,77 @@ git status --short
 - 剩余生产级能力需要新阶段或新计划承接。
 
 阶段 25 已完成。第二轮“简化实现补全”现在有覆盖矩阵、完整补全回归脚本、README/学习总结/examples 入口和最终边界审计；验收以 `./scripts/check_full_completion.sh` 输出 `[full-completion] PASS` 为准。
+
+## 阶段 26：TcpServer 优雅停止和生命周期收口
+
+### 任务一百二十四：增加 `TcpServer` 优雅停止入口
+
+已完成能力：
+
+- `TcpServer` 新增 `stop()`，可从其他线程唤醒阻塞中的 `start()` 主 Reactor。
+- `TcpServer` 新增 `isRunning()`，方便测试和上层代码观察事件循环状态。
+- `TcpServer::start()` 退出后统一执行 shutdown，清理监听 fd、连接表和 IOThreadPool。
+- 析构函数复用 `stop()` / shutdown，避免显式停止和析构维护两套关闭路径。
+- `comm/start` 新增 `StopRpcServer()`，上层不必直接保存 `TcpServer` 指针即可触发停止。
+- 生成 server 模板接入 `SIGTERM` / `SIGINT` handler，收到普通 kill 或 Ctrl-C 时调用 `StopRpcServer()`。
+
+验证命令：
+
+```bash
+cmake --build build --target test_tinypb_server_client test_http_server
+```
+
+### 任务一百二十五：新增 TcpServer 生命周期验收
+
+已完成能力：
+
+- 新增 `test_tcpserver_lifecycle`，覆盖单 Reactor stop 唤醒、活跃连接清理、多 Reactor 连接清理、stop 幂等和端口释放。
+- 新增 `scripts/check_stage26_lifecycle.sh`，可单独验证阶段 26 生命周期能力。
+- `scripts/check_all.sh` 接入阶段 26 生命周期回归。
+
+验证命令：
+
+```bash
+MYTINYRPC_SKIP_BUILD=1 ./scripts/check_stage26_lifecycle.sh
+```
+
+已验证结果：
+
+- 2026-06-11 在 WSL 中通过，最终输出 `[stage26-lifecycle] PASS`。
+
+### 任务一百二十六：修复连接协程生命周期保活
+
+已完成能力：
+
+- `TcpConnection` 的连接协程回调改为捕获 `weak_ptr`，避免连接对象通过自身协程回调形成引用环。
+- `closeWithCallback()` 在连接协程内部触发时，把移除连接表动作延后到 Reactor task，避免当前协程返回前释放自身对象。
+- `TcpConnection` 增加测试观察用存活计数，用于验证连接关闭后对象真正析构。
+- `test_tcpserver_lifecycle` 新增对端关闭后连接对象不保活的回归用例。
+
+验证命令：
+
+```bash
+./build/test_tcpserver_lifecycle
+```
+
+### 任务一百二十七：阶段 26 文档和覆盖矩阵收口
+
+已完成能力：
+
+- 新增 `docs/stage-26.md`，说明 `TcpServer::stop()`、`StopRpcServer()`、连接协程生命周期、生成工程信号停止和当前边界。
+- README 新增阶段 26 生命周期验收入口和 stop 使用说明。
+- `docs/original-coverage-matrix.md` 将 `TcpServer::stop()` 从“需要新计划”移入已完成 TCP/start/generator 能力。
+- `docs/learning-summary.md`、`docs/project-structure.md` 和生成器 README 模板同步更新阶段 26 状态。
+
+验证命令：
+
+```bash
+rg -n "TcpServer::stop|StopRpcServer|check_stage26_lifecycle|阶段 26" README.md docs generator/template
+./scripts/check_stage26_lifecycle.sh
+```
+
+当前限制：
+
+- `TcpServer::start()` 仍是阻塞式事件循环；异步启动由调用方放入独立线程。
+- 同一 `TcpServer` 对象不提供 stop 后 restart 语义。
+- HTTP keep-alive、服务发现、连接池、OpenTelemetry 和发布级安装包仍属于后续独立阶段。

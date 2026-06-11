@@ -113,4 +113,4 @@ flowchart LR
 
 - 生成工程依赖本地 MyTinyRPC 源码，通过 `MYTINYRPC_ROOT` 指定，不是发布级独立源码包。
 - 生成业务实现仍是占位逻辑，默认返回空 proto3 response。
-- `shutdown.sh` 使用 pid 文件停止阻塞式 server，框架层暂未提供 `TcpServer::stop()`。
+- 阶段 16 当时 `shutdown.sh` 使用 pid 文件停止阻塞式 server，框架层暂未提供 `TcpServer::stop()`；阶段 26 已补齐 `TcpServer::stop()`、`StopRpcServer()` 和生成 server 信号停止入口。

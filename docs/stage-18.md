@@ -208,6 +208,6 @@ docker exec rpc-ubuntu bash -c "cd /workspace && ./scripts/check_all.sh"
 - 不兼容旧扁平 XML。
 - 不兼容原 TinyRPC 的 `protocal`、`inteval`、`log_sync_inteval`、`msg_req_len` 等历史字段名。
 - 不实现配置热加载、MySQL 插件、跨进程日志锁、压缩归档或远程日志采集。
-- 不实现 `TcpServer::stop()`。
+- 本阶段不实现 `TcpServer::stop()`；阶段 26 已补齐框架层停止入口。
 - TinyPB/HTTP request context 的 local/peer 当前保留为 `"local"` / `"peer"` 占位，并通过 helper 封装，后续可替换为真实连接地址。
 - `req_id_len`、协程池、时间轮配置已暴露到 `Config`，但本阶段不强制改造 `ReqIdUtil`、协程池初始化或 `TcpConnectionTimeWheel`。

@@ -21,7 +21,7 @@ bash run.sh
 bash shutdown.sh
 ```
 
-`run.sh` starts `{{SERVICE_NAME}}_server` with `{{CONFIG_FILE_REL}}`, writes a pid file, and waits until the generated client can probe the TCP port. `shutdown.sh` stops that pid.
+`run.sh` starts `{{SERVICE_NAME}}_server` with `{{CONFIG_FILE_REL}}`, writes a pid file, and waits until the generated client can probe the TCP port. `shutdown.sh` sends a normal termination signal to that pid; the generated server catches it and calls `tinyrpc::StopRpcServer()` before exiting.
 
 ## Current Scope
 

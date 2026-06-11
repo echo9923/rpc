@@ -68,6 +68,10 @@
     - 用覆盖矩阵、完整补全回归脚本、README、examples 和最终边界审计给第二轮补全计划建立终点。
     - 关键收获：补全不是无限加功能，而是让已补能力可定位、可验证，让剩余边界被明确写下。
 
+17. TcpServer 优雅停止
+    - `TcpServer::stop()`、`StopRpcServer()` 和阶段 26 生命周期回归补齐服务端关闭入口。
+    - 关键收获：服务端退出也应走框架生命周期，监听 fd、连接表、Reactor 和 IOThreadPool 要有统一收口路径。
+
 ## 阶段 18 到阶段 25 补全总结
 
 阶段 18 到阶段 25 是第二轮“简化实现补全”路线，目标不是重做主链路，而是集中补齐早期为了学习节奏保留的简化项。
@@ -82,6 +86,7 @@
 | 阶段 23 | 生成器完整化 | full layout、`protoc`、descriptor-set、多 service、interface/service 模板和生成工程端到端验收完成。 |
 | 阶段 24 | 可选插件、观测和性能边界 | 通用 `ThreadPool`、MySQL 可选骨架、轻量 tracing、基础 benchmark 和资源生命周期脚本完成。 |
 | 阶段 25 | 补全计划收口 | 覆盖矩阵、完整补全回归脚本、入口文档、示例说明和最终边界审计形成明确终点。 |
+| 阶段 26 | TcpServer 优雅停止和生命周期 | `TcpServer::stop()`、`StopRpcServer()`、生成 server 信号停止和单/多 Reactor 生命周期验收完成。 |
 
 ## 当前可展示能力
 
@@ -91,6 +96,7 @@
 - HTTP server：`scripts/check_stage12_http.sh`
 - 生成工程端到端：`scripts/check_generator_project.sh`
 - 资源生命周期与基础 benchmark：`scripts/check_resource_lifetime.sh`
+- TcpServer 生命周期：`scripts/check_stage26_lifecycle.sh`
 - 全量回归：`scripts/check_all.sh`
 - 完整补全回归：`scripts/check_full_completion.sh`
 
@@ -105,6 +111,7 @@
 - Config / Log / Runtime / Start。
 - Coroutine hook 和基础协程复用。
 - Generator。
+- 框架层 `TcpServer::stop()` 和生成工程信号停止入口。
 
 主要简化点：
 
@@ -117,7 +124,15 @@
 
 更详细的覆盖状态见 [原 TinyRPC 功能覆盖矩阵](original-coverage-matrix.md)。
 
-阶段 25 后，第二轮补全计划的验收入口是：
+阶段 26 后，服务端生命周期验收入口是：
+
+```bash
+./scripts/check_stage26_lifecycle.sh
+```
+
+该脚本通过 `[stage26-lifecycle] PASS` 表示 `TcpServer::stop()`、连接清理、IOThreadPool 停止和端口释放通过回归。
+
+阶段 25 的第二轮补全计划验收入口仍是：
 
 ```bash
 ./scripts/check_full_completion.sh
@@ -127,8 +142,7 @@
 
 ## 继续演进建议
 
-1. 给 `TcpServer` 增加框架层 `stop()`，替代脚本杀进程。
-2. 为 MySQL 可选插件补真实连接池和健康检查，但仍保持默认构建低依赖。
-3. 为 HTTP 增加 keep-alive、chunked 或 streaming response 的独立计划。
-4. 为生成器补充更真实的业务字段填充样例和发布级工程打包。
-5. 根据需要再规划连接池、负载均衡和完整 tracing，而不是提前塞入主链路。
+1. 为 MySQL 可选插件补真实连接池和健康检查，但仍保持默认构建低依赖。
+2. 为 HTTP 增加 keep-alive、chunked 或 streaming response 的独立计划。
+3. 为生成器补充更真实的业务字段填充样例和发布级工程打包。
+4. 根据需要再规划连接池、负载均衡和完整 tracing，而不是提前塞入主链路。

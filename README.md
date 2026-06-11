@@ -40,6 +40,18 @@ Expected final output:
 [full-completion] PASS
 ```
 
+Run the stage 26 server lifecycle gate when you only need to verify framework-level server stop:
+
+```bash
+./scripts/check_stage26_lifecycle.sh
+```
+
+Expected final output:
+
+```text
+[stage26-lifecycle] PASS
+```
+
 If you only need a fast build:
 
 ```bash
@@ -87,6 +99,7 @@ Stages 18 to 25 close the earlier simplified areas without changing the project 
 - HTTP completion: HTTP/1.0/1.1 GET/POST, origin-form and absolute-form targets, query map, case-insensitive headers, `Content-Length` body, default response headers, root servlet, 404/500 responses, request context, and close-after-response semantics.
 - Generator completion: simple/full layouts, `protoc`, descriptor-set parsing, package-aware service/method selection, method interface classes, service adapters, generated test client, and generated-project build/start/call/shutdown verification.
 - Optional shell capabilities: default-off MySQL plugin skeleton, fixed `ThreadPool`, lightweight tracing fields, basic benchmark programs, and resource-lifetime checks.
+- Server lifecycle completion: `TcpServer::stop()` wakes blocking `start()`, shuts down the listen fd, clears active connections, stops IOThreadPool, releases the port, and is available through `StopRpcServer()`.
 
 The complete supplement gate is:
 
@@ -104,6 +117,7 @@ It ends with `[full-completion] PASS`.
 | `scripts/check_rpc_async.sh` | Asynchronous TinyPB RPC lifecycle and timeout/cancel regression. |
 | `scripts/check_stage11_server.sh` | Multi-Reactor TinyPB server regression. |
 | `scripts/check_stage12_http.sh` | HTTP server regression. |
+| `scripts/check_stage26_lifecycle.sh` | Stage 26 TcpServer stop and lifecycle regression. |
 | `scripts/check_generator.sh` | Generator template and service/method skeleton regression. |
 | `scripts/check_generator_project.sh` | Generated project build/start/client/shutdown regression. |
 | `scripts/check_resource_lifetime.sh` | Stage 24 benchmark and resource-lifetime regression. |
@@ -122,7 +136,8 @@ int main()
     tinyrpc::InitConfig("conf/test_tinypb_server.xml");
     tinyrpc::StartRpcServer();
     REGISTER_SERVICE(QueryServiceImpl);
-    tinyrpc::GetServer()->start();
+    auto server = tinyrpc::GetServer();
+    server->start();
 }
 ```
 
@@ -136,11 +151,12 @@ int main()
     tinyrpc::InitConfig("conf/test_http_server.xml");
     tinyrpc::StartRpcServer();
     REGISTER_HTTP_SERVLET("/hello", HelloServlet);
-    tinyrpc::GetServer()->start();
+    auto server = tinyrpc::GetServer();
+    server->start();
 }
 ```
 
-`StartRpcServer()` creates and initializes the server from XML. `GetServer()->start()` enters the blocking event loop after services or servlets have been registered.
+`StartRpcServer()` creates and initializes the server from XML. `GetServer()->start()` enters the blocking event loop after services or servlets have been registered. `GetServer()->stop()` or `StopRpcServer()` can be called from another thread or a signal handler to wake the loop and shut down the server lifecycle.
 
 ## Documentation
 
@@ -155,13 +171,14 @@ int main()
 - [代码生成器与示例工程](docs/stage-16.md)
 - [生成器完整化](docs/stage-23.md)
 - [可选插件、观测和性能边界](docs/stage-24.md)
+- [TcpServer 优雅停止和生命周期收口](docs/stage-26.md)
 
 ## Current Boundaries
 
 - This is a learning implementation, not a production RPC distribution.
 - HTTP is a minimal request/response server path; HTTPS, HTTP/2, chunked, and streaming are out of scope.
 - The generated project depends on the local MyTinyRPC source tree through `MYTINYRPC_ROOT`; full layout also generates `bin`、`conf`、`log`、`lib`、`obj`、`service`、`interface`、`pb` and `test_client` structure.
-- `TcpServer::start()` is blocking; script-driven examples stop servers by process management.
+- `TcpServer::start()` is blocking; stage 26 adds framework-level `TcpServer::stop()` / `StopRpcServer()` for graceful shutdown, while scripts still use pid files as their user-facing process handle.
 - Connection pools, load balancing, MySQL plugins, full tracing, and performance reports are intentionally not part of the current scope.
 
 ## Editor Note
