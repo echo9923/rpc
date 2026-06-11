@@ -22,6 +22,12 @@ from pathlib import Path
 TEMPLATE_SUFFIX = ".template"
 DEFAULT_SERVER_PORT = "39999"
 DESCRIPTOR_SUFFIX = ".descriptor.pb"
+PACKAGE_SOURCE_DIRS = (
+    "mytinyrpc/comm",
+    "mytinyrpc/coroutine",
+    "mytinyrpc/net",
+)
+PACKAGE_FILE_SUFFIXES = {".cc", ".h", ".s"}
 
 
 @dataclass(frozen=True)
@@ -105,15 +111,25 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Project directory name used by --layout full. Defaults to a snake_case service name.",
     )
+    parser.add_argument(
+        "--package",
+        choices=("source", "release"),
+        default="source",
+        help=(
+            "Generated project package mode. source keeps using MYTINYRPC_ROOT; "
+            "release bundles the required MyTinyRPC source subset under third_party."
+        ),
+    )
     return parser.parse_args()
 
 
-def validate_args(args: argparse.Namespace) -> tuple[Path, str, Path, str, str]:
+def validate_args(args: argparse.Namespace) -> tuple[Path, str, Path, str, str, str]:
     proto_path = Path(args.proto).expanduser().resolve()
     service_name = args.service.strip()
     out_dir = Path(args.out).expanduser().resolve()
     layout = args.layout
     project_name = args.project.strip()
+    package_mode = args.package
 
     if not proto_path.is_file():
         raise ValueError(f"proto file not found: {proto_path}")
@@ -122,7 +138,7 @@ def validate_args(args: argparse.Namespace) -> tuple[Path, str, Path, str, str]:
     if project_name and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", project_name):
         raise ValueError("project name must use only letters, digits and underscores")
 
-    return proto_path, service_name, out_dir, layout, project_name
+    return proto_path, service_name, out_dir, layout, project_name, package_mode
 
 
 def to_snake_case(name: str) -> str:
@@ -611,7 +627,18 @@ def build_common_replacements(
     proto_source_rel: str,
     descriptor_rel: str,
     layout: str,
+    package_mode: str,
 ) -> dict[str, str]:
+    if package_mode == "release":
+        build_command = "cmake -S . -B build"
+        package_note = (
+            "The generated CMake project uses the bundled MyTinyRPC source under "
+            "`third_party/mytinyrpc`, so `MYTINYRPC_ROOT` is not required."
+        )
+    else:
+        build_command = "cmake -S . -B build -DMYTINYRPC_ROOT=/path/to/rpc"
+        package_note = "The generated CMake project depends on the local MyTinyRPC source tree passed by `MYTINYRPC_ROOT`."
+
     return {
         "{{SERVICE_NAME}}": service.name,
         "{{SERVICE_FULL_NAME}}": service.full_name,
@@ -624,6 +651,9 @@ def build_common_replacements(
         "{{DESCRIPTOR_REL}}": descriptor_rel,
         "{{SERVER_PORT}}": DEFAULT_SERVER_PORT,
         "{{LAYOUT_NAME}}": layout,
+        "{{PACKAGE_MODE}}": package_mode,
+        "{{BUILD_COMMAND}}": build_command,
+        "{{README_PACKAGE_NOTE}}": package_note,
         "{{QUALIFIED_SERVICE_IMPL}}": service.qualified_impl_name,
         "{{QUALIFIED_STUB_TYPE}}": service.qualified_stub_name,
         "{{CLIENT_CALLS}}": render_client_calls(service.methods),
@@ -667,6 +697,57 @@ def copy_proto_and_generate(
     run_protoc(proto_path, pb_dir, descriptor_path)
 
 
+def should_copy_package_file(path: Path) -> bool:
+    return path.is_file() and path.suffix in PACKAGE_FILE_SUFFIXES
+
+
+def copy_release_package_source(repo_root: Path, out_dir: Path) -> list[str]:
+    bundled_root = out_dir / "third_party" / "mytinyrpc"
+    if bundled_root.exists():
+        shutil.rmtree(bundled_root)
+    bundled_root.mkdir(parents=True, exist_ok=True)
+
+    copied_files: list[str] = []
+    for source_dir_name in PACKAGE_SOURCE_DIRS:
+        source_dir = repo_root / source_dir_name
+        if not source_dir.is_dir():
+            raise ValueError(f"MyTinyRPC source directory not found: {source_dir}")
+
+        for source_file in sorted(source_dir.rglob("*")):
+            if not should_copy_package_file(source_file):
+                continue
+            rel_path = source_file.relative_to(repo_root)
+            target_file = bundled_root / rel_path
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, target_file)
+            copied_files.append(rel_path.as_posix())
+
+    write_release_manifest(out_dir, copied_files)
+    return copied_files
+
+
+def write_release_manifest(out_dir: Path, copied_files: list[str]) -> None:
+    manifest_path = out_dir / "third_party" / "MYTINYRPC_MANIFEST.md"
+    lines = [
+        "# MyTinyRPC Release Source Manifest",
+        "",
+        "This generated project contains a bundled MyTinyRPC source subset.",
+        "CMake uses `third_party/mytinyrpc` automatically when it is present.",
+        "",
+        "## Bundled Files",
+        "",
+    ]
+    lines.extend(f"- `{path}`" for path in copied_files)
+    lines.append("")
+    manifest_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def maybe_copy_release_package(package_mode: str, repo_root: Path, out_dir: Path) -> None:
+    if package_mode != "release":
+        return
+    copy_release_package_source(repo_root, out_dir)
+
+
 def chmod_script(path: Path) -> None:
     current_mode = path.stat().st_mode
     path.chmod(current_mode | 0o755)
@@ -685,6 +766,8 @@ def generate_simple_project(
     proto_path: Path,
     service: ServiceSpec,
     out_dir: Path,
+    package_mode: str,
+    repo_root: Path,
 ) -> None:
     project_name = to_snake_case(service.name)
     target_proto = out_dir / proto_path.name
@@ -699,6 +782,7 @@ def generate_simple_project(
         proto_source_rel=proto_source_rel,
         descriptor_rel=descriptor_path.name,
         layout="simple",
+        package_mode=package_mode,
     )
     replacements.update(
         {
@@ -737,6 +821,7 @@ def generate_simple_project(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     copy_proto_and_generate(proto_path, target_proto, out_dir, descriptor_path)
+    maybe_copy_release_package(package_mode, repo_root, out_dir)
 
     for template_name in [
         "CMakeLists.txt.template",
@@ -764,6 +849,8 @@ def generate_full_project(
     service: ServiceSpec,
     out_dir: Path,
     requested_project_name: str,
+    package_mode: str,
+    repo_root: Path,
 ) -> None:
     project_name = requested_project_name or to_snake_case(service.name)
     project_dir = out_dir / project_name
@@ -781,6 +868,7 @@ def generate_full_project(
         proto_source_rel=proto_source_rel,
         descriptor_rel=f"{project_name}/pb/{descriptor_path.name}",
         layout="full",
+        package_mode=package_mode,
     )
 
     interface_sources = [
@@ -853,6 +941,7 @@ def generate_full_project(
         directory.mkdir(parents=True, exist_ok=True)
 
     copy_proto_and_generate(proto_path, target_proto, pb_dir, descriptor_path)
+    maybe_copy_release_package(package_mode, repo_root, out_dir)
 
     write_template(template_dir, "CMakeLists.txt.template", out_dir / "CMakeLists.txt", replacements)
     write_template(template_dir, "README.md.template", out_dir / "README.md", replacements)
@@ -918,9 +1007,10 @@ def generate_full_project(
 def main() -> int:
     args = parse_args()
     try:
-        proto_path, service_name, out_dir, layout, project_name = validate_args(args)
+        proto_path, service_name, out_dir, layout, project_name, package_mode = validate_args(args)
         generator_dir = Path(__file__).resolve().parent
         template_dir = generator_dir / "template"
+        repo_root = generator_dir.parent
 
         probe_pb_dir = out_dir / ".generator_probe"
         probe_descriptor = probe_pb_dir / f"{proto_path.stem}{DESCRIPTOR_SUFFIX}"
@@ -930,14 +1020,14 @@ def main() -> int:
         shutil.rmtree(probe_pb_dir, ignore_errors=True)
 
         if layout == "simple":
-            generate_simple_project(template_dir, proto_path, service, out_dir)
+            generate_simple_project(template_dir, proto_path, service, out_dir, package_mode, repo_root)
         else:
-            generate_full_project(template_dir, proto_path, service, out_dir, project_name)
+            generate_full_project(template_dir, proto_path, service, out_dir, project_name, package_mode, repo_root)
     except Exception as exc:  # noqa: BLE001 - CLI should report any validation/copy failure clearly.
         print(f"[generator] FAIL: {exc}", file=sys.stderr)
         return 1
 
-    print(f"[generator] generated {service.name} project at {out_dir} using {layout} layout")
+    print(f"[generator] generated {service.name} project at {out_dir} using {layout} layout and {package_mode} package")
     return 0
 
 

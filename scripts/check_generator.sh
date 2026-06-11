@@ -6,6 +6,7 @@ OUT_DIR="${ROOT_DIR}/build/generated_task111_simple"
 FULL_OUT_DIR="${ROOT_DIR}/build/generated_task111_full"
 MULTI_PROTO_FILE="${ROOT_DIR}/build/generated_task113_multiservice.proto"
 MULTI_OUT_DIR="${ROOT_DIR}/build/generated_task113_multiservice"
+RELEASE_OUT_DIR="${ROOT_DIR}/build/generated_task131_release"
 GENERATOR="${ROOT_DIR}/generator/tinyrpc_generator.py"
 PROTO_FILE="${ROOT_DIR}/testcases/test_tinypb_server.proto"
 BAD_PROTO_FILE="${ROOT_DIR}/testcases/not_exists.proto"
@@ -30,6 +31,7 @@ rm -rf \
     "${OUT_DIR}" \
     "${FULL_OUT_DIR}" \
     "${MULTI_OUT_DIR}" \
+    "${RELEASE_OUT_DIR}" \
     "${BAD_SERVICE_DIR}" \
     "${BAD_PROTO_DIR}" \
     "${NO_PROTOC_DIR}"
@@ -236,6 +238,20 @@ g++ -std=c++20 -I"${MULTI_OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
 g++ -std=c++20 -I"${MULTI_OUT_DIR}" -I"${ROOT_DIR}" -I"${ROOT_DIR}/mytinyrpc" \
     -c "${MULTI_OUT_DIR}/test_client/test_tinyrpc_client.cc" \
     -o "${MULTI_OUT_DIR}/test_client/test_tinyrpc_client.o"
+
+echo "[generator] run release package generation"
+run_generator --proto "${PROTO_FILE}" --service "QueryService" --layout full --package release --out "${RELEASE_OUT_DIR}"
+
+assert_file "${RELEASE_OUT_DIR}/third_party/MYTINYRPC_MANIFEST.md"
+assert_file "${RELEASE_OUT_DIR}/third_party/mytinyrpc/mytinyrpc/comm/config.cc"
+assert_file "${RELEASE_OUT_DIR}/third_party/mytinyrpc/mytinyrpc/comm/thread_pool.cc"
+assert_file "${RELEASE_OUT_DIR}/third_party/mytinyrpc/mytinyrpc/net/asyncclientsession.cc"
+assert_file "${RELEASE_OUT_DIR}/third_party/mytinyrpc/mytinyrpc/net/tinypb/tinypbrpcchannel.cc"
+assert_grep "Package: \`release\`" "${RELEASE_OUT_DIR}/README.md"
+assert_grep "third_party/mytinyrpc" "${RELEASE_OUT_DIR}/README.md"
+assert_grep "MYTINYRPC_BUNDLED_ROOT" "${RELEASE_OUT_DIR}/CMakeLists.txt"
+assert_grep "TinyPbRpcChannel::Ptr" "${RELEASE_OUT_DIR}/test_client/test_tinyrpc_client.cc"
+assert_grep "mytinyrpc/net/tinypb/tinypbrpcchannel.cc" "${RELEASE_OUT_DIR}/third_party/MYTINYRPC_MANIFEST.md"
 
 if run_generator --proto "${BAD_PROTO_FILE}" --service "QueryService" --out "${OUT_DIR}/bad" \
     >/tmp/tinyrpc_generator_bad.out 2>/tmp/tinyrpc_generator_bad.err; then

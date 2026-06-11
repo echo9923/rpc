@@ -8,8 +8,28 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -O0")
 
-if(NOT DEFINED MYTINYRPC_ROOT)
-    message(FATAL_ERROR "MYTINYRPC_ROOT is required, for example: cmake -S . -B build -DMYTINYRPC_ROOT=/path/to/rpc")
+option(MYTINYRPC_ENABLE_MYSQL "Enable optional MySQL client wrapper" OFF)
+
+set(MYTINYRPC_BUNDLED_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mytinyrpc")
+if(EXISTS "${MYTINYRPC_BUNDLED_ROOT}/mytinyrpc/net/tcpserver.cc")
+    set(MYTINYRPC_ROOT "${MYTINYRPC_BUNDLED_ROOT}")
+elseif(NOT DEFINED MYTINYRPC_ROOT)
+    message(FATAL_ERROR "MYTINYRPC_ROOT is required when bundled MyTinyRPC source is not present, for example: cmake -S . -B build -DMYTINYRPC_ROOT=/path/to/rpc")
+endif()
+
+if(MYTINYRPC_ENABLE_MYSQL)
+    find_path(MYSQL_INCLUDE_DIR
+        NAMES mysql/mysql.h mysql.h
+        PATH_SUFFIXES mysql mariadb
+    )
+    find_library(MYSQL_LIBRARY
+        NAMES mysqlclient mariadb
+    )
+    if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQL_LIBRARY)
+        message(FATAL_ERROR "MYTINYRPC_ENABLE_MYSQL=ON requires MySQL/MariaDB client development library. Install libmysqlclient-dev or libmariadb-dev, or configure with -DMYTINYRPC_ENABLE_MYSQL=OFF.")
+    endif()
+    include_directories(${MYSQL_INCLUDE_DIR})
+    add_compile_definitions(MYTINYRPC_ENABLE_MYSQL)
 endif()
 
 find_package(Protobuf REQUIRED)
@@ -24,14 +44,17 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/{{PROJECT_NAME}}/pb)
 set(MYTINYRPC_SRC
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/config.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/log.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/mysql_instance.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/reqid.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/runtime.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/comm/start.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/comm/thread_pool.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coctxswap.s
     ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutine.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutinehook.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/coroutinepool.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/coroutine/memory.cc
+    ${MYTINYRPC_ROOT}/mytinyrpc/net/asyncclientsession.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/net/fdevent.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/net/fdeventcontainer.cc
     ${MYTINYRPC_ROOT}/mytinyrpc/net/fdutil.cc
@@ -64,7 +87,12 @@ add_library(mytinyrpc_generated_core STATIC ${MYTINYRPC_SRC})
 target_link_libraries(mytinyrpc_generated_core
     ${Protobuf_LIBRARIES}
     Threads::Threads
+    ${CMAKE_DL_LIBS}
 )
+
+if(MYTINYRPC_ENABLE_MYSQL)
+    target_link_libraries(mytinyrpc_generated_core ${MYSQL_LIBRARY})
+endif()
 
 add_executable({{SERVICE_NAME}}_server
 {{GENERATED_APP_SOURCES}}
