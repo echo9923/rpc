@@ -360,6 +360,94 @@ TEST_F(TinyPbRpcAsyncChannelTest, StubCallTriggersDoneAndKeepsContextObservable)
     EXPECT_EQ(context->m_done, &done);
 }
 
+TEST_F(TinyPbRpcAsyncChannelTest, SaveCalleeKeepsSharedObjectsAliveUntilWaitReturns)
+{
+    bool serverOk = false;
+    std::string serverError;
+
+    std::thread serverThread([&]() {
+        // accept(2) 取出异步 Channel 建立的客户端连接，模拟真实 TinyPB 服务端响应。
+        int clientFd = accept(m_listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            serverError = std::strerror(errno);
+            return;
+        }
+
+        tinyrpc::TinyPbStruct decodedRequest;
+        if (!readTinyPbFromFd(clientFd, &decodedRequest, &serverError)) {
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        queryNameReq pbReq;
+        if (!pbReq.ParseFromString(decodedRequest.m_pbData)) {
+            serverError = "request parse failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        queryNameRes pbRes;
+        pbRes.set_ret_code(0);
+        pbRes.set_res_info("ok");
+        pbRes.set_req_no(pbReq.req_no());
+        pbRes.set_id(pbReq.id());
+        pbRes.set_name("async saved");
+
+        tinyrpc::TinyPbStruct response;
+        response.m_reqId = decodedRequest.m_reqId;
+        response.m_serviceFullName = decodedRequest.m_serviceFullName;
+        ASSERT_TRUE(pbRes.SerializeToString(&response.m_pbData));
+
+        std::string frame;
+        if (!encodeTinyPbToString(&response, &frame)) {
+            serverError = "response encode failed";
+            closeIfValid(&clientFd);
+            return;
+        }
+
+        serverOk = writeAllToFd(clientFd, frame.data(), frame.size(), &serverError);
+        closeIfValid(&clientFd);
+    });
+
+    auto addr = std::make_shared<tinyrpc::IPAddress>("127.0.0.1", getListenPort());
+    tinyrpc::TinyPbRpcAsyncChannel::Ptr channel =
+        std::make_shared<tinyrpc::TinyPbRpcAsyncChannel>(addr);
+    channel->setReqIdGenerator([]() {
+        return "async-save-callee";
+    });
+    QueryService_Stub stub(channel.get());
+
+    auto request = std::make_shared<queryNameReq>();
+    request->set_req_no(41);
+    request->set_id(741);
+    request->set_type(1);
+
+    auto response = std::make_shared<queryNameRes>();
+    auto controller = std::make_shared<tinyrpc::TinyPbRpcController>();
+    std::atomic<bool> doneCalled {false};
+    auto done = std::make_shared<FlagClosure>(&doneCalled);
+
+    channel->saveCallee(controller, request, response, done);
+    stub.query_name(controller.get(), request.get(), response.get(), done.get());
+    ASSERT_TRUE(channel->waitFor(3000));
+    serverThread.join();
+
+    ASSERT_TRUE(serverOk) << serverError;
+    EXPECT_TRUE(doneCalled.load());
+    EXPECT_FALSE(controller->Failed()) << controller->ErrorText();
+    EXPECT_EQ(controller->getReqId(), "async-save-callee");
+    EXPECT_EQ(response->name(), "async saved");
+    EXPECT_EQ(channel->getPendingCount(), 0u);
+    EXPECT_EQ(channel->getPeerAddress().toString(), "127.0.0.1:" + std::to_string(getListenPort()));
+
+    auto context = channel->getLastContext();
+    ASSERT_NE(context, nullptr);
+    EXPECT_NE(context->m_controllerHolder, nullptr);
+    EXPECT_NE(context->m_requestHolder, nullptr);
+    EXPECT_NE(context->m_responseHolder, nullptr);
+    EXPECT_NE(context->m_doneHolder, nullptr);
+}
+
 TEST_F(TinyPbRpcAsyncChannelTest, NetworkFailureStillRunsDone)
 {
     int nonListenFd = socket(AF_INET, SOCK_STREAM, 0);

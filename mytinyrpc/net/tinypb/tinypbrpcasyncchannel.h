@@ -49,6 +49,10 @@ struct AsyncCallContext {
     std::string m_methodName;
     std::string m_peerAddr;
     TinyPbStruct m_tinyRequest;
+    std::shared_ptr<google::protobuf::RpcController> m_controllerHolder;
+    std::shared_ptr<google::protobuf::Message> m_requestHolder;
+    std::shared_ptr<google::protobuf::Message> m_responseHolder;
+    std::shared_ptr<google::protobuf::Closure> m_doneHolder;
     google::protobuf::RpcController *m_controller {nullptr};
     const google::protobuf::Message *m_request {nullptr};
     google::protobuf::Message *m_response {nullptr};
@@ -65,7 +69,13 @@ struct AsyncCallContext {
 // 默认路径只在 IOThread 上投递 connect/send，响应由 session 的 EPOLLIN 读回调完成。
 class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
  public:
+    using Ptr = std::shared_ptr<TinyPbRpcAsyncChannel>;
+    using ControllerPtr = std::shared_ptr<google::protobuf::RpcController>;
+    using MessagePtr = std::shared_ptr<google::protobuf::Message>;
+    using ClosurePtr = std::shared_ptr<google::protobuf::Closure>;
+
     explicit TinyPbRpcAsyncChannel(const IPAddress& peerAddr);
+    explicit TinyPbRpcAsyncChannel(std::shared_ptr<IPAddress> peerAddr);
     ~TinyPbRpcAsyncChannel();
 
     void CallMethod(
@@ -77,6 +87,14 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
 
     void setReqIdGenerator(std::function<std::string()> generator);
     void setSyncFallbackEnabled(bool enabled);
+    const IPAddress& getPeerAddress() const;
+    void saveCallee(
+        ControllerPtr controller,
+        MessagePtr request,
+        MessagePtr response,
+        ClosurePtr done);
+    void wait();
+    bool waitFor(int timeoutMs);
 
     std::shared_ptr<AsyncCallContext> getLastContext() const;
     size_t getPendingCount() const;
@@ -112,6 +130,9 @@ class TinyPbRpcAsyncChannel : public google::protobuf::RpcChannel {
     std::shared_ptr<AsyncCallContext> m_lastContext;
     std::unordered_map<std::string, std::shared_ptr<AsyncCallContext>> m_pendingContexts;
     mutable std::mutex m_pendingMutex;
+    std::condition_variable m_pendingCv;
+    size_t m_finishingCount {0};
+    std::shared_ptr<AsyncCallContext> m_savedCallee;
     std::unique_ptr<IOThread> m_ioThread;
     std::unique_ptr<AsyncClientSession> m_session;
     bool m_syncFallbackEnabled {true};

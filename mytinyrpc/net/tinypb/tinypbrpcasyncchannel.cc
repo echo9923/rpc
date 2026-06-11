@@ -72,6 +72,11 @@ TinyPbRpcAsyncChannel::TinyPbRpcAsyncChannel(const IPAddress& peerAddr)
 {
 }
 
+TinyPbRpcAsyncChannel::TinyPbRpcAsyncChannel(std::shared_ptr<IPAddress> peerAddr)
+    : TinyPbRpcAsyncChannel(peerAddr == nullptr ? IPAddress("127.0.0.1", 0) : *peerAddr)
+{
+}
+
 TinyPbRpcAsyncChannel::~TinyPbRpcAsyncChannel()
 {
     stop();
@@ -95,6 +100,20 @@ void TinyPbRpcAsyncChannel::CallMethod(
     context->m_request = request;
     context->m_response = response;
     context->m_done = done;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        if (m_savedCallee != nullptr
+            && m_savedCallee->m_controller == controller
+            && m_savedCallee->m_requestHolder.get() == request
+            && m_savedCallee->m_responseHolder.get() == response
+            && m_savedCallee->m_doneHolder.get() == done) {
+            context->m_controllerHolder = std::move(m_savedCallee->m_controllerHolder);
+            context->m_requestHolder = std::move(m_savedCallee->m_requestHolder);
+            context->m_responseHolder = std::move(m_savedCallee->m_responseHolder);
+            context->m_doneHolder = std::move(m_savedCallee->m_doneHolder);
+            m_savedCallee.reset();
+        }
+    }
     if (method != nullptr) {
         context->m_methodFullName = method->full_name();
         context->m_interfaceName = splitServiceName(context->m_methodFullName);
@@ -112,6 +131,7 @@ void TinyPbRpcAsyncChannel::CallMethod(
             ERROR_RPC_CHANNEL_INVALID_ARGUMENT,
             "TinyPbRpcAsyncChannel CallMethod argument is null");
         finish();
+        m_pendingCv.notify_all();
         return;
     }
 
@@ -133,6 +153,7 @@ void TinyPbRpcAsyncChannel::CallMethod(
     if (!request->SerializeToString(&context->m_tinyRequest.m_pbData)) {
         setControllerError(controller, ERROR_FAILED_SERIALIZE, "failed to serialize async request pbData");
         finish();
+        m_pendingCv.notify_all();
         return;
     }
 
@@ -167,6 +188,52 @@ void TinyPbRpcAsyncChannel::setReqIdGenerator(std::function<std::string()> gener
 void TinyPbRpcAsyncChannel::setSyncFallbackEnabled(bool enabled)
 {
     m_syncFallbackEnabled = enabled;
+}
+
+const IPAddress& TinyPbRpcAsyncChannel::getPeerAddress() const
+{
+    return m_peerAddr;
+}
+
+void TinyPbRpcAsyncChannel::saveCallee(
+    ControllerPtr controller,
+    MessagePtr request,
+    MessagePtr response,
+    ClosurePtr done)
+{
+    auto saved = std::make_shared<AsyncCallContext>();
+    saved->m_controllerHolder = std::move(controller);
+    saved->m_requestHolder = std::move(request);
+    saved->m_responseHolder = std::move(response);
+    saved->m_doneHolder = std::move(done);
+    saved->m_controller = saved->m_controllerHolder.get();
+    saved->m_request = saved->m_requestHolder.get();
+    saved->m_response = saved->m_responseHolder.get();
+    saved->m_done = saved->m_doneHolder.get();
+
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+    m_savedCallee = std::move(saved);
+}
+
+void TinyPbRpcAsyncChannel::wait()
+{
+    std::unique_lock<std::mutex> lock(m_pendingMutex);
+    m_pendingCv.wait(lock, [this]() {
+        return m_pendingContexts.empty() && m_finishingCount == 0;
+    });
+}
+
+bool TinyPbRpcAsyncChannel::waitFor(int timeoutMs)
+{
+    if (timeoutMs <= 0) {
+        wait();
+        return true;
+    }
+
+    std::unique_lock<std::mutex> lock(m_pendingMutex);
+    return m_pendingCv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this]() {
+        return m_pendingContexts.empty() && m_finishingCount == 0;
+    });
 }
 
 std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::getLastContext() const
@@ -256,9 +323,19 @@ void TinyPbRpcAsyncChannel::failAllPending(int errorCode, const std::string& err
             contexts.push_back(pair.second);
         }
         m_pendingContexts.clear();
+        m_finishingCount += contexts.size();
     }
     for (auto& ctx : contexts) {
-        if (ctx == nullptr) continue;
+        if (ctx == nullptr) {
+            std::lock_guard<std::mutex> lock(m_pendingMutex);
+            if (m_finishingCount > 0) {
+                --m_finishingCount;
+            }
+            if (m_pendingContexts.empty() && m_finishingCount == 0) {
+                m_pendingCv.notify_all();
+            }
+            continue;
+        }
         RequestContextGuard contextGuard(ctx);
         if (ctx->m_timeoutEntry != nullptr) {
             ctx->m_timeoutEntry->cancel();
@@ -276,6 +353,13 @@ void TinyPbRpcAsyncChannel::failAllPending(int errorCode, const std::string& err
         }
         if (ctx->m_done != nullptr) {
             ctx->m_done->Run();
+        }
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        if (m_finishingCount > 0) {
+            --m_finishingCount;
+        }
+        if (m_pendingContexts.empty() && m_finishingCount == 0) {
+            m_pendingCv.notify_all();
         }
     }
 }
@@ -346,6 +430,7 @@ std::shared_ptr<AsyncCallContext> TinyPbRpcAsyncChannel::takePending(const std::
 
     auto context = iter->second;
     m_pendingContexts.erase(iter);
+    ++m_finishingCount;
     cancelTimeoutTask(context);
     return context;
 }
@@ -380,6 +465,14 @@ void TinyPbRpcAsyncChannel::finishContext(const std::shared_ptr<AsyncCallContext
 
     if (context != nullptr && context->m_done != nullptr) {
         context->m_done->Run();
+    }
+
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+    if (m_finishingCount > 0) {
+        --m_finishingCount;
+    }
+    if (m_pendingContexts.empty() && m_finishingCount == 0) {
+        m_pendingCv.notify_all();
     }
 }
 
