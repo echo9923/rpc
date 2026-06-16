@@ -2,67 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${ROOT_DIR}/build"
 
 cd "${ROOT_DIR}"
 
-echo "[all] build project"
-./build.sh
-
-run_test() {
-    local name="$1"
-    local bin="${BUILD_DIR}/${name}"
-
-    if [[ ! -x "${bin}" ]]; then
-        echo "[all] FAIL: missing executable ${bin}"
-        exit 1
-    fi
-
-    echo "[all] run ${name}"
-    "${bin}"
-}
-
-echo "[all] run core unit tests not covered by rpc-sync"
-run_test test_fdevent
-run_test test_reactor
-run_test test_timer_task
-run_test test_timer
-run_test test_tcp_timewheel
-run_test test_mutex
-run_test test_iothread
-run_test test_iothread_pool
-run_test test_config
-run_test test_log
-run_test test_start
-run_test test_runtime
-run_test test_http_define
-run_test test_http_codec
-run_test test_http_dispatcher
-
-echo "[all] run coroutine hook regression"
-MYTINYRPC_SKIP_BUILD=1 ./scripts/check_coroutinehook.sh
-
-echo "[all] run sync rpc regression"
-MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_sync.sh
-
-echo "[all] run client Reactor rpc regression"
-MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_client_reactor.sh
-
-echo "[all] run multi-reactor server regression"
-./scripts/check_stage11_server.sh
-
-echo "[all] run http regression"
-./scripts/check_stage12_http.sh
-
-echo "[all] run async rpc regression"
-MYTINYRPC_SKIP_BUILD=1 ./scripts/check_rpc_async.sh
-
-echo "[all] run TcpServer lifecycle regression"
-MYTINYRPC_SKIP_BUILD=1 ./scripts/check_stage26_lifecycle.sh
-
-echo "[all] run generator regression"
-./scripts/check_generator.sh
-./scripts/check_generator_project.sh
-./scripts/check_generator_release_package.sh
+echo "[all] run full suite"
+./scripts/check_full_suite.sh
 
 echo "[all] PASS"

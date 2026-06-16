@@ -11,8 +11,12 @@ PORT="19999"
 
 cd "$ROOT_DIR"
 
-echo "[stage1] build project"
-./build.sh
+if [[ "${MYTINYRPC_SKIP_BUILD:-0}" == "1" ]]; then
+  echo "[stage1] skip build"
+else
+  echo "[stage1] build project"
+  ./build.sh
+fi
 
 if ! command -v nc >/dev/null 2>&1; then
   echo "[stage1] FAIL: nc is required but not found"

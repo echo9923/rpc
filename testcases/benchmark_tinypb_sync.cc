@@ -209,6 +209,7 @@ int main()
     });
 
     tinyrpc::TinyPbRpcChannel channel(tinyrpc::IPAddress("127.0.0.1", port));
+    channel.setReuseConnection(false);
     int nextReqId = 0;
     channel.setReqIdGenerator([&]() {
         return "bench-sync-" + std::to_string(nextReqId++);
