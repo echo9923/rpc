@@ -251,43 +251,50 @@ bool parseOptionalLogLevelField(
 bool Config::loadFromXml(const std::string& path)
 {
     // ifstream 按路径打开 XML 配置文件；失败通常表示路径不存在或当前进程无读取权限。
+    // ifstream 按路径打开 XML 配置文件；失败通常表示路径不存在或当前进程无读取权限。
     std::ifstream input(path);
     if (!input.is_open()) {
         m_lastError = "open config file failed: " + path;
         return false;
     }
 
+    // 将整个文件内容一次性读入内存，便于后续基于字符串的方式做简单 XML 解析。
     std::ostringstream buffer;
     buffer << input.rdbuf();
     std::string xml = buffer.str();
 
-    std::string serverHost = m_serverHost;
-    uint16_t serverPort = m_serverPort;
-    std::string protocol = m_protocol;
-    int ioThreadNum = m_ioThreadNum;
-    int timeoutMs = m_timeoutMs;
-    std::string logPath = m_logPath;
-    std::string logPrefix = m_logPrefix;
-    int64_t logMaxSizeBytes = m_logMaxSizeBytes;
-    LogLevel rpcLogLevel = m_rpcLogLevel;
-    LogLevel appLogLevel = m_appLogLevel;
-    int logSyncIntervalMs = m_logSyncIntervalMs;
-    int coroutineStackSizeBytes = m_coroutineStackSizeBytes;
-    int coroutinePoolSize = m_coroutinePoolSize;
-    bool coroutinePoolExpandOnExhausted = m_coroutinePoolExpandOnExhausted;
-    int reqIdLen = m_reqIdLen;
-    int maxConnectTimeoutMs = m_maxConnectTimeoutMs;
-    int timeWheelBucketNum = m_timeWheelBucketNum;
-    int timeWheelIntervalSec = m_timeWheelIntervalSec;
-    MySQLConfig mysqlConfig = m_mysqlConfig;
-    std::string error;
+    // 使用局部临时变量暂存解析结果，只有当全部字段都校验通过时，
+    // 才会一次性写回成员变量，避免部分字段解析失败导致配置处于半更新状态。
+    std::string serverHost = m_serverHost;                       // 服务器监听地址
+    uint16_t serverPort = m_serverPort;                          // 服务器监听端口
+    std::string protocol = m_protocol;                           // 通信协议（如 TinyPb / HTTP 等）
+    int ioThreadNum = m_ioThreadNum;                             // IO 线程数
+    int timeoutMs = m_timeoutMs;                                 // 单次 RPC 超时时间（毫秒）
+    std::string logPath = m_logPath;                             // 日志文件存放目录
+    std::string logPrefix = m_logPrefix;                         // 日志文件名前缀
+    int64_t logMaxSizeBytes = m_logMaxSizeBytes;                 // 单个日志文件最大字节数
+    LogLevel rpcLogLevel = m_rpcLogLevel;                        // RPC 框架日志级别
+    LogLevel appLogLevel = m_appLogLevel;                        // 业务应用日志级别
+    int logSyncIntervalMs = m_logSyncIntervalMs;                 // 日志同步到磁盘的间隔（毫秒）
+    int coroutineStackSizeBytes = m_coroutineStackSizeBytes;     // 协程栈大小（字节）
+    int coroutinePoolSize = m_coroutinePoolSize;                 // 协程池容量
+    bool coroutinePoolExpandOnExhausted = m_coroutinePoolExpandOnExhausted;  // 协程池耗尽时是否允许动态扩容
+    int reqIdLen = m_reqIdLen;                                   // 请求 ID 长度
+    int maxConnectTimeoutMs = m_maxConnectTimeoutMs;             // 建立连接的最大超时时间（毫秒）
+    int timeWheelBucketNum = m_timeWheelBucketNum;               // 时间轮桶数量
+    int timeWheelIntervalSec = m_timeWheelIntervalSec;           // 时间轮每桶时间间隔（秒）
+    MySQLConfig mysqlConfig = m_mysqlConfig;                     // MySQL 连接相关配置
+    std::string error;                                           // 用于接收字段解析过程中的错误信息
 
+    // ============== 解析 server 段 ==============
+    // server 段是必填段，必须存在；否则无法启动服务。
     auto serverSection = findSection(xml, "server");
     if (!serverSection.has_value()) {
         m_lastError = "missing server section";
         return false;
     }
 
+    // 解析 server.host：监听地址不允许为空字符串。
     if (auto value = findTagValue(*serverSection, "host"); value.has_value()) {
         if (value->empty()) {
             m_lastError = "invalid server.host: empty";
@@ -295,6 +302,7 @@ bool Config::loadFromXml(const std::string& path)
         }
         serverHost = *value;
     }
+    // 解析 server.port：端口范围限定在 [0, 65535]。
     if (auto value = findTagValue(*serverSection, "port"); value.has_value()) {
         int port = serverPort;
         if (!parseIntValue(*value, 0, 65535, port, error)) {
@@ -303,6 +311,7 @@ bool Config::loadFromXml(const std::string& path)
         }
         serverPort = static_cast<uint16_t>(port);
     }
+    // 解析 server.protocol：通信协议名称必须能被 parseProtocol 识别。
     if (auto value = findTagValue(*serverSection, "protocol"); value.has_value()) {
         if (!parseProtocol(*value, protocol, error)) {
             m_lastError = "invalid server.protocol: " + *value;
@@ -310,6 +319,8 @@ bool Config::loadFromXml(const std::string& path)
         }
     }
 
+    // ============== 解析 network 段（可选） ==============
+    // 包含 IO 线程数、RPC 超时时间、连接最大超时时间等网络层参数。
     auto networkSection = findSection(xml, "network");
     if (!parseOptionalIntField(networkSection, "network", "iothread_num", 0, 1024, ioThreadNum, error)
         || !parseOptionalIntField(networkSection, "network", "timeout_ms", 1, 24 * 60 * 60 * 1000, timeoutMs, error)
@@ -325,8 +336,11 @@ bool Config::loadFromXml(const std::string& path)
         return false;
     }
 
+    // ============== 解析 log 段（可选） ==============
+    // 配置日志路径、前缀、文件大小、各级别日志等级及同步间隔。
     auto logSection = findSection(xml, "log");
     if (logSection.has_value()) {
+        // 日志路径与文件名前缀：直接采用配置值，允许为相对路径。
         if (auto value = findTagValue(*logSection, "path"); value.has_value()) {
             logPath = *value;
         }
@@ -334,6 +348,7 @@ bool Config::loadFromXml(const std::string& path)
             logPrefix = *value;
         }
     }
+    // 配置文件中以 MB 为单位配置大小，内部按字节存储，这里做 MB->临时变量(字节->MB) 的过渡转换。
     int64_t logMaxSizeMb = logMaxSizeBytes / (1024 * 1024);
     if (!parseOptionalInt64Field(logSection, "log", "max_size_mb", 0, 1024 * 1024, logMaxSizeMb, error)
         || !parseOptionalLogLevelField(logSection, "log", "rpc_level", rpcLogLevel, error)
@@ -349,9 +364,13 @@ bool Config::loadFromXml(const std::string& path)
         m_lastError = error;
         return false;
     }
+    // 校验通过后，把 MB 重新换算回字节写入临时变量。
     logMaxSizeBytes = logMaxSizeMb * 1024 * 1024;
 
+    // ============== 解析 coroutine 段（可选） ==============
+    // 配置协程栈大小、协程池容量，以及协程池耗尽时是否允许扩容。
     auto coroutineSection = findSection(xml, "coroutine");
+    // 配置文件中栈大小以 KB 为单位，内部按字节存储，因此先转换。
     int coroutineStackSizeKb = coroutineStackSizeBytes / 1024;
     if (!parseOptionalIntField(coroutineSection, "coroutine", "stack_size_kb", 1, 1024 * 1024, coroutineStackSizeKb, error)
         || !parseOptionalIntField(coroutineSection, "coroutine", "pool_size", 0, 1024 * 1024, coroutinePoolSize, error)
@@ -364,8 +383,11 @@ bool Config::loadFromXml(const std::string& path)
         m_lastError = error;
         return false;
     }
+    // 校验通过后，将 KB 重新换算为字节写入临时变量。
     coroutineStackSizeBytes = coroutineStackSizeKb * 1024;
 
+    // ============== 解析 timewheel 段（可选） ==============
+    // 配置时间轮的桶数量及每桶时间间隔，用于连接空闲检测/超时回收。
     auto timeWheelSection = findSection(xml, "timewheel");
     if (!parseOptionalIntField(timeWheelSection, "timewheel", "bucket_num", 1, 1024 * 1024, timeWheelBucketNum, error)
         || !parseOptionalIntField(timeWheelSection, "timewheel", "interval_sec", 1, 24 * 60 * 60, timeWheelIntervalSec, error)) {
@@ -373,12 +395,16 @@ bool Config::loadFromXml(const std::string& path)
         return false;
     }
 
+    // ============== 解析 rpc 段（可选） ==============
+    // 配置请求 ID 的字节长度，用于在 RPC 链路中唯一标识请求。
     auto rpcSection = findSection(xml, "rpc");
     if (!parseOptionalIntField(rpcSection, "rpc", "req_id_len", 1, 1024, reqIdLen, error)) {
         m_lastError = error;
         return false;
     }
 
+    // ============== 解析 mysql 段（可选） ==============
+    // 配置 MySQL 数据库连接相关参数，包括开关、地址、端口、账号密码及连接超时。
     auto mysqlSection = findSection(xml, "mysql");
     int mysqlPort = mysqlConfig.m_port;
     if (!parseOptionalBoolField(mysqlSection, "mysql", "enable", mysqlConfig.m_enabled, error)
@@ -394,7 +420,9 @@ bool Config::loadFromXml(const std::string& path)
         m_lastError = error;
         return false;
     }
+    // 端口独立用 int 临时变量校验，再回写 uint16_t，避免溢出风险。
     mysqlConfig.m_port = static_cast<uint16_t>(mysqlPort);
+    // 解析字符串类型的 MySQL 配置项；host 与 charset 不允许为空。
     if (mysqlSection.has_value()) {
         if (auto value = findTagValue(*mysqlSection, "host"); value.has_value()) {
             if (value->empty()) {
@@ -421,6 +449,7 @@ bool Config::loadFromXml(const std::string& path)
         }
     }
 
+    // 所有字段解析与校验均通过，统一写回成员变量，保证配置的原子性更新。
     m_serverHost = serverHost;
     m_serverPort = serverPort;
     m_protocol = protocol;
@@ -440,6 +469,7 @@ bool Config::loadFromXml(const std::string& path)
     m_timeWheelBucketNum = timeWheelBucketNum;
     m_timeWheelIntervalSec = timeWheelIntervalSec;
     m_mysqlConfig = mysqlConfig;
+    // 清空历史错误信息，标记本次加载成功。
     m_lastError.clear();
     return true;
 }

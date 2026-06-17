@@ -41,6 +41,9 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS testcases/test_tinypb_server.proto)
 # 生成 E2E 联动测试 Protobuf 代码
 protobuf_generate_cpp(E2E_PROTO_SRCS E2E_PROTO_HDRS e2e/proto/e2e_rpc.proto)
 
+# 生成 hello_rpc 使用示例 Protobuf 代码
+protobuf_generate_cpp(HELLO_RPC_PROTO_SRCS HELLO_RPC_PROTO_HDRS examples/hello_rpc/proto/hello_rpc.proto)
+
 set(SRC
     mytinyrpc/comm/config.cc
     mytinyrpc/comm/log.cc
@@ -357,3 +360,24 @@ add_executable(e2e_client
     $<TARGET_OBJECTS:mytinyrpc_obj>
 )
 target_link_libraries(e2e_client pthread ${Protobuf_LIBRARIES})
+
+# hello_rpc 使用示例目标（TinyPB 服务端/客户端 + HTTP 服务端）
+add_executable(hello_tinypb_server
+    examples/hello_rpc/tinypb_server.cc
+    ${HELLO_RPC_PROTO_SRCS}
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(hello_tinypb_server pthread ${Protobuf_LIBRARIES})
+
+add_executable(hello_tinypb_client
+    examples/hello_rpc/tinypb_client.cc
+    ${HELLO_RPC_PROTO_SRCS}
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(hello_tinypb_client pthread ${Protobuf_LIBRARIES})
+
+add_executable(hello_http_server
+    examples/hello_rpc/http_server.cc
+    $<TARGET_OBJECTS:mytinyrpc_obj>
+)
+target_link_libraries(hello_http_server pthread ${Protobuf_LIBRARIES})

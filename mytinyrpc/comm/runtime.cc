@@ -172,33 +172,46 @@ bool Runtime::loadConfig(const std::string& path)
     return m_config.loadFromXml(path);
 }
 
+// 创建 TCP 服务器
+// 该方法会根据配置文件中指定的协议类型（tinypb 或 http），
+// 创建相应的编解码器（Codec）和分发器（Dispatcher），并初始化 TCP 服务器。
+// 返回值：服务器初始化成功返回 true，否则返回 false。
 bool Runtime::createServer()
 {
-    m_server.reset();
-    m_codec.reset();
-    m_dispatcher.reset();
-    m_tinyPbDispatcher.reset();
-    m_httpDispatcher.reset();
+    // 先重置所有服务器相关的成员变量，确保处于干净状态
+    m_server.reset();          // 重置 TCP 服务器对象
+    m_codec.reset();           // 重置协议编解码器
+    m_dispatcher.reset();      // 重置通用分发器
+    m_tinyPbDispatcher.reset();// 重置 TinyPb 协议分发器
+    m_httpDispatcher.reset();  // 重置 HTTP 协议分发器
 
+    // 根据配置中的协议类型选择对应的编解码器和分发器
     if (m_config.getProtocol() == "tinypb") {
+        // TinyPb 协议分支：使用 TinyPb 编解码器和分发器
         m_codec = std::make_shared<TinyPbCodec>();
         m_tinyPbDispatcher = std::make_shared<TinyPbDispatcher>();
-        m_dispatcher = m_tinyPbDispatcher;
+        m_dispatcher = m_tinyPbDispatcher;  // 通用分发器指向 TinyPb 分发器
     } else if (m_config.getProtocol() == "http") {
+        // HTTP 协议分支：使用 HTTP 编解码器和分发器
         m_codec = std::make_shared<HttpCodec>();
         m_httpDispatcher = std::make_shared<HttpDispatcher>();
-        m_dispatcher = m_httpDispatcher;
+        m_dispatcher = m_httpDispatcher;    // 通用分发器指向 HTTP 分发器
     } else {
+        // 不支持的协议类型，记录错误日志并返回失败
         ErrorLog("Runtime createServer failed, unsupported protocol = " + m_config.getProtocol());
         return false;
     }
 
+    // 使用配置中的主机地址和端口号创建 TCP 服务器对象，
+    // 并传入前面创建的编解码器和分发器。
     m_server = std::make_shared<TcpServer>(
         IPAddress(m_config.getServerHost(), m_config.getServerPort()),
         m_codec,
         m_dispatcher
     );
+    // 设置服务器使用的 IO 线程数量
     m_server->setIOThreadNum(m_config.getIOThreadNum());
+    // 初始化服务器（如绑定端口、启动监听等），并返回初始化结果
     return m_server->init();
 }
 

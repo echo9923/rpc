@@ -101,12 +101,12 @@ class Runtime {
     void clearCurrentRequestContext();
 
  private:
-    Config m_config;
-    TcpServer::Ptr m_server;
-    AbstractCodec::Ptr m_codec;
-    AbstractDispatcher::Ptr m_dispatcher;
-    TinyPbDispatcher::Ptr m_tinyPbDispatcher;
-    HttpDispatcher::Ptr m_httpDispatcher;
+    Config m_config;                       // 进程配置对象，解析自配置文件
+    TcpServer::Ptr m_server;               // TCP 服务端实例，负责接收并处理连接
+    AbstractCodec::Ptr m_codec;            // 协议编解码器，负责请求/响应的序列化与反序列化
+    AbstractDispatcher::Ptr m_dispatcher;  // 通用请求分发器基类指针，按协议类型分发请求
+    TinyPbDispatcher::Ptr m_tinyPbDispatcher;  // TinyPb 协议请求分发器，匹配并调用对应的 RPC service
+    HttpDispatcher::Ptr m_httpDispatcher;  // HTTP 协议请求分发器，按 path 调用对应的 HttpServlet
 };
 
 Runtime& getRuntime();

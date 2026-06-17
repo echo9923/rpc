@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+// cc_generic_services 必须开启，protoc 才会生成 HelloService 抽象基类
+// 和 HelloService_Stub 客户端存根，服务端继承基类、客户端构造 Stub。
+option cc_generic_services = true;
+
+message HelloReq {
+  int32 id = 1;
+  string name = 2;
+}
+
+message HelloRes {
+  int32 ret_code = 1;
+  string res_info = 2;
+  string message = 3;
+}
+
+service HelloService {
+  rpc hello(HelloReq) returns (HelloRes);
+}
