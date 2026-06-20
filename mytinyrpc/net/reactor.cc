@@ -237,9 +237,24 @@ int Reactor::waitOnce(int timeoutMs)
         Coroutine* coroutine = event->getCoroutine();
         uint32_t waitEvent = event->getCoroutineListenEvent();
 
+        // epoll_wait 拿到一批就绪 fd，每个 fd 只可能来自两种情况：
+        //   A) 协程异步等待：之前 readHook/writeHook 遇到 EAGAIN，把协程挂到本
+        //      FdEvent 上、登记了它在等的事件（EPOLLIN/EPOLLOUT）后让出执行权。
+        //      此时 fd 就绪，需要唤醒协程从挂起点继续读/写。
+        //   B) 普通回调：fd 上没有挂协程，走下面的 handleEvent。
+        //
+        // 三个条件全部成立，才认定是 A 路并恢复协程：
+        //   - coroutine 非空、waitEvent 非空：二者是一次“挂起等待”同时留下的两
+        //     个标记（挂了协程，也登记了等什么事件），合起来表示“确有协程在等”。
+        //   - (events[i].events & waitEvent)：本次 epoll 实际触发的事件，与协程
+        //     在等的事件有交集。一个 fd 可能同时监听 IN 和 OUT，但协程只等其中
+        //     一个——比如协程在等可写，这次只就绪了“可读”，就不该唤醒它。
         if (coroutine != nullptr && waitEvent != 0 && (events[i].events & waitEvent)) {
+            // 先清除 FdEvent 上的协程指针，再 resume，防止协程恢复后 FdEvent 还残留旧指针。
             event->clearCoroutine();
+            // 唤醒挂起的协程，让它从 readHook/writeHook 的挂起点继续向下执行。
             coroutine->resume();
+            // 当前事件已由协程处理完，跳过下面的普通 handleEvent，直接处理下一个就绪事件。
             continue;
         }
 
@@ -251,22 +266,30 @@ int Reactor::waitOnce(int timeoutMs)
 
 bool Reactor::initWakeupFd()
 {
+    // 创建用于唤醒 Reactor 的 eventfd。
     // eventfd(2) 参数依次为：初始计数值、文件描述符标志。
     // EFD_NONBLOCK 让 read(2) 在计数为 0 时返回 EAGAIN；EFD_CLOEXEC
     // 避免 fd 泄漏到 exec 后的子进程。
     m_wakeupFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (m_wakeupFd < 0) {
+        // eventfd 创建失败，记录错误并返回 false，由上层决定如何处理。
         ErrorLog("eventfd failed, errno = " + std::to_string(errno));
         return false;
     }
 
+    // 将 wakeup eventfd 封装到 FdEvent 对象中，便于复用 Reactor 的事件管理机制。
     m_wakeupEvent.setFd(m_wakeupFd);
+    // 指向所属 Reactor，供 FdEvent 在回调中访问 reactor 相关信息。
     m_wakeupEvent.setReactor(this);
+    // 监听可读事件：向 eventfd 写入数据后，epoll 会触发 EPOLLIN。
     m_wakeupEvent.addListenEvent(EPOLLIN);
+    // 设置读回调：当 eventfd 可读时调用 handleWakeup()，消费计数并清空唤醒信号。
     m_wakeupEvent.setReadCallback([this]() {
         handleWakeup();
     });
 
+    // 将 wakeup 事件注册到 epoll 实例，开始监听其就绪状态。
+    // 注册失败说明 epoll_ctl 出错，无法正常工作，需返回 false。
     if (!m_wakeupEvent.registerToReactor()) {
         ErrorLog("wakeup event registerToReactor failed, fd = " + std::to_string(m_wakeupFd));
         return false;

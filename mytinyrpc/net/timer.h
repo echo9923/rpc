@@ -70,8 +70,8 @@ class Timer {
     void resetTimerFd();
    void removeCanceledTasks();
 
-    int m_timerFd {-1};
-    FdEvent m_fdEvent;
+   int m_timerFd {-1};
+   FdEvent m_fdEvent;
    std::vector<std::shared_ptr<TimerTask>> m_tasks;
 };
 

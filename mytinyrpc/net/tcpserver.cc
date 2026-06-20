@@ -139,8 +139,14 @@ bool TcpServer::addTimerTask(const std::shared_ptr<TimerTask>& task)
     return m_reactor.getTimer()->addTimerTask(task);
 }
 
+// acceptLoop：接收新连接的主循环。
+// 该函数由 Reactor 在监听套接字（m_listenFd）可读（即有新连接到达）时触发，
+// 采用边缘触发（ET）或水平触发（LT）下的"循环 accept"策略，
+// 直到内核连接队列被取空（返回 EAGAIN/EWOULDBLOCK）才退出，
+// 这样能充分利用一次 epoll 通知处理尽可能多的连接，提高吞吐量。
 void TcpServer::acceptLoop()
 {
+    // 进入 accept 循环前先做一次快速检查：若服务器已停止，则直接返回，避免无谓的 accept。
     if (!m_running.load()) {
         return;
     }
@@ -148,36 +154,52 @@ void TcpServer::acceptLoop()
     // acceptLoop 由 Reactor 在监听 fd 可读时触发。
     // 循环 accept 直到连接队列清空（EAGAIN），充分利用一次事件通知。
     while (true) {
+        // 每轮循环开始时再次检查运行标志，保证在停止时能够及时退出，避免"惊群"或忙等。
         if (!m_running.load()) {
             break;
         }
 
+        // 用于保存新连接对端的 IPv4 地址信息（IP、端口等）。
         sockaddr_in clientAddr {};
+        // accept 的第三个参数是"值-结果"类型：传入缓冲区大小，返回实际地址长度。
         socklen_t clientLen = sizeof(clientAddr);
 
+        // 从监听套接字 m_listenFd 上取出一个已完成三次握手的连接，
+        // 返回一个新的已连接套接字描述符 clientFd。
+        // 由于 m_listenFd 已被设置为非阻塞模式，当没有新连接时 accept 会立即返回错误而非阻塞。
         Socket clientFd = accept(m_listenFd, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
 
+        // accept 失败：需要根据 errno 区分不同的错误情况分别处理。
         if (clientFd < 0) {
-            // EINTR：被信号中断，重试 accept。
+            // EINTR：accept 在阻塞过程中被信号中断，并非真正的错误，直接重试即可。
             if (errno == EINTR) {
                 continue;
             }
-            // EAGAIN/EWOULDBLOCK：连接队列已为空，退出循环等待下一次 EPOLLIN。
+            // EAGAIN/EWOULDBLOCK：当前非阻塞模式下，说明内核已完成连接队列已为空，
+            // 本次 epoll 通知的所有连接都已处理完毕，退出循环，等待下一次 EPOLLIN 事件。
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
+            // 其他错误码：例如 EMFILE（达到进程文件描述符上限）、ENOMEM 等，
+            // 记录错误日志并退出循环，避免在异常情况下无限重试占用 CPU。
             ErrorLog("accept failed, errno = " + std::to_string(errno));
             break;
         }
 
+        // 成功接收一个新连接，打印日志便于调试与连接数统计。
         InfoLog("TcpServer accept client fd = " + std::to_string(clientFd));
 
+        // 将新连接的套接字设置为非阻塞模式，
+        // 以便后续在该 fd 上使用 epoll + 异步读写的 Reactor 模型，避免阻塞 IO 线程。
         if (!setNonBlock(clientFd)) {
+            // 设置非阻塞失败：连接无法正常使用，记录错误并关闭该 fd，释放系统资源，继续处理下一个连接。
             ErrorLog("setNonBlock failed for client fd = " + std::to_string(clientFd));
             close(clientFd);
             continue;
         }
 
+        // 套接字准备就绪，交给 addConnection 创建 TcpConnection 对象，
+        // 并将其分发到合适的 IO 线程的 Reactor 上进行后续读写事件监听。
         addConnection(clientFd);
     }
 }

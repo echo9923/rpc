@@ -169,49 +169,68 @@ std::size_t Timer::getPendingTaskCount() const
     return m_tasks.size();
 }
 
+// 当 timerfd 可读（即定时器到期）时由事件循环回调本函数。
+// 主要工作：1) 读出 timerfd 的过期次数；2) 找出所有已到期的任务并执行；
+//          3) 把尚未到期 / 重复执行的任务放回任务集合；4) 重新设置下次到期时间。
 void Timer::handleTimerReadable()
 {
+    // expirations 用于接收 timerfd 读取到的过期次数（uint64_t，8 字节）。
     uint64_t expirations = 0;
     while (true) {
         // read(2) 参数依次为：timerfd、接收过期次数的缓冲区地址、缓冲区长度。
         // timerfd 可读时读取 8 字节无符号整数，表示自上次读取后的过期次数。
         ssize_t n = read(m_timerFd, &expirations, sizeof(expirations));
+        // 成功读取了完整的 8 字节，结束读取循环。
         if (n == static_cast<ssize_t>(sizeof(expirations))) {
             break;
         }
+        // timerfd 默认非阻塞模式下没有数据可读时返回 EAGAIN/EWOULDBLOCK，直接退出。
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             break;
         }
+        // 被信号中断时需要重试读取。
         if (n < 0 && errno == EINTR) {
             continue;
         }
+        // 其它读取错误：记录错误日志后退出循环。
         if (n < 0) {
             ErrorLog("timerfd read failed, errno = " + std::to_string(errno));
         }
         break;
     }
 
+    // 获取当前时间戳（毫秒），用于判断任务是否已经到期。
     int64_t nowMs = getNowMs();
+    // expiredTasks：收集本次需要触发的到期任务。
     std::vector<std::shared_ptr<TimerTask>> expiredTasks;
+    // pendingTasks：收集尚未到期、仍需保留的任务，准备用来替换原任务集合。
     std::vector<std::shared_ptr<TimerTask>> pendingTasks;
+    // 预分配容量，避免后续 push_back 时频繁扩容。
     pendingTasks.reserve(m_tasks.size());
 
+    // 遍历当前所有任务，按是否到期进行分流。
     for (const auto& task : m_tasks) {
+        // 跳过空指针或已被取消的任务。
         if (task == nullptr || task->isCanceled()) {
             continue;
         }
+        // 若任务已到期，加入到期任务列表待执行。
         if (task->isExpired(nowMs)) {
             expiredTasks.push_back(task);
             continue;
         }
+        // 未到期则保留，留待下次处理。
         pendingTasks.push_back(task);
     }
 
+    // 按到期时间从早到晚排序，保证先到期的任务先被执行。
     std::sort(expiredTasks.begin(), expiredTasks.end(), [](const auto& left, const auto& right) {
         return left->getExpireTimeMs() < right->getExpireTimeMs();
     });
 
+    // 用未到期任务列表替换原任务集合，相当于把已到期任务从集合中移除。
     m_tasks.swap(pendingTasks);
+    // 依次执行到期任务；若任务未被取消（例如周期任务），则重新加回任务集合。
     for (const auto& task : expiredTasks) {
         task->run();
         if (!task->isCanceled()) {
@@ -219,6 +238,7 @@ void Timer::handleTimerReadable()
         }
     }
 
+    // 重新计算并设置 timerfd 的下次到期时间，使其对准最早到期的任务。
     resetTimerFd();
 }
 

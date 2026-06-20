@@ -322,19 +322,38 @@ int TcpConnection::getAliveCountForTest()
 
 void TcpConnection::closeWithCallback()
 {
+    // 先保存一份 fd 副本，因为 closeConnection() 内部可能会修改/重置 m_fd，
+    // 而后续回调需要使用关闭前的真实 fd 通知上层。
     Socket closedFd = m_fd;
+
+    // 执行实际的连接关闭逻辑（如从 Reactor 移除事件、释放资源、置位 m_isClosed 等）。
     closeConnection();
 
+    // 如果上层注册了关闭回调，则需要在关闭流程结束后触发它，
+    // 以便通知调用方（例如连接管理器）该连接已断开。
     if (m_closeCallback) {
+        // 使用局部变量保存回调，避免回调执行过程中对象被销毁导致悬空引用。
         auto callback = m_closeCallback;
+
+        // 关键场景：当前正在执行的就是连接自身的读协程，
+        // 如果直接同步调用 callback，可能会在回调中再次操作该协程（例如 resume/yield），
+        // 从而引发"在协程内调度自身"的死锁或栈混乱问题。
+        // 因此需要判断：当处于读协程上下文且 Reactor 可用时，
+        // 将回调异步投递到 Reactor 的任务队列中，由 Reactor 在合适的时机（事件循环）执行，
+        // 从而脱离当前协程上下文，保证安全。
         if (m_readCoroutine != nullptr
             && Coroutine::getCurrentCoroutine() == m_readCoroutine.get()
             && m_reactor != nullptr) {
+            // 以任务形式投递给 Reactor，捕获 callback 和 closedFd 副本，
+            // 保证异步执行时回调参数仍然有效。
             m_reactor->addTask([callback, closedFd]() {
                 callback(closedFd);
             });
             return;
         }
+
+        // 非读协程上下文（例如普通线程或其他协程触发关闭），
+        // 可以直接同步调用回调，逻辑简单且无死锁风险。
         callback(closedFd);
     }
 }

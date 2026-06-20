@@ -12,7 +12,8 @@ namespace tinyrpc {
 // ─────────────────────────────────────────────
 
 // 主协程指针：每个 IO 线程有且仅有一个主协程。
-// 首次通过 getMainCoroutine() 或创建第一个子协程时懒初始化。
+// 经 initMainCoroutineIfNeeded() 懒初始化：首次调用 getMainCoroutine()/
+// getCurrentCoroutine() 或创建第一个子协程时指向 static thread_local 值对象。
 thread_local Coroutine* Coroutine::m_mainCoroutine = nullptr;
 
 // 当前正在执行的协程指针。
@@ -250,18 +251,14 @@ void Coroutine::initContext()
 Coroutine* Coroutine::getCurrentCoroutine()
 {
     if (m_currentCoroutine == nullptr) {
-        m_mainCoroutine = new Coroutine();
-        m_currentCoroutine = m_mainCoroutine;
+        initMainCoroutineIfNeeded();
     }
     return m_currentCoroutine;
 }
 
 Coroutine* Coroutine::getMainCoroutine()
 {
-    if (m_mainCoroutine == nullptr) {
-        m_mainCoroutine = new Coroutine();
-        m_currentCoroutine = m_mainCoroutine;
-    }
+    initMainCoroutineIfNeeded();
     return m_mainCoroutine;
 }
 
@@ -275,10 +272,15 @@ bool Coroutine::isMainCoroutine()
 
 void Coroutine::initMainCoroutineIfNeeded()
 {
-    if (m_mainCoroutine == nullptr) {
-        m_mainCoroutine = new Coroutine();
-        m_currentCoroutine = m_mainCoroutine;
+    if (m_mainCoroutine != nullptr) {
+        return;
     }
+    // 主协程：每个线程唯一，无栈、无回调、ID=0。
+    // 使用局部静态 thread_local 值对象：首次访问时构造，线程退出时自动析构。
+    // 主协程析构为空操作（无栈、不持有资源），无析构顺序问题。
+    static thread_local Coroutine mainCoroutine;
+    m_mainCoroutine = &mainCoroutine;
+    m_currentCoroutine = m_mainCoroutine;
 }
 
 }  // namespace tinyrpc
