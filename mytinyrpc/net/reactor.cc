@@ -79,6 +79,10 @@ void Reactor::loop()
     while (!m_stop.load()) {
         waitOnce(-1);
     }
+
+    // stop() 可能与 addTask() 紧邻发生，退出前再执行一次队列中的任务，
+    // 保证已经投递的连接关闭任务不会因为线程停止而遗留。
+    runPendingTasks();
 }
 
 void Reactor::stop()

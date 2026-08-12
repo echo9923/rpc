@@ -94,7 +94,7 @@ TcpConnection::TcpConnection(Socket fd, Reactor *reactor, TcpConnectionType conn
 
 TcpConnection::~TcpConnection()
 {
-    closeConnection();
+    closeNow();
     s_aliveCount.fetch_sub(1);
 }
 
@@ -251,8 +251,8 @@ void TcpConnection::startConnection()
     // 启动连接协程，读写均在此协程中串行完成。
     // 协程回调只捕获 weak_ptr，避免 TcpConnection -> Coroutine -> callback
     // -> shared_ptr<TcpConnection> 形成自引用环。协程内部关闭连接时，
-    // closeWithCallback() 会把移除连接表动作延后到 Reactor task，保证当前
-    // 协程完全返回前仍由 TcpServer::m_connections 保活。
+    // closeConnection() 会把最终清理延后到所属 Reactor task，保证当前
+    // 协程完全返回前仍由 TcpServer::m_connections 或任务引用保活。
     std::weak_ptr<TcpConnection> self = shared_from_this();
     m_readCoroutine = std::make_unique<Coroutine>([self]() {
         auto conn = self.lock();
@@ -265,7 +265,7 @@ void TcpConnection::startConnection()
 
 void TcpConnection::sendData(const std::string& data)
 {
-    if (m_isClosed || data.empty()) {
+    if (isClosing() || data.empty()) {
         return;
     }
 
@@ -275,12 +275,33 @@ void TcpConnection::sendData(const std::string& data)
 
 void TcpConnection::closeConnection()
 {
-    if (m_isClosed || m_fd < 0) {
+    if (m_reactor != nullptr) {
+        bool expected = false;
+        if (!m_closeRequested.compare_exchange_strong(expected, true)) {
+            return;
+        }
+
+        auto self = shared_from_this();
+        m_reactor->addTask([self]() {
+            self->closeWithCallback();
+        });
         return;
     }
 
-    m_isClosed = true;
+    if (m_isClosed.load() || m_fd < 0) {
+        return;
+    }
 
+    closeWithCallback();
+}
+
+void TcpConnection::closeNow()
+{
+    if (m_fd < 0) {
+        return;
+    }
+
+    m_closeRequested.store(true);
     InfoLog("TcpConnection close, fd = " + std::to_string(m_fd));
 
     // 先从容器移除，防止透明 hook 查到即将失效的 FdEvent
@@ -291,8 +312,11 @@ void TcpConnection::closeConnection()
 
     // 先删除事件再关闭 fd，避免 epoll 仍持有已关闭的 fd
     m_fdEvent.unregisterFromReactor();
+    m_readCoroutine.reset();
     close(m_fd);
     m_fd = -1;
+    m_fdEvent.setFd(kInvalidSocket);
+    m_isClosed.store(true);
 }
 
 void TcpConnection::setCloseCallback(std::function<void(int)> cb)
@@ -302,7 +326,12 @@ void TcpConnection::setCloseCallback(std::function<void(int)> cb)
 
 bool TcpConnection::isClosed() const
 {
-    return m_isClosed;
+    return m_isClosed.load();
+}
+
+bool TcpConnection::isClosing() const
+{
+    return m_closeRequested.load() || m_isClosed.load();
 }
 
 int64_t TcpConnection::getLastActiveTimeMs() const
@@ -322,38 +351,15 @@ int TcpConnection::getAliveCountForTest()
 
 void TcpConnection::closeWithCallback()
 {
-    // 先保存一份 fd 副本，因为 closeConnection() 内部可能会修改/重置 m_fd，
-    // 而后续回调需要使用关闭前的真实 fd 通知上层。
+    if (m_fd < 0) {
+        return;
+    }
+
     Socket closedFd = m_fd;
+    closeNow();
 
-    // 执行实际的连接关闭逻辑（如从 Reactor 移除事件、释放资源、置位 m_isClosed 等）。
-    closeConnection();
-
-    // 如果上层注册了关闭回调，则需要在关闭流程结束后触发它，
-    // 以便通知调用方（例如连接管理器）该连接已断开。
     if (m_closeCallback) {
-        // 使用局部变量保存回调，避免回调执行过程中对象被销毁导致悬空引用。
         auto callback = m_closeCallback;
-
-        // 关键场景：当前正在执行的就是连接自身的读协程，
-        // 如果直接同步调用 callback，可能会在回调中再次操作该协程（例如 resume/yield），
-        // 从而引发"在协程内调度自身"的死锁或栈混乱问题。
-        // 因此需要判断：当处于读协程上下文且 Reactor 可用时，
-        // 将回调异步投递到 Reactor 的任务队列中，由 Reactor 在合适的时机（事件循环）执行，
-        // 从而脱离当前协程上下文，保证安全。
-        if (m_readCoroutine != nullptr
-            && Coroutine::getCurrentCoroutine() == m_readCoroutine.get()
-            && m_reactor != nullptr) {
-            // 以任务形式投递给 Reactor，捕获 callback 和 closedFd 副本，
-            // 保证异步执行时回调参数仍然有效。
-            m_reactor->addTask([callback, closedFd]() {
-                callback(closedFd);
-            });
-            return;
-        }
-
-        // 非读协程上下文（例如普通线程或其他协程触发关闭），
-        // 可以直接同步调用回调，逻辑简单且无死锁风险。
         callback(closedFd);
     }
 }
@@ -362,7 +368,7 @@ void TcpConnection::coroutineReadLoop()
 {
     // 三段式主循环：input → execute → output
     // 当前 execute 保持 Echo 语义，后续接入 TinyPbCodec 时替换即可。
-    while (!m_isClosed) {
+    while (!isClosing()) {
         if (!input()) {
             break;
         }
@@ -377,7 +383,7 @@ bool TcpConnection::input()
     // 返回 true 表示成功读到数据，false 表示连接需关闭。
     char buffer[1024];
 
-    while (!m_isClosed) {
+    while (!isClosing()) {
         // readHook 内部调用 ::read()，遇到 EAGAIN 时将当前协程挂到 m_fdEvent 上，
         // 通过 addListenEvent(EPOLLIN) + setCoroutineListenEvent(EPOLLIN) 注册可读事件，
         // 然后 Coroutine::yield() 让出 CPU。
@@ -393,7 +399,7 @@ bool TcpConnection::input()
         if (n == 0) {
             // 对端关闭连接（TCP FIN），::read 返回 0
             InfoLog("coroutine read: client closed, fd = " + std::to_string(m_fd));
-            closeWithCallback();
+            closeConnection();
             return false;
         }
 
@@ -404,7 +410,7 @@ bool TcpConnection::input()
         }
 
         ErrorLog("coroutine read error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
-        closeWithCallback();
+        closeConnection();
         return false;
     }
 
@@ -432,11 +438,11 @@ void TcpConnection::execute()
     }
 
     // 有 codec：循环 decode → dispatcher / encode，处理粘包
-    while (m_inputBuffer.getReadableBytes() > 0) {
+    while (m_inputBuffer.getReadableBytes() > 0 && !isClosing()) {
         std::unique_ptr<AbstractData> data = createProtocolData();
         if (data == nullptr) {
             ErrorLog("TcpConnection::execute unsupported protocol, fd = " + std::to_string(m_fd));
-            closeWithCallback();
+            closeConnection();
             break;
         }
 
@@ -481,7 +487,7 @@ void TcpConnection::output()
     // writeHook 内部处理 EAGAIN：遇到发送缓冲区满时将协程挂到 FdEvent 上，
     // 通过 addListenEvent(EPOLLOUT) + setCoroutineListenEvent(EPOLLOUT) 等待可写，
     // Reactor 检测到 fd 可写且等待事件匹配后恢复协程，writeHook 重试 ::write()。
-    while (!m_isClosed && m_outputBuffer.getReadableBytes() > 0) {
+    while (!isClosing() && m_outputBuffer.getReadableBytes() > 0) {
         ssize_t n = writeHook(
             &m_fdEvent,
             m_outputBuffer.getReadPtr(),
@@ -506,18 +512,18 @@ void TcpConnection::output()
         }
 
         ErrorLog("TcpConnection::output write error, fd = " + std::to_string(m_fd) + ", errno = " + std::to_string(errno));
-        closeWithCallback();
+        closeConnection();
         break;
     }
 
     // 输出缓冲区已写空（或连接已关闭），删除 EPOLLOUT 避免 epoll 持续触发可写事件导致 CPU 空转。
-    if (!m_isClosed && m_fdEvent.isRegistered()) {
+    if (!isClosing() && m_fdEvent.isRegistered()) {
         m_fdEvent.delListenEvent(EPOLLOUT);
         m_fdEvent.updateToReactor();
     }
 
-    if (!m_isClosed && m_outputBuffer.getReadableBytes() == 0 && shouldCloseAfterOutput()) {
-        closeWithCallback();
+    if (!isClosing() && m_outputBuffer.getReadableBytes() == 0 && shouldCloseAfterOutput()) {
+        closeConnection();
     }
 }
 

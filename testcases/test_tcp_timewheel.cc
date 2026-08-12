@@ -29,7 +29,7 @@ void waitFor(
 }
 
 struct SocketPairConnection {
-    tinyrpc::Reactor m_reactor;
+    tinyrpc::Reactor m_connectionReactor;
     int m_peerFd {-1};
     std::shared_ptr<tinyrpc::TcpConnection> m_connection;
 
@@ -40,7 +40,8 @@ struct SocketPairConnection {
         // AF_UNIX + SOCK_STREAM 创建一对本机全双工流式 socket，适合在单元测试里
         // 模拟一个可关闭的连接 fd，而不需要启动真实 TCP server。
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, socketFds) == 0) {
-            m_connection = std::make_shared<tinyrpc::TcpConnection>(socketFds[0], &m_reactor);
+            m_connection = std::make_shared<tinyrpc::TcpConnection>(
+                socketFds[0], &m_connectionReactor);
             m_peerFd = socketFds[1];
         }
     }
@@ -49,6 +50,7 @@ struct SocketPairConnection {
     {
         if (m_connection != nullptr) {
             m_connection->closeConnection();
+            m_connectionReactor.waitOnce(0);
         }
         if (m_peerFd >= 0) {
             close(m_peerFd);
@@ -65,13 +67,14 @@ TEST(TcpConnectionTimeWheelTest, ActiveConnectionIsKeptAliveByRefresh)
     ASSERT_NE(fixture.m_connection, nullptr);
     ASSERT_GE(fixture.m_peerFd, 0);
 
-    tinyrpc::TcpConnectionTimeWheel timeWheel(&fixture.m_reactor, 80, 10);
+    tinyrpc::Reactor timerReactor;
+    tinyrpc::TcpConnectionTimeWheel timeWheel(&timerReactor, 80, 10);
     int fd = fixture.m_connection->getFd();
     ASSERT_TRUE(timeWheel.addConnection(fixture.m_connection));
 
-    waitFor(&fixture.m_reactor, []() { return false; }, 2);
+    waitFor(&timerReactor, []() { return false; }, 2);
     ASSERT_TRUE(timeWheel.refreshConnection(fd));
-    waitFor(&fixture.m_reactor, []() { return false; }, 3);
+    waitFor(&timerReactor, []() { return false; }, 3);
 
     EXPECT_FALSE(fixture.m_connection->isClosed());
     EXPECT_TRUE(timeWheel.hasConnection(fd));
@@ -90,12 +93,20 @@ TEST(TcpConnectionTimeWheelTest, IdleConnectionIsClosedAndRemoved)
         closeCount.fetch_add(1);
     });
 
-    tinyrpc::TcpConnectionTimeWheel timeWheel(&fixture.m_reactor, 30, 10);
+    tinyrpc::Reactor timerReactor;
+    tinyrpc::TcpConnectionTimeWheel timeWheel(&timerReactor, 30, 10);
     ASSERT_TRUE(timeWheel.addConnection(fixture.m_connection));
 
-    waitFor(&fixture.m_reactor, [&fixture]() {
+    std::thread connectionLoop([&fixture]() {
+        fixture.m_connectionReactor.loop();
+    });
+
+    waitFor(&timerReactor, [&fixture]() {
         return fixture.m_connection->isClosed();
     }, 20);
+
+    fixture.m_connectionReactor.stop();
+    connectionLoop.join();
 
     EXPECT_TRUE(fixture.m_connection->isClosed());
     EXPECT_EQ(fixture.m_connection->getFd(), tinyrpc::kInvalidSocket);
@@ -112,31 +123,34 @@ TEST(TcpConnectionTimeWheelTest, TimeoutCloseRunsOnConnectionReactorThread)
     std::atomic<bool> closeCalled {false};
     std::thread::id loopThreadId;
     std::thread::id closeThreadId;
+    const std::thread::id timerThreadId = std::this_thread::get_id();
     fixture.m_connection->setCloseCallback([&](int /*fd*/) {
         closeThreadId = std::this_thread::get_id();
         closeCalled.store(true);
-        fixture.m_reactor.stop();
+        fixture.m_connectionReactor.stop();
     });
 
-    tinyrpc::TcpConnectionTimeWheel timeWheel(&fixture.m_reactor, 30, 10);
+    tinyrpc::Reactor timerReactor;
+    tinyrpc::TcpConnectionTimeWheel timeWheel(&timerReactor, 30, 10);
     ASSERT_TRUE(timeWheel.addConnection(fixture.m_connection));
 
     std::thread loopThread([&]() {
         loopThreadId = std::this_thread::get_id();
-        fixture.m_reactor.loop();
+        fixture.m_connectionReactor.loop();
     });
 
     for (int i = 0; i < 30 && !closeCalled.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        timerReactor.waitOnce(20);
     }
     if (!closeCalled.load()) {
-        fixture.m_reactor.stop();
+        fixture.m_connectionReactor.stop();
     }
     loopThread.join();
 
     EXPECT_TRUE(closeCalled.load());
     EXPECT_TRUE(fixture.m_connection->isClosed());
     EXPECT_EQ(closeThreadId, loopThreadId);
+    EXPECT_NE(closeThreadId, timerThreadId);
 }
 
 int main(int argc, char **argv)

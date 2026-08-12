@@ -153,6 +153,41 @@ TEST(TcpServerLifecycleTest, StopClosesMultiReactorConnections)
     EXPECT_EQ(server.getConnectionCount(), 0u);
 }
 
+TEST(TcpServerLifecycleTest, ClosingOneMultiReactorConnectionKeepsOtherConnection)
+{
+    uint16_t port = reserveFreePort();
+    ASSERT_NE(port, 0);
+
+    tinyrpc::TcpServer server(tinyrpc::IPAddress("127.0.0.1", port));
+    server.setIOThreadNum(2);
+    ASSERT_TRUE(server.init());
+
+    std::thread serverThread(runServerThread, &server);
+    ASSERT_TRUE(waitUntilReady(port));
+
+    tinyrpc::TcpClient first(tinyrpc::IPAddress("127.0.0.1", port));
+    tinyrpc::TcpClient second(tinyrpc::IPAddress("127.0.0.1", port));
+    ASSERT_TRUE(first.connectServer()) << first.getErrorInfo();
+    ASSERT_TRUE(second.connectServer()) << second.getErrorInfo();
+
+    for (int i = 0; i < 80 && server.getConnectionCount() < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_GE(server.getConnectionCount(), 2u);
+
+    first.closeConnection();
+    for (int i = 0; i < 80 && server.getConnectionCount() != 1; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    EXPECT_EQ(server.getConnectionCount(), 1u);
+    EXPECT_TRUE(second.isConnected());
+
+    second.closeConnection();
+    server.stop();
+    serverThread.join();
+}
+
 TEST(TcpServerLifecycleTest, StopIsIdempotentAndReleasesPort)
 {
     uint16_t port = reserveFreePort();

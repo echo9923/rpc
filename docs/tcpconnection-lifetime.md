@@ -1,13 +1,13 @@
 # TcpConnection 生命周期调试文档
 
-本文记录阶段 11 结束时 `TcpConnection` 在单 Reactor 和多 Reactor 两种模式下的对象所有权、fd 归属、读写状态机、关闭路径和线程归属。排查多线程问题时，应优先确认当前连接所属的 Reactor，再判断对象是否还被 `TcpServer::m_connections`、协程或投递任务持有。
+本文记录 `TcpConnection` 在单 Reactor 和多 Reactor 两种模式下的对象所有权、fd 归属、读写状态机、关闭任务和线程归属。排查多线程问题时，应优先确认当前连接所属的 Reactor，再判断对象是否还被 `TcpServer::m_connections`、协程或投递任务持有。
 
 ## 一、对象、fd 和组件归属
 
 | 对象或资源 | 拥有者 | 说明 |
 | --- | --- | --- |
 | `TcpConnection` 对象 | `TcpServer::m_connections` 中的 `std::shared_ptr<TcpConnection>` | 连接建立后先写入连接表；关闭回调调用 `TcpServer::removeConnection()` 后释放服务端持有的引用。 |
-| 连接 fd | `TcpConnection` | fd 从 `accept(2)` 返回后交给 `TcpConnection` 管理，最终由 `TcpConnection::closeConnection()` 调用 `close(2)` 关闭。 |
+| 连接 fd | `TcpConnection` | fd 从 `accept(2)` 返回后交给 `TcpConnection` 管理，最终由所属 Reactor 任务中的 `closeNow()` 调用 `close(2)` 关闭。 |
 | `FdEvent` | `TcpConnection` | `FdEvent` 只保存 fd、等待事件、回调和协程指针，不拥有 fd；注册到 Reactor 后 Reactor 只保存非拥有的 `FdEvent*`。 |
 | input buffer | `TcpConnection` | `input()` 通过 `readHook()` 读入字节流并追加，`execute()` 通过 codec 消费。 |
 | output buffer | `TcpConnection` | `execute()`、dispatcher 或 `sendProtocolData()` 写入，`output()` 通过 `writeHook()` 发送并推进读指针。 |
@@ -113,15 +113,18 @@ stateDiagram-v2
 
 ```mermaid
 sequenceDiagram
-    participant Owner as Reactor task or read coroutine
+    participant Caller as read coroutine or other thread
     participant Conn as TcpConnection
+    participant Queue as Owner Reactor task queue
     participant Event as FdEvent
     participant Reactor as Owner Reactor
     participant Kernel as kernel
     participant Server as TcpServer
 
-    Owner->>Conn: closeWithCallback()
-    Conn->>Conn: closeConnection()
+    Caller->>Conn: closeConnection()
+    Conn->>Queue: addTask(closeWithCallback)
+    Queue->>Conn: closeWithCallback()
+    Conn->>Conn: closeNow()
     Conn->>Event: clearCoroutine()
     Event->>Reactor: unregisterFromReactor()
     Conn->>Kernel: close(fd)
@@ -131,11 +134,13 @@ sequenceDiagram
 
 关闭边界：
 
-- `closeConnection()` 幂等，`m_isClosed` 或无效 fd 会直接返回。
+- `closeConnection()` 只负责设置关闭请求并投递任务；`m_closeRequested` 防止重复投递。
+- `m_isClosed` 只在 `closeNow()` 完成 fd 清理后置为 true；这表示物理关闭已经完成。
 - 关闭前先清理 `FdEvent` 上的协程指针，再从 Reactor 删除事件，最后调用 `close(2)`。
-- `closeWithCallback()` 先关闭 fd，再调用上层 close callback 删除连接表记录。
+- `closeNow()` 先清理 `FdEvent` 和读协程，再从 Reactor 删除事件，最后调用 `close(2)` 并将 fd 置为无效。
+- `closeWithCallback()` 在所属 Reactor 任务中执行 `closeNow()`；无所属 Reactor 的客户端连接走同步兜底，随后调用上层 close callback 删除连接表记录。
 - 删除连接表记录时可能发生在 Sub Reactor 线程，因此 `TcpServer::removeConnection()` 必须加锁。
-- 析构函数兜底调用 `closeConnection()`。析构实际发生在哪个线程，取决于最后一个 `shared_ptr` 在哪里释放；正常关闭路径期望最后释放发生在连接所属 Reactor 线程，但析构仍依赖 `closeConnection()` 幂等保证不会重复关 fd。
+- 析构函数直接调用 `closeNow()`，避免析构期间再次投递任务。正常关闭任务捕获 `shared_ptr`，保证任务执行前连接对象仍然存活。
 
 ## 五、空闲超时路径
 
@@ -153,7 +158,8 @@ sequenceDiagram
         Wheel->>Timer: resetTime(next check)
     else idle timeout
         Wheel->>Wheel: removeConnection(fd)
-        Wheel->>Reactor: addTask(closeWithCallback)
+        Wheel->>Conn: closeConnection()
+        Conn->>Reactor: addTask(closeWithCallback)
         Reactor->>Conn: closeWithCallback()
     end
 ```
@@ -162,14 +168,14 @@ sequenceDiagram
 
 - `TcpConnectionTimeWheel` 保存 `weak_ptr<TcpConnection>`，不拥有连接。
 - 每条连接一个重复 `TimerTask`，当前不做复杂 bucket 时间轮。
-- 超时检查由对应 Timer 触发，真正关闭通过连接所属 `Reactor::addTask()` 执行，避免跨线程直接关闭 fd。
+- 超时检查由时间轮自己的 Timer 触发，时间轮只调用连接的 `closeConnection()`；真正关闭任务由连接所属 `Reactor::addTask()` 执行，避免跨线程直接关闭 fd。
 - 当前 `TcpServer` 仍未默认接入空闲超时管理；该路径作为阶段 10 能力保留，后续统一接入服务端生命周期。
 
 ## 六、排查清单
 
 - 连接对象由谁持有：主要由 `TcpServer::m_connections` 保存 `shared_ptr`，读协程和投递任务会临时捕获 `shared_ptr` 保活。
-- fd 由谁关闭：由 `TcpConnection::closeConnection()` 关闭。
-- fd event 由谁删除：由 `TcpConnection::closeConnection()` 通过 `FdEvent::unregisterFromReactor()` 从所属 Reactor 删除。
+- fd 由谁关闭：由所属 Reactor 任务中的 `TcpConnection::closeNow()` 关闭。
+- fd event 由谁删除：由 `closeNow()` 通过 `FdEvent::unregisterFromReactor()` 从所属 Reactor 删除。
 - 回调在哪个线程执行：listen fd 的 accept 回调在 Main Reactor 线程；连接读写协程、codec、dispatcher 和 close callback 在连接所属 Reactor 线程执行。
 - 连接表为什么要加锁：多 Reactor 模式下 Main Reactor 写入连接表，Sub Reactor 可在关闭回调中删除连接表。
 - 析构在哪个线程执行：最后一个 `shared_ptr` 释放所在的线程；正常关闭时应围绕连接所属 Reactor 线程释放，析构兜底关闭必须保持幂等。

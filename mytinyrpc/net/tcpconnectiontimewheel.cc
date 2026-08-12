@@ -137,24 +137,9 @@ void TcpConnectionTimeWheel::onTimer(int fd)
         return;
     }
 
-    closeConnectionInReactor(fd, connection);
-}
-
-void TcpConnectionTimeWheel::closeConnectionInReactor(
-    int fd,
-    const std::shared_ptr<TcpConnection>& connection)
-{
     removeConnection(fd);
     InfoLog("TcpConnectionTimeWheel idle timeout, fd = " + std::to_string(fd));
-
-    if (m_reactor == nullptr) {
-        connection->closeWithCallback();
-        return;
-    }
-
-    m_reactor->addTask([connection]() {
-        connection->closeWithCallback();
-    });
+    connection->closeConnection();
 }
 
 }

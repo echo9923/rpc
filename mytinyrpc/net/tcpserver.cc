@@ -123,6 +123,7 @@ void TcpServer::start()
 void TcpServer::stop()
 {
     m_running.store(false);
+    closeAllConnections();
     m_reactor.stop();
 }
 
@@ -221,8 +222,10 @@ void TcpServer::addConnection(Socket clientFd)
     }
 
     auto conn = std::make_shared<TcpConnection>(clientFd, connectionReactor, m_codec, m_dispatcher);
-    conn->setCloseCallback([this](int fd) {
-        this->removeConnection(fd);
+    // 关闭回调携带连接的弱引用身份：removeConnection 据此校验连接表中的
+    // 对象身份，防止 fd 复用后误删新连接的表项（详见 removeConnection 注释）。
+    conn->setCloseCallback([this, weakConn = std::weak_ptr<TcpConnection>(conn)](int fd) {
+        this->removeConnection(fd, weakConn);
     });
 
     {
@@ -241,10 +244,25 @@ void TcpServer::addConnection(Socket clientFd)
     conn->startConnection();
 }
 
-void TcpServer::removeConnection(int fd)
+void TcpServer::removeConnection(int fd, const std::weak_ptr<TcpConnection>& expected)
 {
     MutexLockGuard lock(m_connectionMutex);
-    m_connections.erase(fd);
+    auto it = m_connections.find(fd);
+    if (it == m_connections.end()) {
+        return;
+    }
+
+    // 身份校验：服务端主动关闭走"关闭 fd -> 延迟投递移除任务"的路径，
+    // 在此期间内核可能把同一个 fd 分配给新 accept 的连接，连接表中的对象
+    // 已经换成新连接。此时若按 fd 直接移除，会删掉新连接的表项，使新连接
+    // 失去保活引用并在其协程仍在运行时被析构（协程 UAF 崩溃）。
+    // expected 锁定失败说明原连接已随表项覆盖/移除而析构，当前表项必然
+    // 属于其他连接，同样不能移除。
+    auto expectedConn = expected.lock();
+    if (expectedConn == nullptr || it->second.get() != expectedConn.get()) {
+        return;
+    }
+    m_connections.erase(it);
 }
 
 void TcpServer::shutdown()
@@ -257,11 +275,12 @@ void TcpServer::shutdown()
     m_running.store(false);
     closeListenSocket();
 
+    // 先投递连接关闭任务，再停止 IO Reactor，避免任务没有执行机会。
+    closeAllConnections();
+
     if (m_ioThreadPool != nullptr) {
         m_ioThreadPool->stop();
     }
-
-    closeAllConnections();
 }
 
 void TcpServer::closeListenSocket()

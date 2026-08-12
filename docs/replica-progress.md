@@ -1959,3 +1959,37 @@ rg -n "stage-31|阶段 31|check_generator_release_package|--package release|MYTI
 - release package 是源码包模式，不生成二进制安装器、系统服务单元、deb/rpm 或 IDE 工程。
 - 发布包只复制当前生成工程需要的 MyTinyRPC 源码子集，不复制仓库测试、文档、e2e、benchmark 或构建产物。
 - 生成器仍只支持 C++ unary RPC，不支持 streaming RPC、proto2 特殊语义或多语言生成。
+
+### 任务一百三十六：统一服务端 TcpConnection 的 Reactor 投递关闭
+
+目标：
+
+- 将服务端 `TcpConnection` 的所有正常关闭请求统一投递到连接所属 Reactor，由该 Reactor 执行最终 fd 清理和 close callback。
+- 删除服务端关闭路径中的 `shutdown(fd, SHUT_RDWR)`、`HalfClosing` 和优雅排空语义，保留 HTTP 响应写完后的既有关闭判断。
+- 让时间轮只负责检查空闲时间和移除定时器记录，不跨线程直接注销事件或关闭连接 fd。
+
+关键文件：
+
+- `mytinyrpc/net/tcpconnection.h/.cc`：`closeConnection()`、`closeWithCallback()`、`closeNow()` 和 EOF/错误/HTTP 关闭路径。
+- `mytinyrpc/net/tcpconnectiontimewheel.h/.cc`：超时关闭请求和时间轮记录移除。
+- `mytinyrpc/net/tcpserver.h/.cc`、`mytinyrpc/net/reactor.cc`：服务停止顺序、连接批量关闭和 Reactor 停止前的任务收口。
+- `testcases/test_tcp_timewheel.cc`、`testcases/test_tcpserver_lifecycle.cc`：跨 Reactor 超时关闭和多 Reactor 连接身份回归。
+- `docs/tcpconnection-lifetime.md`：连接对象、fd 归属和关闭任务说明。
+
+验收标准：
+
+```bash
+cmake --build build --target test_tcp_timewheel test_tcpserver_lifecycle test_reactor -j4
+./build/test_tcp_timewheel
+./build/test_tcpserver_lifecycle
+./build/test_reactor
+./scripts/check_stage26_lifecycle.sh
+```
+
+- 超时检测线程只调用连接的 `closeConnection()`；close callback、FdEvent 注销、fd 关闭和 fd 失效发生在连接所属 Reactor。
+- 同一连接最多执行一次最终关闭，时间轮使用 `weak_ptr` 且超时记录会被移除。
+- 多 Reactor 关闭一个连接时，不会因旧连接 callback 按相同 fd 误删仍存活的其他连接。
+
+整体关系：
+
+该任务收口服务端 TCP 连接的线程归属和资源释放边界，是后续继续补全 TinyRPC 服务端并发模型、停止流程和更高层 RPC 生命周期语义的基础；不实现优雅关闭、fd generation、压力测试或极端异常恢复。

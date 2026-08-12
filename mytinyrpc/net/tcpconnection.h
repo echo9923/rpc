@@ -67,7 +67,9 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
  private:
     friend class TcpConnectionTimeWheel;
 
+    void closeNow();
     void closeWithCallback();
+    bool isClosing() const;
     void coroutineReadLoop();
     bool input();
     void output();
@@ -87,7 +89,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
     std::function<void(int)> m_closeCallback; // 连接关闭时的回调函数，参数为 fd
     TcpBuffer m_inputBuffer;                  // 输入缓冲区，暂存从 Socket 读取到的数据
     TcpBuffer m_outputBuffer;                 // 输出缓冲区，暂存待发送给对端的数据
-    bool m_isClosed {false};                  // 连接是否已关闭，防止重复关闭
+    std::atomic<bool> m_closeRequested {false}; // 是否已经投递关闭任务
+    std::atomic<bool> m_isClosed {false};       // 是否已经完成 fd 清理
     int64_t m_lastActiveTimeMs {0};           // 最近一次读到业务数据的时间，供空闲超时判断
     std::unique_ptr<Coroutine> m_readCoroutine; // 连接协程，读写均通过 hook 完成
     std::unordered_map<std::string, TinyPbStruct> m_clientResponses; // 客户端侧按 reqId 缓存已解码响应

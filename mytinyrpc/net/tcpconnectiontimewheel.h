@@ -35,7 +35,6 @@ class TcpConnectionTimeWheel {
     int64_t normalizeTimeout(int64_t timeoutMs) const;
     int64_t normalizeCheckInterval(int64_t checkIntervalMs) const;
     void onTimer(int fd);
-    void closeConnectionInReactor(int fd, const std::shared_ptr<TcpConnection>& connection);
 
     Reactor *m_reactor {nullptr};
     int64_t m_idleTimeoutMs {0};

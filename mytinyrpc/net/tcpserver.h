@@ -57,7 +57,10 @@ class TcpServer {
     void acceptLoop();
 
     void addConnection(Socket clientFd);
-    void removeConnection(int fd);
+    // 从连接表移除"指定身份"的连接。仅当 m_connections[fd] 与 expected 指向
+    // 同一个对象时才真正移除：服务端主动关闭后 fd 可能被内核立刻复用给新
+    // 连接，若只按 fd 移除会误删新连接的表项，导致新连接失去保活引用。
+    void removeConnection(int fd, const std::weak_ptr<TcpConnection>& expected);
     void shutdown();
     void closeListenSocket();
     void closeAllConnections();
